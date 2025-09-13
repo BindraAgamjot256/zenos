@@ -64,8 +64,6 @@ const SECTOR_SIZE: usize = 512;
 const MAX_SLOTS: usize = 32;
 // Approx loop count for timeout; depends on CPU speed, should be replaced by timer ticks in real OS
 const TIMEOUT_MAX: u32 = 10_000_000;
-// address for AHCI MMIO BAR.
-const AHCI_MMIO_BASE: u64 = AHCI_VIRT_BASE + 0x2000_0000;
 
 /// AHCI Generic Host Control Registers and Port Register Offsets.
 mod reg {

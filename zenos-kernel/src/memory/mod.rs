@@ -60,7 +60,7 @@ pub enum PageType {
 pub enum MapErr {
     /// No free pages available
     OutOfMemory,
-    /// Page not previously mapped
+    /// Page not previously mapped(also used as a generic error)
     NotMapped,
     /// Initialization not performed
     Uninitialized,
@@ -83,12 +83,14 @@ struct BitmapNode {
 pub mod constants {
     // Constants
     pub const HIGHER_HALF_BASE: u64 = 0xFFFF_8000_0000_0000;
-    pub const PAGE_4K: usize = 4096;
-    pub const PAGE_2M: usize = 2 * 1024 * 1024;
     pub const KERNEL_BASE: u64 = 0xFFFF_8000_5000_0000;
     pub const KERNEL_STACK_BASE: u64 = 0xFFFF_8001_0000_0000;
     pub const KERNEL_CR3_SCRATCH: u64 = 0xFFFF_FFFF_0000_0000;
-    pub const KERNEL_FB_MAPPINGS: u64 = HIGHER_HALF_BASE + 0xFFF_0000_0000;
+    pub const KERNEL_FB_MAPPINGS: u64 = HIGHER_HALF_BASE + 0x111_0000_0000;
+    pub const SLAB_BASE_ADDR: u64 = 0x_4444_0000_0000 + HIGHER_HALF_BASE;
+    pub const LARGE_ALLOC_BASE_ADDR: u64 = 0x_5555_0000_0000 + HIGHER_HALF_BASE;
+    pub const PAGE_4K: usize = 4096;
+    pub const PAGE_2M: usize = 2 * 1024 * 1024;
 }
 
 pub(crate) struct PageAllocator {
@@ -367,41 +369,6 @@ impl PageAllocator {
         }
     }
 
-    fn map_last_free_page(&self, size: PageSize) -> Option<PhysAddr> {
-        if size == PageSize::Size2MiB {
-            error!("map_last_free_page only supports 4KiB pages");
-            return None;
-        }
-
-        let mut node_opt = self.head;
-        while let Some(node_ptr) = node_opt {
-            let node = unsafe { node_ptr.as_ref() };
-            let map = unsafe { node.map.as_ref() };
-
-            for word_idx in (0..map.len()).rev() {
-                let val = map[word_idx].load(Ordering::Acquire);
-
-                if val != 0 {
-                    // There is at least one free bit
-                    let bit = 63 - val.leading_zeros() as usize;
-                    // set bit to 0
-                    let mask = 1u64 << bit;
-                    map[word_idx].fetch_and(!mask, Ordering::AcqRel);
-
-                    let page_index = word_idx * 64 + bit;
-                    let addr = node.base_phys + (page_index * PAGE_4K) as u64;
-                    trace!("map_last_free_page: allocated page at {addr:#x}");
-
-                    return Some(PhysAddr::new(addr));
-                }
-            }
-
-            node_opt = node.next;
-        }
-
-        None
-    }
-
     fn dealloc(&self, phys_addr: PhysAddr, size: PageSize) -> Result<(), MapErr> {
         let _guard = self.lock.lock();
         let phys = phys_addr.as_u64();
@@ -623,6 +590,41 @@ pub fn ualloc_page_flags(
     Ok(frame.0)
 }
 
+pub fn change_flags(virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapErr> {
+    let addr = virt_addr;
+    let p4 = unsafe { active_level_4_table(VirtAddr::new(HIGHER_HALF_BASE)) };
+
+    let p4_index = addr.p4_index();
+    let p3_index = addr.p3_index();
+    let p2_index = addr.p2_index();
+    let p1_index = addr.p1_index();
+
+    let p4e = &p4[p4_index];
+    let p3_virt = VirtAddr::new(p4e.addr().as_u64() + HIGHER_HALF_BASE);
+    let p3: &PageTable = unsafe { &*p3_virt.as_ptr() };
+    let p3e = &p3[p3_index];
+    if p3e.is_unused() {
+        return Err(MapErr::NotMapped);
+    }
+
+    let p2_virt = VirtAddr::new(p3e.addr().as_u64() + HIGHER_HALF_BASE);
+    let p2: &PageTable = unsafe { &*p2_virt.as_ptr() };
+    let p2e = &p2[p2_index];
+    if p2e.is_unused() {
+        return Err(MapErr::NotMapped);
+    }
+
+    let p1_virt = VirtAddr::new(p2e.addr().as_u64() + HIGHER_HALF_BASE);
+    let p1: &mut PageTable = unsafe { &mut *p1_virt.as_mut_ptr() };
+    let p1e = &mut p1[p1_index];
+    if p2e.is_unused() {
+        return Err(MapErr::NotMapped);
+    }
+
+    p1e.set_flags(flags);
+    Ok(())
+}
+
 fn allocate_frame(
     alloc: &mut PageAllocator,
     virtaddr: &VirtAddr,
@@ -641,7 +643,7 @@ fn allocate_frame(
                 virtaddr.as_u64().wrapping_sub(HIGHER_HALF_BASE),
             )),
         ),
-        PageType::Arbitrary => alloc.map_last_free_page(PageSize::Size4KiB),
+        PageType::Arbitrary => alloc.alloc(PageSize::Size4KiB, None),
         PageType::ArbitraryPhys(phys) => Some(*phys),
         PageType::MmioRecursive => Some(PhysAddr::new(
             virtaddr.as_u64().wrapping_sub(HIGHER_HALF_BASE),

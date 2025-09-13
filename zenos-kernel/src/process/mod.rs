@@ -1,8 +1,11 @@
+mod debug;
 pub(crate) mod file_handles;
 pub(crate) mod isolation;
 pub(crate) mod scheduler;
 
 use crate::disk::get_len;
+use crate::memory::change_flags;
+use crate::process::debug::dump_pte;
 use crate::process::isolation::new_user_address_space;
 pub use crate::process::scheduler::Scheduler;
 use crate::{
@@ -23,7 +26,7 @@ use core::{
     sync::atomic::{AtomicU64, Ordering},
 };
 use hashbrown::HashMap;
-use log::{error, info, trace, warn};
+use log::{LevelFilter, error, info, trace, warn};
 use spin::{Lazy, Mutex};
 use x86_64::{
     PhysAddr, VirtAddr, instructions::tlb::flush_all, registers::control::Cr3,
@@ -219,7 +222,9 @@ impl Process {
 
                     let mut addr = page_start;
                     while addr < page_end {
+                        log::set_max_level(LevelFilter::Trace);
                         ualloc_page_flags(addr, PageType::Arbitrary, ptf).unwrap();
+                        log::set_max_level(LevelFilter::Debug);
                         addr += PAGE_4K as u64;
                     }
                     let src = (ELF_ADDR + segment.offset()) as *mut u8;
@@ -245,7 +250,9 @@ impl Process {
                             entry, offset_in_seg, src_entry_bytes
                         );
                     }
-
+                    // dump page tables for debugging
+                    #[cfg(debug_assertions)]
+                    dump_pte(VirtAddr::new(0x200000));
                     unsafe {
                         core::ptr::copy(src, dst, len);
                     }
@@ -255,6 +262,17 @@ impl Process {
                         seg_start.as_u64(),
                         seg_end.as_u64()
                     );
+
+                    let mut ptf = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+                    if flags.is_write() {
+                        ptf |= PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE
+                    }
+                    let mut addr = page_start;
+                    while addr < page_end {
+                        change_flags(addr, ptf).unwrap();
+                        addr += PAGE_4K as u64;
+                    }
+
                     // Verify the copy
                     let copied_bytes = unsafe { core::slice::from_raw_parts(dst, 16.min(len)) };
                     info!("First bytes copied: {:x?}", copied_bytes);

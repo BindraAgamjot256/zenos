@@ -10,7 +10,6 @@ use crate::{
 };
 use core::arch::global_asm;
 use log::{error, warn};
-use pc_keyboard::KeyCode::T;
 use spin::Lazy;
 use x86_64::instructions::tlb;
 use x86_64::{
@@ -281,7 +280,6 @@ extern "x86-interrupt" fn page_fault_handler(
     ist: InterruptStackFrame,
     error_code: PageFaultErrorCode,
 ) {
-    error!("Page fault occurred, error code: {error_code:?}");
     error!("stack frame: {ist:#?}");
     let cr2 = x86_64::registers::control::Cr2::read();
     error!("cr2: {cr2:#?}");

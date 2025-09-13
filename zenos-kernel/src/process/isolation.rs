@@ -2,13 +2,13 @@ use crate::memory::{
     HIGHER_HALF_BASE, KERNEL_CR3_SCRATCH, PAGE_4K, PageType, active_level_4_table, kalloc_page,
     kleak_page,
 };
+use core::sync::atomic::{AtomicU64, Ordering};
 use log::trace;
-use spin::Mutex;
-use x86_64::structures::paging::{PageTable, PageTableFlags};
+use x86_64::structures::paging::{PageTable, PageTableFlags, PhysFrame};
 use x86_64::{PhysAddr, VirtAddr};
 
 /// Counter for scratch addresses to avoid conflicts
-static SCRATCH_COUNTER: Mutex<u64> = Mutex::new(0);
+static SCRATCH_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Helper to access a physical page table through the higher-half mapping
 unsafe fn phys_to_page_table(phys: PhysAddr) -> &'static PageTable {
     let virt = VirtAddr::new(HIGHER_HALF_BASE + phys.as_u64());
@@ -23,9 +23,7 @@ unsafe fn phys_to_page_table_mut(phys: PhysAddr) -> &'static mut PageTable {
 
 /// Get a unique scratch address
 fn get_scratch_addr() -> u64 {
-    let mut counter = SCRATCH_COUNTER.lock();
-    let offset = *counter;
-    *counter = (*counter + 1) % 256;
+    let offset = SCRATCH_COUNTER.fetch_add(1, Ordering::Relaxed) % 256;
     KERNEL_CR3_SCRATCH + 0x100000 + offset * PAGE_4K as u64
 }
 
@@ -132,6 +130,11 @@ pub(crate) unsafe fn clone_address_space() -> Result<PhysAddr, ()> {
         let cloned_l3_phys = deep_clone_table(entry_phys, 3).ok_or(())?;
         new_l4[i].set_addr(cloned_l3_phys, flags);
     }
+
+    new_l4[511].set_frame(
+        PhysFrame::containing_address(new_l4_phys),
+        PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+    );
 
     trace!(
         "clone_address_space: created new L4 at {:?} (deep copy)",

@@ -1,6 +1,6 @@
 //! Zenos slab slab_allocator v0.0.sqrt(-1)-don't_you_dare_test_it_on_hardware. Yes... That's its full version. Don't judge
 
-use crate::memory::{PageType, kalloc_page};
+use crate::memory::{LARGE_ALLOC_BASE_ADDR, PageType, SLAB_BASE_ADDR, kalloc_page};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::{
@@ -32,9 +32,6 @@ macro_rules! meta_ptr_from_user {
 // ====== Config ======
 const PAGE_SIZE: usize = super::constants::PAGE_4K;
 const MAX_SLAB_PAGES: usize = 10; // 40 KiB per slab.
-
-const SLAB_BASE_ADDR: u64 = 0x_4444_0000_0000 + super::KERNEL_BASE;
-const LARGE_ALLOC_BASE_ADDR: u64 = 0x_5555_0000_0000 + super::KERNEL_BASE;
 
 const SLAB_SIZE_CLASSES: [usize; 9] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048];
 
