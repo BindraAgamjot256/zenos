@@ -1,0 +1,27 @@
+[package]
+name = "zenos-kernel"
+version = "0.1.0"
+edition = "2024"
+
+
+
+[dependencies]
+bootloader_api = { workspace = true }
+embedded-graphics = "0.8.1"
+spin = "0.10.0"
+heapless = "0.9.1"
+x86_64 = "0.15.2"
+uart_16550 = "0.4.0"
+acpi = "5.2.0"
+aml = "0.16.4"
+pc-keyboard = "0.8.0"
+
+[dependencies.fatfs]
+version = "0.4"
+git="https://github.com/rafalh/rust-fatfs/"
+default-features = false
+features = ["alloc"]
+
+[dependencies.log]
+version =  "0.4.27"
+default-features = false

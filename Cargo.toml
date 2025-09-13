@@ -1,0 +1,40 @@
+[package]
+name = "zenos"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = [
+    "zenos-kernel",
+    "zenos-bootloader",
+    "zenos-bootloader/api",
+    "zenos-bootloader/common",
+    "zenos-bootloader/common/config",
+    "zenos-bootloader/uefi",
+]
+
+[workspace.package]
+version = "0.1.0"
+repository = "unknown"
+license = "MIT"
+
+[workspace.dependencies]
+bootloader_api = { version = "0.1.0", path = "zenos-bootloader/api" }
+bootloader-x86_64-common = { version = "0.1.0", path = "zenos-bootloader/common" }
+bootloader-boot-config = { version = "0.1.0", path = "zenos-bootloader/common/config" }
+
+[build-dependencies]
+zenos-bootloader = { path = "zenos-bootloader" }
+
+[build-dependencies.zenos-kernel]
+path = "zenos-kernel"
+artifact = "bin"
+target = "x86_64-unknown-none"
+
+
+[dependencies]
+ovmf-prebuilt = "0.1.0-alpha.1"
+
+
+[profile.release]
+debug-assertions = false
