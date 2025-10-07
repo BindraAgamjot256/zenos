@@ -20,7 +20,7 @@ pc-keyboard = "0.8.0"
 version = "0.4"
 git="https://github.com/rafalh/rust-fatfs/"
 default-features = false
-features = ["alloc"]
+features = ["alloc", "log_level_debug"]
 
 [dependencies.log]
 version =  "0.4.27"

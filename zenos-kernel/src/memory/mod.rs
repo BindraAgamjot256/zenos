@@ -18,8 +18,8 @@ use core::{
 };
 use log::{error, trace, warn};
 use spin::Mutex;
+use x86_64::structures::paging::Translate;
 use x86_64::structures::paging::mapper::UnmapError;
-use x86_64::structures::paging::{Translate, page_table};
 use x86_64::{
     PhysAddr, VirtAddr,
     registers::control::Cr3,

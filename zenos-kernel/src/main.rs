@@ -15,7 +15,8 @@ extern crate alloc;
 use alloc::boxed::Box;
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
-use zenos_kernel::{kinit, serial_println};
+use fatfs::{Read, Write};
+use zenos_kernel::{kinit, kprintln, serial_println};
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -102,6 +103,33 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("{:?}", vec.len());
 
     drop(vec);
+
+    let fs = zenos_kernel::fs::FS.lock();
+    let mut binding = [0; 13];
+    let buf = binding.as_mut_slice();
+    fs.root_dir()
+        .open_file("chksum.txt")
+        .expect("chksum.txt exists")
+        .read(buf)
+        .expect("read failed");
+    let buf = str::from_utf8(buf).unwrap();
+    kprintln!("contents of chksum.txt: {buf}");
+
+    kprintln!("writing \"fuck\" to chksum.txt");
+    fs.root_dir()
+        .open_file("chksum.txt")
+        .expect("chksum.txt exists")
+        .write(b"fuck")
+        .expect("write failed");
+    let mut binding = [0; 13];
+    let buf = binding.as_mut_slice();
+    fs.root_dir()
+        .open_file("chksum.txt")
+        .expect("chksum.txt exists")
+        .read(buf)
+        .expect("read failed");
+    let buf = str::from_utf8(buf).unwrap();
+    kprintln!("new contents of chksum.txt: {buf}");
 
     // Enter the main kernel loop
     // TODO: Implement proper scheduling and process management

@@ -1,15 +1,17 @@
+//todo: docs, nvme, tests
+use crate::kprintln;
 use crate::memory::{
-    KERNEL_BASE, KERNEL_STACK_BASE, PAGE_4K, PageType, kalloc_dma_pages, kalloc_page,
-    kfree_dma_pages, virt_to_phys,
+    KERNEL_BASE, PAGE_4K, PageType, kalloc_dma_pages, kalloc_page, kfree_dma_pages, kfree_page,
 };
 use crate::pci::scan_pci_for_ahci;
+use alloc::boxed::Box;
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{Ordering, compiler_fence};
-use fatfs::warn;
+use fatfs::{FileAttributes, FileSystem, IoBase, Read, ReadWriteSeek, Seek, SeekFrom, Write};
 use heapless::Vec;
+use log::info;
 use log::{debug, error, trace};
-use log::{info, log};
-use spin::Mutex;
+use spin::{Lazy, Mutex};
 use x86_64::{PhysAddr, VirtAddr};
 
 // ============================================================================
@@ -17,9 +19,6 @@ use x86_64::{PhysAddr, VirtAddr};
 // ============================================================================
 
 const AHCI_VIRT_BASE: u64 = KERNEL_BASE + 0x2000_0000;
-const CMD_LIST_SIZE: usize = 0x400;
-const FIS_SIZE: usize = 0x100;
-const CMD_TABLE_SIZE: usize = 0x1000;
 const SECTOR_SIZE: usize = 512;
 const MAX_SLOTS: usize = 32;
 const TIMEOUT_MAX: u32 = 10_000_000;
@@ -65,12 +64,6 @@ mod flags {
 // ============================================================================
 // Data Structures
 // ============================================================================
-
-#[repr(C, align(1024))]
-struct AhciCommandList([u8; 1024]);
-
-#[repr(C, align(128))]
-struct AhciCommandTable([u8; 256]);
 
 #[repr(C)]
 struct HbaCmdHeader {
@@ -182,7 +175,6 @@ struct HbaCmdTable {
 struct PortInfo {
     port_base: usize, // MMIO base as usize (the pointer value you wrote into PORT regs)
     virt_cmd_list: VirtAddr, // virtual address where command list resides (for CPU access)
-    virt_fis: VirtAddr, // virtual address where FIS receives are mapped
     virt_cmd_tables_base: VirtAddr, // base virtual address for per-slot command tables
 }
 
@@ -190,8 +182,6 @@ struct Port {
     base: *mut u32,
     info: PortInfo,
 }
-
-impl Port {}
 
 impl Port {
     unsafe fn new(info: PortInfo) -> Self {
@@ -476,7 +466,6 @@ pub(crate) unsafe fn init() {
         let port = Port::new(PortInfo {
             port_base: port_base_usize,
             virt_cmd_list: VirtAddr::new(0), // temporary filler; we'll set below
-            virt_fis: VirtAddr::new(0),
             virt_cmd_tables_base: VirtAddr::new(0),
         });
 
@@ -504,7 +493,7 @@ pub(crate) unsafe fn init() {
         // Allocate command tables: choose contiguous virtual area per-port (slot * PAGE_4K)
         let cmd_table_base_virt =
             VirtAddr::new(AHCI_VIRT_BASE + 0x2000 + (port_num * MAX_SLOTS) as u64 * PAGE_4K as u64);
-
+        // allocated by bootloader, so we can use it as a pointer.
         // cmd_headers pointer to the virtual command list we just mapped
         let cmd_headers = virt_cmd_list.as_u64() as *mut HbaCmdHeader;
 
@@ -530,7 +519,6 @@ pub(crate) unsafe fn init() {
             let pinfo = PortInfo {
                 port_base: port_base_usize,
                 virt_cmd_list,
-                virt_fis,
                 virt_cmd_tables_base: cmd_table_base_virt,
             };
 
@@ -538,6 +526,12 @@ pub(crate) unsafe fn init() {
 
             // FIXME: Multiple ports not supported yet; stop after first found
             break;
+        } else {
+            for slot in 0..MAX_SLOTS {
+                let table_virt =
+                    VirtAddr::new(cmd_table_base_virt.as_u64() + (slot as u64) * PAGE_4K as u64);
+                kfree_page(table_virt, PageType::Recursive).expect("Failed to free command table");
+            }
         }
     }
 
@@ -547,12 +541,57 @@ pub(crate) unsafe fn init() {
 // ============================================================================
 // Block Device Implementation
 // ============================================================================
+pub trait BlockDevice: Read + Write + Seek + IoBase {
+    fn block_size(&self) -> u64;
+}
+
+pub struct BlockDeviceDriver<E> {
+    device: Box<(dyn BlockDevice<Error = E> + Send + Sync)>,
+}
+
+impl<E> BlockDeviceDriver<E> {
+    pub fn new(device: Box<(dyn BlockDevice<Error = E> + Send + Sync)>) -> Self {
+        Self { device }
+    }
+}
+
+impl<E: fatfs::IoError> IoBase for BlockDeviceDriver<E> {
+    type Error = E;
+}
+
+impl<E: fatfs::IoError> Read for BlockDeviceDriver<E> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.device.read(buf)
+    }
+}
+
+impl<E: fatfs::IoError> Write for BlockDeviceDriver<E> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.device.write(buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.device.flush()
+    }
+}
+
+impl<E: fatfs::IoError> Seek for BlockDeviceDriver<E> {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        self.device.seek(pos)
+    }
+}
 
 pub struct AhciBlockDevice {
     port_base: usize,
     sector_size: usize,
     cursor: u64,
     partition_offset: u64, // LBA where FAT starts
+}
+
+impl BlockDevice for AhciBlockDevice {
+    fn block_size(&self) -> u64 {
+        self.sector_size as u64
+    }
 }
 
 impl AhciBlockDevice {
@@ -564,7 +603,7 @@ impl AhciBlockDevice {
             port_base: pinfo.port_base,
             sector_size: SECTOR_SIZE,
             cursor: 0,
-            partition_offset: 34, // todo: get from partition table, currently always 0, panics as it reads GPT instead of FAT.
+            partition_offset: 34, // todo: get from partition table, currently always 34(sizeof GPT), panics otherwise.
         })
     }
 
@@ -573,16 +612,16 @@ impl AhciBlockDevice {
     }
 }
 
-impl fatfs::IoBase for AhciBlockDevice {
+impl IoBase for AhciBlockDevice {
     type Error = ();
 }
 
-impl fatfs::Seek for AhciBlockDevice {
-    fn seek(&mut self, pos: fatfs::SeekFrom) -> Result<u64, Self::Error> {
+impl Seek for AhciBlockDevice {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.cursor = match pos {
-            fatfs::SeekFrom::Start(offset) => offset,
-            fatfs::SeekFrom::End(_) => return Err(()), // TODO: Need disk size
-            fatfs::SeekFrom::Current(offset) => {
+            SeekFrom::Start(offset) => offset,
+            SeekFrom::End(_) => return Err(()), // TODO: Need disk size
+            SeekFrom::Current(offset) => {
                 if offset < 0 {
                     self.cursor.checked_sub(offset.unsigned_abs()).ok_or(())?
                 } else {
@@ -594,7 +633,7 @@ impl fatfs::Seek for AhciBlockDevice {
     }
 }
 
-impl fatfs::Read for AhciBlockDevice {
+impl Read for AhciBlockDevice {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         debug!(
             "Reading {} bytes from byte offset {}",
@@ -615,7 +654,10 @@ impl fatfs::Read for AhciBlockDevice {
         }
 
         let ports = PORTS.lock();
-        let pinfo = match ports.as_ref().and_then(|v| v.get(0)) {
+        let pinfo = match ports
+            .as_ref()
+            .and_then(|v| v.iter().filter(|p| p.port_base == self.port_base).next())
+        {
             Some(p) => *p,
             None => return Err(()),
         };
@@ -644,7 +686,7 @@ impl fatfs::Read for AhciBlockDevice {
     }
 }
 
-impl fatfs::Write for AhciBlockDevice {
+impl Write for AhciBlockDevice {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         debug!("Writing {} bytes to LBA {}", buf.len(), self.cursor);
 
@@ -694,3 +736,15 @@ impl fatfs::Write for AhciBlockDevice {
         Ok(())
     }
 }
+
+pub static FS: Lazy<Mutex<FileSystem<BlockDeviceDriver<()>>>> = Lazy::new(|| {
+    let fs = FileSystem::new(
+        BlockDeviceDriver::new(Box::new(
+            AhciBlockDevice::new(0).expect("Port 0 unavailable"),
+        )),
+        fatfs::FsOptions::new(),
+    )
+    .expect("Panics");
+
+    Mutex::new(fs)
+});

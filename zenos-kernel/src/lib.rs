@@ -38,7 +38,6 @@ use bootloader_api::info::MemoryRegionKind;
 use bootloader_api::{BootInfo, info::MemoryRegion};
 use core::hint::cold_path;
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb888};
-use fatfs::FileAttributes;
 use heapless::Vec;
 use log::{debug, info, trace, warn};
 use x86_64::VirtAddr;
@@ -49,7 +48,7 @@ pub mod acpi;
 mod arch;
 /// Framebuffer module for display output
 pub(crate) mod framebuffer;
-mod fs;
+pub mod fs;
 /// Hardware module for handling hardware-related functionality
 pub mod hardware;
 /// Interrupts module for handling interrupts
@@ -216,28 +215,6 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
         fs::init();
     }
 
-    let fs = fatfs::FileSystem::new(
-        fs::AhciBlockDevice::new(0).expect("Port 0 unavailable"),
-        fatfs::FsOptions::new(),
-    )
-    .expect("Panics");
-    let root_dir = fs.root_dir();
-    for r in root_dir.iter() {
-        match r {
-            Ok(entry) => {
-                let name = entry.file_name();
-                let attrs = entry.attributes();
-                if attrs.contains(FileAttributes::DIRECTORY) {
-                    kprintln!("[DIR]  {}", name);
-                } else {
-                    kprintln!("[FILE] {}", name);
-                }
-            }
-            Err(e) => {
-                log::error!("error reading entry: {:?}", e);
-            }
-        }
-    }
     debug!("Kernel initialization complete");
     debug!("everything initialized, enabling interrupts now");
     x86_64::instructions::interrupts::enable();
