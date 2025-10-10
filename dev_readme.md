@@ -43,7 +43,7 @@ Our build process is an unholy marriage of:
 - Cargo workspaces (because one crate is never enough)
 - Custom build scripts that coordinate between kernel and bootloader
 - QEMU integration that ~~sometimes~~ always works
-- A custom target specification because `x86_64-unknown-none` wasn't good enough
+- ~~A custom target specification because `x86_64-unknown-none` wasn't good enough~~
 
 The build flow goes like this:
 1. Build the kernel for a target that doesn't officially exist
@@ -92,9 +92,6 @@ cargo build
 
 # Run in QEMU
 cargo run
-
-# Run tests (surprisingly reliable)
-cargo test
 
 # Check if code compiles without actually building (fast failure)
 cargo check
@@ -151,7 +148,7 @@ Our custom bootloader because apparently I hate myself:
 
 ## Memory Layout (aka "Where Everything Goes Wrong")
 
-> > [!NOTE]
+> [!NOTE]
 > You can view more info about the memory layout in `zenos-kernel/src/memory/mod.rs`.
 
 - **0xFFFF_8000_0000_0000**: Higher-half base (physical memory offset)
@@ -223,3 +220,4 @@ Good luck, and may the odds be ever in your favor.
 ---
 
 *"zenos" is pronounced like Zeno's paradox, not "zen OS." Though given the amount of zen required to debug this thing, the confusion is understandable.*
+
