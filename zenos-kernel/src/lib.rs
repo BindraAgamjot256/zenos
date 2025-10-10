@@ -12,7 +12,6 @@
 //! - **Memory management** - The kernel supports memory management via the `memory` module.
 //! - **Hardware support** - The kernel supports hardware-related functionality via the `hardware` module.
 //! - **Interrupts** - The kernel supports interrupts via the `interrupts` module.
-//! - and more...
 //!
 //! The crate runs in a `no_std` environment, as it's designed to operate without the standard library
 //! on bare metal.
@@ -84,7 +83,7 @@ pub static TESTS: &[&[&(dyn Testable + Sync)]] = {
 ///
 /// # Parameters
 ///
-/// * `boot_info` - Boot information provided by the bootloader, containing
+/// - `boot_info` - Boot information provided by the bootloader, containing
 ///   details about system memory, framebuffer, and other interrupts configurations
 ///
 /// # Note

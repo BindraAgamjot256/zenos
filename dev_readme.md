@@ -199,14 +199,17 @@ This is not a performance-focused OS. It's a learning project. That said:
 
 Things I might implement if I ever finish what I started:
 - Process management (currently just runs one kernel thread)
-- File system (everything is RAM-based)
 - Network stack (serial is good enough for now)
 - SMP support (single-core is simpler)
 - Real hardware support (QEMU is our friend)
+- Large allocation support (processes may need more than 4KiB at a time)
+- An actual testing method (lol maybe)...
 
 ## Final Notes
 
-This project exists at the intersection of "educational" and "questionable life choices." If you're here to learn OS development, welcome to the pain. If you're here to use this as a real OS, please reconsider your life decisions.
+This project exists at the intersection of "educational" and "questionable life choices." If you're here to learn OS
+development, welcome to the pain. If you're here to use this as a real OS, please reconsider your life decisions, and
+switch to the superior operating system(~~Linux~~ TempleOS).
 
 The code quality varies from "not terrible" to "what was I thinking?" Comments like "FIX THE FUCKING TEST WILL YOU?" are not bugs, they're features.
 
@@ -215,7 +218,7 @@ Remember: if it compiles, ship it. If it doesn't crash immediately, call it stab
 Good luck, and may the odds be ever in your favor.
 
 > [!NOTE]
-> This readme is more fun to read than zenos itself.
+> This dev documentation is more fun to read than zenos itself.
 
 ---
 

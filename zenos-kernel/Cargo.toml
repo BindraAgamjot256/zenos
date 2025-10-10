@@ -3,7 +3,9 @@ name = "zenos-kernel"
 version = "0.1.0"
 edition = "2024"
 
-
+[features]
+default = []
+color = []
 
 [dependencies]
 bootloader_api = { workspace = true }

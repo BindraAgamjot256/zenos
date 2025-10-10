@@ -40,6 +40,34 @@ macro_rules! serial_println {
 
 /// A logger that writes log messages to the serial port.
 pub struct SerialLogger;
+
+// Color codes
+#[cfg(feature = "color")]
+const COLOR_RESET: &str = "\x1b[0m";
+#[cfg(feature = "color")]
+const COLOR_ERROR: &str = "\x1b[31m"; // Red
+#[cfg(feature = "color")]
+const COLOR_WARN: &str = "\x1b[33m"; // Yellow
+#[cfg(feature = "color")]
+const COLOR_INFO: &str = "\x1b[32m"; // Green
+#[cfg(feature = "color")]
+const COLOR_DEBUG: &str = "\x1b[36m"; // Cyan
+#[cfg(feature = "color")]
+const COLOR_TRACE: &str = "\x1b[37m"; // White
+
+#[cfg(not(feature = "color"))]
+const COLOR_RESET: &str = "";
+#[cfg(not(feature = "color"))]
+const COLOR_ERROR: &str = "";
+#[cfg(not(feature = "color"))]
+const COLOR_WARN: &str = "";
+#[cfg(not(feature = "color"))]
+const COLOR_INFO: &str = "";
+#[cfg(not(feature = "color"))]
+const COLOR_DEBUG: &str = "";
+#[cfg(not(feature = "color"))]
+const COLOR_TRACE: &str = "";
+
 impl log::Log for SerialLogger {
     fn enabled(&self, _metadata: &log::Metadata) -> bool {
         true
@@ -58,13 +86,13 @@ impl log::Log for SerialLogger {
         }
 
         let level_color = match record.level() {
-            log::Level::Error => "\x1b[31m", // Red
-            log::Level::Warn => "\x1b[33m",  // Yellow
-            log::Level::Info => "\x1b[32m",  // Green
-            log::Level::Debug => "\x1b[34m", // Blue
-            log::Level::Trace => "\x1b[35m", // Magenta
+            log::Level::Error => COLOR_ERROR,
+            log::Level::Warn => COLOR_WARN,
+            log::Level::Info => COLOR_INFO,
+            log::Level::Debug => COLOR_DEBUG,
+            log::Level::Trace => COLOR_TRACE,
         };
-        let reset = "\x1b[0m";
+        let reset = COLOR_RESET;
 
         serial_println!(
             "{}[{}: {}: {}]{}: {}",

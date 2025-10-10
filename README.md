@@ -59,7 +59,7 @@ This will automatically:
 
 Run the kernel test suite:
 ```bash
-cargo test
+cargo run -- --test # currently not implemented, but this is how it will work. for now, test output is shown when cargo run is invoked, as soon as bootloader hands over to kernel.
 ```
 
 Tests execute in a QEMU environment and verify kernel functionality.
@@ -87,7 +87,7 @@ zenos/
 ### Kernel Design
 
 - **No Standard Library**: Runs in a `no_std` environment with custom allocators
-- **Memory Safety**: Leverages Rust's ownership system for safe low-level programming
+- **Memory Safety**: Leverages Rust's ownership system for safe~~er~~ low-level programming
 - **Higher-Half Kernel**: Uses virtual memory mapping at high addresses
 - **Interrupt-Safe**: Careful interrupt management throughout the codebase
 
@@ -114,7 +114,6 @@ cargo build
 
 # Build specific components
 cargo build -p zenos-kernel
-cargo build -p zenos-bootloader
 
 # Release build
 cargo build --release
@@ -128,9 +127,6 @@ cargo fmt
 
 # Run linter
 cargo clippy
-
-# Check without building
-cargo check
 ```
 
 ## Contributing
@@ -144,7 +140,7 @@ This is an experimental project primarily for learning and demonstration purpose
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License—see LICENSE file for details.
 
 ## Acknowledgments
 
