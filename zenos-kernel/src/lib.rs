@@ -145,9 +145,6 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
     memory::alloc::init();
     info!("Slab allocator initialized");
 
-    let stats = memory::get_stats();
-    trace!("{stats:#?}");
-
     info!("Initialising interrupts");
     interrupts::init_idt();
     interrupts::gdt::init_gdt();
@@ -197,22 +194,14 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
         }
         _ => (0xFEE00000u64, Vec::new()),
     };
-    warn!("ISRs Present: {isr_overrides:?}");
     hardware::init(
         apic_info.0,
         apic_info.1.as_mut_slice(),
         isr_overrides.unwrap_or(Vec::new()).as_mut_slice(),
     );
 
-    //hardware::smp::init(1);
-
     debug!("Enabling syscalls");
     syscall::init();
-
-    debug!("Enabling FS");
-    unsafe {
-        fs::init();
-    }
 
     debug!("Kernel initialization complete");
     debug!("everything initialized, enabling interrupts now");

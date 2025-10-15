@@ -262,11 +262,6 @@ impl Port {
         sector_count: u16,
         write: bool,
     ) -> Result<(), ()> {
-        debug!(
-            "Sending AHCI command: LBA={}, sectors={}, write={}",
-            lba, sector_count, write
-        );
-
         self.clear_errors();
 
         // Use the virtual command list base that we mapped earlier.
@@ -276,8 +271,6 @@ impl Port {
             error!("No available command slots");
             ()
         })?;
-
-        debug!("Using slot {}", slot);
 
         let header = &mut *cmd_headers.add(slot as usize);
 
@@ -385,10 +378,6 @@ impl Port {
             return Err(());
         }
 
-        debug!(
-            "Command completed successfully (dma_phys={:#x})",
-            dma_page_phys.as_u64()
-        );
         res
     }
 
@@ -635,12 +624,6 @@ impl Seek for AhciBlockDevice {
 
 impl Read for AhciBlockDevice {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        debug!(
-            "Reading {} bytes from byte offset {}",
-            buf.len(),
-            self.cursor
-        );
-
         // Calculate sector-aligned buffer size
         let start_lba = (self.cursor / SECTOR_SIZE as u64) + self.partition_offset;
         let sector_offset = (self.cursor % SECTOR_SIZE as u64) as usize;
@@ -675,12 +658,6 @@ impl Read for AhciBlockDevice {
         buf[..bytes_to_copy].copy_from_slice(&ubuf[sector_offset..sector_offset + bytes_to_copy]);
 
         self.cursor += bytes_to_copy as u64; // Increment by BYTES, not sectors
-
-        info!(
-            "Read {} bytes, first few: {:?}",
-            bytes_to_copy,
-            &buf[..bytes_to_copy.min(8)]
-        );
         kfree_dma_pages(ubuf).map_err(|_| ())?;
         Ok(bytes_to_copy)
     }
@@ -688,8 +665,6 @@ impl Read for AhciBlockDevice {
 
 impl Write for AhciBlockDevice {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        debug!("Writing {} bytes to LBA {}", buf.len(), self.cursor);
-
         // For writes, we need to handle partial sectors by reading-modifying-writing
         let start_lba = (self.cursor / SECTOR_SIZE as u64) + self.partition_offset;
         let sector_offset = (self.cursor % SECTOR_SIZE as u64) as usize;
@@ -738,6 +713,7 @@ impl Write for AhciBlockDevice {
 }
 
 pub static FS: Lazy<Mutex<FileSystem<BlockDeviceDriver<()>>>> = Lazy::new(|| {
+    unsafe { init() }
     let fs = FileSystem::new(
         BlockDeviceDriver::new(Box::new(
             AhciBlockDevice::new(0).expect("Port 0 unavailable"),

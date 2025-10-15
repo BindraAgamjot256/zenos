@@ -340,15 +340,6 @@ impl PageAllocator {
                                         let phys_addr =
                                             node.base_phys + (page_num * PAGE_4K) as u64;
 
-                                        log::debug!(
-                                            "Allocated {} page at physical address {:#x}",
-                                            match size {
-                                                PageSize::Size4KiB => "4KiB",
-                                                PageSize::Size2MiB => "2MiB",
-                                            },
-                                            phys_addr
-                                        );
-
                                         return Some(PhysAddr::new(phys_addr));
                                     }
                                     Err(new_val) => {
@@ -745,45 +736,33 @@ pub fn kfree_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
         PageSize::Size2MiB => {
             let err = ptable.unmap(Page::<Size4KiB>::containing_address(virtaddr));
 
-            alloc.dealloc(phys, PageSize::Size4KiB).map_err(|e| {
-                error!("err: {e:#?}");
-                e
-            })?;
+            alloc.dealloc(phys, PageSize::Size4KiB).map_err(|e| e)?;
 
             match err {
                 Ok((_, flush)) => flush.flush(), // fwoosh
-                Err(e) => {
-                    error!("err: {e:#?}");
-                    match e {
-                        UnmapError::ParentEntryHugePage => {
-                            warn!("Parent entry is a huge page, ignoring");
-                        }
-                        _ => return Err(MapErr::NotMapped),
+                Err(e) => match e {
+                    UnmapError::ParentEntryHugePage => {}
+                    _ => {
+                        error!("err: {e:#?}");
+                        return Err(MapErr::NotMapped);
                     }
-                }
+                },
             }
         }
         PageSize::Size4KiB => {
             let err = ptable.unmap(Page::<Size4KiB>::containing_address(virtaddr));
 
-            alloc.dealloc(phys, PageSize::Size4KiB).map_err(|e| {
-                error!("err: {e:#?}");
-                e
-            })?;
+            alloc.dealloc(phys, PageSize::Size4KiB).map_err(|e| e)?;
 
             match err {
                 Ok((_, flush)) => flush.flush(), // fwoosh
-                Err(e) => {
-                    error!("err: {e:#?}");
-                    match e {
-                        UnmapError::ParentEntryHugePage => {
-                            warn!(
-                                "Parent entry is a huge page, ignoring as huge pages exist for the lifetime of the kernel."
-                            );
-                        }
-                        _ => return Err(MapErr::NotMapped),
+                Err(e) => match e {
+                    UnmapError::ParentEntryHugePage => {}
+                    _ => {
+                        error!("err: {e:#?}");
+                        return Err(MapErr::NotMapped);
                     }
-                }
+                },
             }
         }
     }
