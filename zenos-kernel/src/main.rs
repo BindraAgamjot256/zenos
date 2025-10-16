@@ -131,6 +131,22 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     let buf = str::from_utf8(buf).unwrap();
     kprintln!("new contents of chksum.txt: {buf}");
 
+    let buf = b"hello world\n";
+    let len = buf.len();
+    let ret: isize;
+    unsafe {
+        asm!(
+        "syscall",
+        in("rax") 1usize,            // syscall number: write
+        in("rdi") 1usize,            // fd = 1 (stdout)
+        in("rsi") buf.as_ptr(),      // buffer pointer
+        in("rdx") len,               // buffer length
+        lateout("rax") ret,          // syscall return -> rax
+        out("rcx") _,                // syscall clobbers rcx
+        out("r11") _,                // syscall clobbers r11
+        options(nostack),            // we don't touch the stack here
+        );
+    }
     // Enter the main kernel loop
     // TODO: Implement proper scheduling and process management
     loop {

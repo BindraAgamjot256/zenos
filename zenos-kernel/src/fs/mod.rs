@@ -1,5 +1,4 @@
 //todo: docs, nvme, tests
-use crate::kprintln;
 use crate::memory::{
     KERNEL_BASE, PAGE_4K, PageType, kalloc_dma_pages, kalloc_page, kfree_dma_pages, kfree_page,
 };
@@ -7,9 +6,8 @@ use crate::pci::scan_pci_for_ahci;
 use alloc::boxed::Box;
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{Ordering, compiler_fence};
-use fatfs::{FileAttributes, FileSystem, IoBase, Read, ReadWriteSeek, Seek, SeekFrom, Write};
+use fatfs::{FileSystem, IoBase, Read, Seek, SeekFrom, Write};
 use heapless::Vec;
-use log::info;
 use log::{debug, error, trace};
 use spin::{Lazy, Mutex};
 use x86_64::{PhysAddr, VirtAddr};
