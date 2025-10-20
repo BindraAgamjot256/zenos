@@ -93,7 +93,9 @@ impl log::Log for SerialLogger {
             log::Level::Trace => COLOR_TRACE,
         };
         let reset = COLOR_RESET;
-
+        unsafe {
+            SERIAL.force_unlock();
+        }
         serial_println!(
             "{}[{}: {}: {}]{}: {}",
             level_color,
