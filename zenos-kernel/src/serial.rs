@@ -74,14 +74,13 @@ impl log::Log for SerialLogger {
     }
 
     fn log(&self, record: &log::Record) {
-        // Filter out trace logs from specific modules
-        if record.level() == log::Level::Trace {
-            if let Some(module) = record.module_path() {
-                if module.starts_with("zenos_kernel::memory::alloc")
-                    || module.starts_with("zenos_kernel::hardware::")
-                {
-                    return; // skip these logs
-                }
+        if let Some(module) = record.module_path() {
+            if (module.starts_with("zenos_kernel::memory")
+                || module.starts_with("zenos_kernel::hardware")
+                || module.starts_with("zenos_kernel::memory::alloc"))
+                && record.level() >= log::Level::Warn
+            {
+                return; // skip these logs
             }
         }
 
