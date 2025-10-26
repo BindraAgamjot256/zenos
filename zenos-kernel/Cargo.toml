@@ -15,7 +15,7 @@ heapless = "0.9.1"
 x86_64 = "0.15.2"
 uart_16550 = "0.4.0"
 acpi = "5.2.0"
-aml = "0.16.4"
+xmas-elf = "0.10.0"
 pc-keyboard = "0.8.0"
 
 [dependencies.fatfs]

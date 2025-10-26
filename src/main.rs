@@ -18,15 +18,16 @@ fn main() {
 
     if args.check {
         build_kernel(args);
+        build_init(args);
         return;
     }
 
+    build_init(args);
     let binding = build_kernel(args);
     let kernel_path = binding.as_path();
     let binding = disk_img_builder(kernel_path);
     let uefi_path = binding.as_path();
 
-    println!("uefi path: {}", uefi_path.to_str().unwrap());
     println!("kernel path: {}", kernel_path.to_str().unwrap());
 
     let mut cmd = std::process::Command::new("qemu-system-x86_64");
@@ -35,7 +36,7 @@ fn main() {
     cmd.arg("-m").arg("2048M");
     cmd.arg("-smp").arg("2");
     cmd.arg("-serial").arg("stdio");
-    cmd.arg("-no-reboot").arg("-no-shutdown");
+    // cmd.arg("-no-reboot").arg("-no-shutdown");
 
     // AHCI controller (no bus specified)
     cmd.arg("-device").arg("ahci,id=ahci");
@@ -91,6 +92,40 @@ fn build_kernel(args: Args) -> PathBuf {
     kernel_path
 }
 
+fn build_init(_args: Args) {
+    // Build the userland init process and place the resulting ELF into iso/bin/init.elf
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("+nightly");
+    cmd.arg("build");
+    cmd.arg("-p").arg("zenos-init");
+    #[cfg(not(debug_assertions))]
+    cmd.arg("--release");
+
+    cmd.arg("--target=x86_64-unknown-zenos-user.json");
+    cmd.arg("--bin=zenos-init");
+    cmd.arg("-Z").arg("build-std=core,alloc");
+    cmd.arg("-Z").arg("build-std-features=compiler-builtins-mem");
+
+    let status = cmd.status().expect("failed to build init");
+    if !status.success() {
+        panic!("init build failed");
+    }
+
+    // Determine profile directory
+    let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
+
+    // Path to built init binary
+    let init_bin = Path::new("./target/x86_64-unknown-zenos-user")
+        .join(profile)
+        .join("zenos-init");
+
+    // Ensure iso/bin exists and copy the file as init.elf
+    let out_dir = Path::new("iso").join("bin");
+    std::fs::create_dir_all(&out_dir).expect("failed to create iso/bin directory");
+    let out_path = out_dir.join("init.elf");
+    std::fs::copy(&init_bin, &out_path).expect("failed to copy init.elf into iso/bin");
+}
+
 fn disk_img_builder(kernel_path: &Path) -> PathBuf {
     let mut builder = zenos_bootloader::DiskImageBuilder::new(PathBuf::from(kernel_path));
     let uefi_out_path = PathBuf::from("uefi.img");
@@ -124,8 +159,9 @@ fn add_files_recursively(
             let relative_path = path.strip_prefix(iso_root).unwrap();
             let relative_path_str = relative_path
                 .to_str()
-                .expect("Failed to convert path to str");
-            builder.set_file(relative_path_str.to_string(), path);
+                .expect("Failed to convert path to str")
+                .replace("\\", "/");
+            builder.set_file(relative_path_str, path);
         }
     }
 }

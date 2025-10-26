@@ -533,11 +533,11 @@ pub trait BlockDevice: Read + Write + Seek + IoBase {
 }
 
 pub struct BlockDeviceDriver<E> {
-    device: Box<(dyn BlockDevice<Error = E> + Send + Sync)>,
+    device: Box<dyn BlockDevice<Error = E> + Send + Sync>,
 }
 
 impl<E> BlockDeviceDriver<E> {
-    pub fn new(device: Box<(dyn BlockDevice<Error = E> + Send + Sync)>) -> Self {
+    pub fn new(device: Box<dyn BlockDevice<Error = E> + Send + Sync>) -> Self {
         Self { device }
     }
 }

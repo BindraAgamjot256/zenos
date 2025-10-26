@@ -11,6 +11,7 @@ members = [
     "zenos-bootloader/common",
     "zenos-bootloader/common/config",
     "zenos-bootloader/uefi",
+    "zenos-init",
 ]
 
 [workspace.package]

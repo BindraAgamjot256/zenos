@@ -2,7 +2,7 @@ use crate::interrupts::gdt::GDT;
 use crate::kprint;
 use core::arch::global_asm;
 use core::slice;
-use log::{debug, error};
+use log::debug;
 
 global_asm!(
     r#"
@@ -16,6 +16,7 @@ sys_rt0:
 
     pop r11
     pop rcx
+    # temporary hack... replace rsp with a rando ptr
     sysretq
     "#
 );
@@ -54,7 +55,7 @@ extern "C" fn syscall_main() {
                 }
             }
             _ => {
-                ret = u64::MAX; // unknown syscall
+                panic!("unsupported syscall number: {}", syscall_num);
             }
         }
         debug!("returning {ret} from syscall_main");

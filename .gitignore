@@ -156,3 +156,5 @@ jspm_packages/
 tmp/
 temp/
 WARP.md
+**/*.elf
+*.img
