@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-
+/// TODO: this is still a wip.. the kernel needs to support elf loading first. for now, use the syscall_test_stub.asm in the syscall dir.
 use core::arch::asm;
 
 #[panic_handler]

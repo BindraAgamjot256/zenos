@@ -18,8 +18,8 @@ use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
 use fatfs::{Read, Write};
 use x86_64::VirtAddr;
+use zenos_kernel::memory::{PageType, ualloc_page};
 use zenos_kernel::{kinit, kprintln, serial_println};
-use zenos_kernel::memory::{ualloc_page, PageType};
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -133,21 +133,19 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         .expect("read failed");
     let buf = str::from_utf8(buf).unwrap();
     kprintln!("new contents of chksum.txt: {buf}");
-    let mut buf = [
-        0x48u8, 0xc7, 0xc0, 0x01, 0x00, 0x00, 0x00, 0x48, 0xc7, 0xc7, 0x01, 0x00, 0x00, 0x00,
-        0x48, 0x8d, 0x35, 0x15, 0x00, 0x00, 0x00, 0x48, 0xc7, 0xc2, 0x16, 0x00, 0x00, 0x00,
-        0x0f, 0x05, 0x48, 0xc7, 0xc0, 0x3c, 0x00, 0x00, 0x00, 0x48, 0x31, 0xff, 0x0f, 0x05,
-        /* message follows (22 bytes) */
-        0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x66, 0x72, 0x6f, 0x6d, 0x20, 0x75, 0x73, 0x65,
-        0x72, 0x20, 0x73, 0x74, 0x75, 0x62, 0x21, 0x0a
-    ];
-    
-    let ptr = VirtAddr::new(0x2000000u64);
-    ualloc_page(ptr, PageType::Arbitrary).unwrap();
-    
-    unsafe { core::ptr::copy_nonoverlapping(buf.as_ptr(), ptr.as_mut_ptr(), buf.len()); }
-    unsafe{asm!("jmp {0}", in(reg) ptr.as_ptr::<u8>())}
-    
+
+    #[cfg(feature = "test_stub")]
+    {
+        let buf = include_bytes!("syscall/syscall_test_stub.bin");
+        let ptr = VirtAddr::new(0x2000000u64);
+        ualloc_page(ptr, PageType::Arbitrary).unwrap();
+
+        unsafe {
+            core::ptr::copy_nonoverlapping(buf.as_ptr(), ptr.as_mut_ptr(), buf.len());
+        }
+        unsafe { asm!("jmp {0}", in(reg) ptr.as_ptr::<u8>()) }
+    }
+
     //Enter the main kernel loop
     // TODO: Implement proper scheduling and process management
     loop {

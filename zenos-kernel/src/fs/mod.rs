@@ -6,7 +6,9 @@ use crate::pci::scan_pci_for_ahci;
 use alloc::boxed::Box;
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{Ordering, compiler_fence};
-use fatfs::{FileSystem, IoBase, Read, Seek, SeekFrom, Write};
+use fatfs::{
+    DefaultTimeProvider, FileSystem, IoBase, LossyOemCpConverter, Read, Seek, SeekFrom, Write,
+};
 use heapless::Vec;
 use log::{debug, error, trace};
 use spin::{Lazy, Mutex};
@@ -722,3 +724,6 @@ pub static FS: Lazy<Mutex<FileSystem<BlockDeviceDriver<()>>>> = Lazy::new(|| {
 
     Mutex::new(fs)
 });
+
+pub type File<'a> =
+    fatfs::File<'a, BlockDeviceDriver<()>, DefaultTimeProvider, LossyOemCpConverter>;

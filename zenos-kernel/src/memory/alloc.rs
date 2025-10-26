@@ -29,8 +29,8 @@ macro_rules! meta_ptr_from_user {
 const PAGE_SIZE: usize = super::constants::PAGE_4K;
 const MAX_SLAB_PAGES: usize = 10; // 40 KiB per slab.
 
-const SLAB_BASE_ADDR: u64 = 0x_4444_0000_0000;
-const _LARGE_ALLOC_BASE_ADDR: u64 = 0x_5555_0000_0000;
+const SLAB_BASE_ADDR: u64 = 0x_4444_0000_0000 + super::KERNEL_BASE;
+const _LARGE_ALLOC_BASE_ADDR: u64 = 0x_5555_0000_0000 + super::KERNEL_BASE;
 
 const SLAB_SIZE_CLASSES: [usize; 9] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048];
 

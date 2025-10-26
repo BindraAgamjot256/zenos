@@ -10,6 +10,8 @@ struct Args {
     /// cCheck the build
     #[arg(long, short = 'C', default_value = "false")]
     check: bool,
+    #[arg(long, short = 's', default_value = "true")]
+    test_stub: bool,
 }
 
 fn main() {
@@ -36,7 +38,7 @@ fn main() {
     cmd.arg("-m").arg("2048M");
     cmd.arg("-smp").arg("2");
     cmd.arg("-serial").arg("stdio");
-    // cmd.arg("-no-reboot").arg("-no-shutdown");
+    cmd.arg("-no-reboot").arg("-no-shutdown");
 
     // AHCI controller (no bus specified)
     cmd.arg("-device").arg("ahci,id=ahci");
@@ -73,6 +75,18 @@ fn build_kernel(args: Args) -> PathBuf {
         cmd.arg("-F").arg("color");
     }
 
+    if args.test_stub {
+        cmd.arg("-F").arg("test_stub");
+        /*let mut nasm = std::process::Command::new("nasm");
+        nasm.arg("-f")
+            .arg("bin")
+            .arg("-o")
+            .arg("zenos-kernel/src/syscall/syscall_test_stub.bin")
+            .arg("zenos-kernel/src/syscall/syscall_test_stub.asm")
+            .spawn()
+            .expect("failed to run nasm");*/ //
+    }
+
     let status = cmd.status().expect("failed to build kernel");
     if !status.success() {
         panic!("kernel build failed");
@@ -104,7 +118,8 @@ fn build_init(_args: Args) {
     cmd.arg("--target=x86_64-unknown-zenos-user.json");
     cmd.arg("--bin=zenos-init");
     cmd.arg("-Z").arg("build-std=core,alloc");
-    cmd.arg("-Z").arg("build-std-features=compiler-builtins-mem");
+    cmd.arg("-Z")
+        .arg("build-std-features=compiler-builtins-mem");
 
     let status = cmd.status().expect("failed to build init");
     if !status.success() {
@@ -112,7 +127,11 @@ fn build_init(_args: Args) {
     }
 
     // Determine profile directory
-    let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
 
     // Path to built init binary
     let init_bin = Path::new("./target/x86_64-unknown-zenos-user")

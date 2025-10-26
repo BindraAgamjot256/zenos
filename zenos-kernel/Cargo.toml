@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 default = []
 color = []
+test_stub = []
 
 [dependencies]
 bootloader_api = { workspace = true }

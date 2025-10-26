@@ -1,6 +1,9 @@
+mod write;
+
 use crate::interrupts::gdt::GDT;
 use crate::kprint;
-use core::arch::global_asm;
+use crate::syscall::write::FileDescriptor;
+use core::arch::{asm, global_asm};
 use core::slice;
 use log::debug;
 
@@ -16,7 +19,6 @@ sys_rt0:
 
     pop r11
     pop rcx
-    # temporary hack... replace rsp with a rando ptr
     sysretq
     "#
 );
@@ -26,41 +28,81 @@ unsafe extern "C" {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn syscall_main() {
-    use core::arch::asm;
-
+pub unsafe extern "C" fn syscall_main() {
     let mut syscall_num: u64;
-    let mut fd: u64;
-    let mut buf_ptr: u64;
-    let mut len: u64;
+    let mut user_rip: u64;
+    let mut rflags: u64;
+    let mut rdi_val: u64;
+    let mut rsi_val: u64;
+    let mut rdx_val: u64;
+    let mut r10_val: u64;
+    let mut r8_val: u64;
+    let mut r9_val: u64;
     let mut ret: u64 = 0;
 
-    unsafe {
-        asm!(
-        "mov {}, rax",
-        out(reg) syscall_num
-        );
-        match syscall_num {
-            1 => {
-                // write(fd, buf, len)
-                asm!("mov {}, rdi", out(reg) fd);
-                asm!("mov {}, rsi", out(reg) buf_ptr);
-                asm!("mov {}, rdx", out(reg) len);
-                if fd == 1 || fd == 2 {
-                    let buf = slice::from_raw_parts(buf_ptr as *const u8, len as usize);
-                    kprint!("{}", core::str::from_utf8_unchecked(buf));
-                    ret = len;
+    // Grab everything up front, like a responsible adult.
+    asm!(
+    "mov {syscall}, rax",
+    "mov {rip}, rcx",
+    "mov {rfl}, r11",
+    "mov {rdi_val}, rdi",
+    "mov {rsi_val}, rsi",
+    "mov {rdx_val}, rdx",
+    "mov {r10_val}, r10",
+    "mov {r8_val}, r8",
+    "mov {r9_val}, r9",
+    syscall = out(reg) syscall_num,
+    rip = out(reg) user_rip,
+    rfl = out(reg) rflags,
+    rdi_val = out(reg) rdi_val,
+    rsi_val = out(reg) rsi_val,
+    rdx_val = out(reg) rdx_val,
+    r10_val = out(reg) r10_val,
+    r8_val = out(reg) r8_val,
+    r9_val = out(reg) r9_val,
+    options(nostack, preserves_flags),
+    );
+
+    debug!("syscall num: {}", syscall_num);
+    debug!("User RIP: {:#x}", user_rip);
+    debug!("RFLAGS: {:#x}", rflags);
+    debug!(
+        "args: rdi={:#x}, rsi={:#x}, rdx={:#x}, r10={:#x}, r8={:#x}, r9={:#x}",
+        rdi_val, rsi_val, rdx_val, r10_val, r8_val, r9_val
+    );
+
+    match syscall_num {
+        1 => {
+            // write(fd, buf, len)
+            let fd = rdi_val;
+            let buf_ptr = rsi_val;
+            let len = rdx_val;
+
+            let buf = unsafe { slice::from_raw_parts(buf_ptr as *const u8, len as usize) };
+            let fd = FileDescriptor::try_from(fd);
+            if fd.is_err() {
+                ret = u64::MAX;
+            } else {
+                let val = write::sys_write(buf, fd.unwrap());
+                if val.is_some() {
+                    ret = val.unwrap()
                 } else {
-                    ret = u64::MAX; // unsupported fd
+                    ret = u64::MAX;
                 }
             }
-            _ => {
-                panic!("unsupported syscall number: {}", syscall_num);
-            }
         }
-        debug!("returning {ret} from syscall_main");
-        asm!("mov rax, {}", in(reg) ret);
+        _ => {
+            panic!("unsupported syscall number: {}", syscall_num);
+        }
     }
+
+    debug!("returning {:#x} from syscall_main", ret);
+
+    asm!(
+    "mov rax, {retval}",
+    retval = in(reg) ret,
+    options(nostack, preserves_flags),
+    );
 }
 
 pub fn init() {
