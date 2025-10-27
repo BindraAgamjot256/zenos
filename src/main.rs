@@ -1,3 +1,7 @@
+extern crate alloc;
+use alloc::format;
+use core::cfg;
+use core::convert::{From, Into};
 use clap::Parser;
 use std::path::{Path, PathBuf};
 
@@ -100,7 +104,7 @@ fn build_kernel(args: Args) -> PathBuf {
     };
 
     let kernel_path = Path::new("./target/x86_64-unknown-zenos")
-        .join(profile)
+        .join(profile).as_path()
         .join("zenos-kernel");
 
     kernel_path
@@ -135,19 +139,19 @@ fn build_init(_args: Args) {
 
     // Path to built init binary
     let init_bin = Path::new("./target/x86_64-unknown-zenos-user")
-        .join(profile)
+        .join(profile).as_path()
         .join("zenos-init");
 
     // Ensure iso/bin exists and copy the file as init.elf
-    let out_dir = Path::new("iso").join("bin");
+    let out_dir = Path::new("iso").join("bin").as_path();
     std::fs::create_dir_all(&out_dir).expect("failed to create iso/bin directory");
     let out_path = out_dir.join("init.elf");
     std::fs::copy(&init_bin, &out_path).expect("failed to copy init.elf into iso/bin");
 }
 
 fn disk_img_builder(kernel_path: &Path) -> PathBuf {
-    let mut builder = zenos_bootloader::DiskImageBuilder::new(PathBuf::from(kernel_path));
-    let uefi_out_path = PathBuf::from("uefi.img");
+    let mut builder = zenos_bootloader::DiskImageBuilder::new(PathBuf::from(kernel_path.into()));
+    let uefi_out_path = PathBuf::from("uefi.img".into());
     let iso_dir = Path::new("iso");
     if iso_dir.exists() && iso_dir.is_dir() {
         add_files_recursively(&mut builder, iso_dir, iso_dir);
@@ -156,9 +160,9 @@ fn disk_img_builder(kernel_path: &Path) -> PathBuf {
     }
 
     builder
-        .create_uefi_image(&uefi_out_path)
+        .create_uefi_image(&uefi_out_path.as_path())
         .expect("UEFI image could not be created");
-    println!("uefi path: {}", uefi_out_path.display());
+    println!("uefi path: {}", uefi_out_path.as_path().display());
     uefi_out_path
 }
 
