@@ -1,7 +1,7 @@
 extern crate alloc;
 use alloc::format;
 use core::cfg;
-use core::convert::{From, Into};
+use core::convert::{From};
 use clap::Parser;
 use std::path::{Path, PathBuf};
 
@@ -143,15 +143,16 @@ fn build_init(_args: Args) {
         .join("zenos-init");
 
     // Ensure iso/bin exists and copy the file as init.elf
-    let out_dir = Path::new("iso").join("bin").as_path();
+    let binding = Path::new("iso").join("bin");
+    let out_dir = binding.as_path();
     std::fs::create_dir_all(&out_dir).expect("failed to create iso/bin directory");
     let out_path = out_dir.join("init.elf");
     std::fs::copy(&init_bin, &out_path).expect("failed to copy init.elf into iso/bin");
 }
 
 fn disk_img_builder(kernel_path: &Path) -> PathBuf {
-    let mut builder = zenos_bootloader::DiskImageBuilder::new(PathBuf::from(kernel_path.into()));
-    let uefi_out_path = PathBuf::from("uefi.img".into());
+    let mut builder = zenos_bootloader::DiskImageBuilder::new(kernel_path.to_path_buf());
+    let uefi_out_path = PathBuf::from("uefi.img");
     let iso_dir = Path::new("iso");
     if iso_dir.exists() && iso_dir.is_dir() {
         add_files_recursively(&mut builder, iso_dir, iso_dir);
