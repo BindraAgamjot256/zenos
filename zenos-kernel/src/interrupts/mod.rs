@@ -19,6 +19,7 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt[IRQ0_PIT].set_handler_fn(timer);
     idt[SPURIOUS].set_handler_fn(spurious_interrupt);
     idt[IRQ1_KEYBOARD].set_handler_fn(keyboard);
+    idt[0x80].set_handler_fn(crate::syscall::sys_rt0); // syscall entry point
     idt
 });
 

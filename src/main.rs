@@ -1,8 +1,8 @@
-extern crate alloc;
+extern crate alloc; // only for shutting up cargo check --target x86_64-unknown-zenos.json and co...
 use alloc::format;
-use core::cfg;
-use core::convert::{From};
 use clap::Parser;
+use core::cfg;
+use core::convert::From;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser, Clone, Copy)]
@@ -104,7 +104,8 @@ fn build_kernel(args: Args) -> PathBuf {
     };
 
     let kernel_path = Path::new("./target/x86_64-unknown-zenos")
-        .join(profile).as_path()
+        .join(profile)
+        .as_path()
         .join("zenos-kernel");
 
     kernel_path
@@ -139,7 +140,8 @@ fn build_init(_args: Args) {
 
     // Path to built init binary
     let init_bin = Path::new("./target/x86_64-unknown-zenos-user")
-        .join(profile).as_path()
+        .join(profile)
+        .as_path()
         .join("zenos-init");
 
     // Ensure iso/bin exists and copy the file as init.elf
