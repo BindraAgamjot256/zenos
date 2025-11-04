@@ -63,7 +63,7 @@ pub extern "x86-interrupt" fn sys_rt0(interupt_stack_frame: InterruptStackFrame)
         "mov {rip}, rcx",
         "mov {rfl}, r11",
         ret = out(reg) ret,
-        rip = out(reg) user_rip, // just in case i need it later
+        rip = out(reg) user_rip, // just in case I need it later
         rfl = out(reg) rflags,   // see above
         options(nostack, preserves_flags),
         );

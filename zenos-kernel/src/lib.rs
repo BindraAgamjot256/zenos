@@ -55,6 +55,7 @@ pub mod interrupts;
 /// Memory module for handling memory-related functionality
 pub mod memory;
 mod pci;
+mod process;
 /// Serial module for logging output
 pub mod serial;
 /// Syscalls module for handling system calls
