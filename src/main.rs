@@ -14,8 +14,10 @@ struct Args {
     /// cCheck the build
     #[arg(long, short = 'C', default_value = "false")]
     check: bool,
-    #[arg(long, short = 's', default_value = "true")]
+    #[arg(long, short = 's', default_value = "false")]
     test_stub: bool,
+    #[arg(long, short = 'd', default_value = "false")]
+    debugger: bool,
 }
 
 fn main() {
@@ -54,6 +56,12 @@ fn main() {
     ));
     cmd.arg("-device").arg("ide-hd,drive=disk0,bus=ahci.0");
 
+    if args.debugger {
+        cmd.arg("-s");
+        cmd.arg("-S");
+        println!("remember to attach the debugger.")
+    }
+    
     print!("running command: {cmd:#?}");
     let mut child = cmd.spawn().unwrap();
     child.wait().expect("failed to wait on child");

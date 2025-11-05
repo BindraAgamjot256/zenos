@@ -5,9 +5,9 @@ const CONFIG_ADDRESS: u16 = 0xCF8;
 const CONFIG_DATA: u16 = 0xCFC;
 
 pub struct PciDevice {
-    pub bus: u8,
-    pub slot: u8,
-    pub func: u8,
+    pub _bus: u8,
+    pub _slot: u8,
+    pub _func: u8,
     pub bar5: u32, // MMIO base
 }
 
@@ -94,9 +94,9 @@ pub fn scan_pci_for_ahci() -> Option<PciDevice> {
                         bus, slot, func, bar5
                     );
                     return Some(PciDevice {
-                        bus,
-                        slot,
-                        func,
+                        _bus: bus,
+                        _slot: slot,
+                        _func: func,
                         bar5,
                     });
                 }
@@ -104,6 +104,6 @@ pub fn scan_pci_for_ahci() -> Option<PciDevice> {
         }
     }
 
-    warn!("No AHCI controller found during PCI scan.");
+    warn!("No AHCI controller was found during the PCI scan.");
     None
 }

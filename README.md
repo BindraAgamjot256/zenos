@@ -2,7 +2,7 @@
 
 An experimental x86_64 operating system written in Rust.
 
-> **Note on pronunciation**: "Zenos" is pronounced /ˈziː.nɒsss/ (like "Zeno's paradox" with emphasis on the 's'), not as "zen OS".
+> **Note on pronunciation**: "Zenos" is pronounced /ˈziː.nɒsss/ (like "Zeno's paradox" with emphasis on the 's'), not as "zen OS."
 
 ## Overview
 
@@ -69,6 +69,7 @@ Tests execute in a QEMU environment and verify kernel functionality.
 ```
 zenos/
 ├── src/                    # QEMU runner
+├── zenos-init/             # Initial post-kernel setup
 ├── zenos-kernel/           # Main kernel implementation
 │   └── src/
 │       ├── memory/         # Memory management subsystem

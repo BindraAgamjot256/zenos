@@ -1,16 +1,16 @@
 mod write;
 
 use crate::interrupts::gdt::GDT;
-use crate::kprint;
 use crate::syscall::write::FileDescriptor;
-use core::arch::{asm, global_asm};
+use core::arch::{asm};
 use core::slice;
 use log::debug;
-use x86_64::registers::rflags::RFlags;
 use x86_64::structures::idt::InterruptStackFrame;
 
 #[unsafe(no_mangle)]
-pub extern "x86-interrupt" fn sys_rt0(interupt_stack_frame: InterruptStackFrame) {
+#[allow(unused_assignments)] // to shut cargo up about shit like ret being unused.
+#[allow(unused_variables)]
+pub extern "x86-interrupt" fn sys_rt0(_interrupt_stack_frame: InterruptStackFrame) {
     let mut syscall_num: u64;
     let mut user_rip: u64;
     let mut rflags: u64;
@@ -79,6 +79,7 @@ pub unsafe fn syscall_main(
     r8: u64,
     r9: u64,
 ) -> u64 {
+    #[allow(unused_assignments)]
     let mut ret = 0;
 
     debug!("syscall num: {}", syscall_num);

@@ -55,7 +55,7 @@ pub mod interrupts;
 /// Memory module for handling memory-related functionality
 pub mod memory;
 mod pci;
-mod process;
+pub mod process;
 /// Serial module for logging output
 pub mod serial;
 /// Syscalls module for handling system calls
@@ -96,7 +96,7 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
 
     #[cfg(debug_assertions)]
     {
-        log::set_max_level(log::LevelFilter::Debug);
+        log::set_max_level(log::LevelFilter::Debug); // do not use trace unless you have half an hour to spare....
     }
 
     #[cfg(not(debug_assertions))]

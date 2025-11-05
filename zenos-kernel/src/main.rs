@@ -118,11 +118,11 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     let buf = str::from_utf8(buf).unwrap();
     kprintln!("contents of chksum.txt: {buf}");
 
-    kprintln!("writing \"fuck\" to chksum.txt");
+    kprintln!("writing \"chksum.txt\" to chksum.txt");
     fs.root_dir()
         .open_file("chksum.txt")
         .expect("chksum.txt exists")
-        .write(b"fuck")
+        .write(b"chksum.txt")
         .expect("write failed");
     let mut binding = [0; 13];
     let buf = binding.as_mut_slice();
@@ -133,7 +133,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         .expect("read failed");
     let buf = str::from_utf8(buf).unwrap();
     kprintln!("new contents of chksum.txt: {buf}");
-
+    drop(fs);
     #[cfg(feature = "test_stub")]
     {
         let buf = include_bytes!("syscall/syscall_test_stub.bin");
@@ -145,7 +145,15 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         }
         unsafe { asm!("jmp {0}", in(reg) ptr.as_ptr::<u8>()) }
     }
-
+    
+    kprintln!("loading init process");
+    
+    let pinit = zenos_kernel::process::init_process();
+    
+    pinit.load();
+    
+    kprintln!("process loaded, pid: {}", pinit.pid);
+    
     //Enter the main kernel loop
     // TODO: Implement proper scheduling and process management
     loop {

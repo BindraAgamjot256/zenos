@@ -18,6 +18,7 @@ uart_16550 = "0.4.0"
 acpi = "5.2.0"
 xmas-elf = "0.10.0"
 pc-keyboard = "0.8.0"
+linked_list_allocator = "0.10.1"
 
 [dependencies.fatfs]
 version = "0.4"

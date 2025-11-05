@@ -1,4 +1,4 @@
-//! Zenos slab allocator v0.0.sqrt(-1)-don't_you_dare_test_it_on_hardware. Yes... That's its full version. Don't judge
+//! Zenos slab slab_allocator v0.0.sqrt(-1)-don't_you_dare_test_it_on_hardware. Yes... That's its full version. Don't judge
 
 use crate::memory::{PageType, kalloc_page};
 use crate::serial_println;
@@ -6,6 +6,7 @@ use core::alloc::{GlobalAlloc, Layout};
 use core::mem::size_of;
 use core::ptr::NonNull;
 use heapless::Vec;
+use linked_list_allocator::{Heap, LockedHeap};
 use log::{error, trace, warn};
 use spin::Mutex;
 use x86_64::VirtAddr;
@@ -30,7 +31,7 @@ const PAGE_SIZE: usize = super::constants::PAGE_4K;
 const MAX_SLAB_PAGES: usize = 10; // 40 KiB per slab.
 
 const SLAB_BASE_ADDR: u64 = 0x_4444_0000_0000 + super::KERNEL_BASE;
-const _LARGE_ALLOC_BASE_ADDR: u64 = 0x_5555_0000_0000 + super::KERNEL_BASE;
+const LARGE_ALLOC_BASE_ADDR: u64 = 0x_5555_0000_0000 + super::KERNEL_BASE;
 
 const SLAB_SIZE_CLASSES: [usize; 9] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048];
 
@@ -98,7 +99,7 @@ impl SlabMeta {
         );
     }
 }
-// The slab allocator with a free list
+// The slab slab_allocator with a free list
 #[derive(Debug)]
 pub struct Slab {
     base_addr: usize,
@@ -450,30 +451,57 @@ impl SlabAllocator {
 }
 
 struct LockedAllocator {
-    allocator: Mutex<SlabAllocator>,
+    slab_allocator: Mutex<SlabAllocator>,
+    large_allocator: LockedHeap,
 }
 impl LockedAllocator {
     pub const fn new() -> Self {
-        LockedAllocator {
-            allocator: Mutex::new(SlabAllocator::new()),
+        
+        unsafe {
+            LockedAllocator {
+                slab_allocator: Mutex::new(SlabAllocator::new()),
+                large_allocator: LockedHeap::empty(),
+            }
         }
+    }
+    
+    pub fn init(&mut self) {
+        self.slab_allocator.lock().init();
+        
     }
 }
 
 unsafe impl GlobalAlloc for LockedAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         x86_64::instructions::interrupts::without_interrupts(|| {
-            let mut allocator = self.allocator.lock();
+            if layout.size() > *SLAB_SIZE_CLASSES.last().unwrap() {
+                // redirect the chunky bois
+                let ptr = self.large_allocator.lock().allocate_first_fit(layout);
+                if ptr.is_err() {
+                    return core::ptr::null_mut();
+                }
+                return ptr.unwrap().as_ptr();
+            }
+            
+            let mut allocator = self.slab_allocator.lock();
             allocator.alloc(layout)
         })
     }
-
+    
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         x86_64::instructions::interrupts::without_interrupts(|| {
-            let mut allocator = self.allocator.lock();
+            if layout.size() > *SLAB_SIZE_CLASSES.last().unwrap() {
+                let ptr = NonNull::new(ptr);
+                if ptr.is_none() {
+                    return
+                }
+                return self.large_allocator.lock().deallocate(ptr.unwrap(), layout);
+            }
+            
+            let mut allocator = self.slab_allocator.lock();
             allocator.dealloc(ptr, layout);
-        })
-    }
+            
+        })}
 }
 
 unsafe impl Sync for LockedAllocator {}
@@ -483,7 +511,18 @@ unsafe impl Send for LockedAllocator {}
 static ALLOCATOR: LockedAllocator = LockedAllocator::new();
 
 pub fn init() {
-    trace!("Initializing slab allocator");
-    ALLOCATOR.allocator.lock().init();
+    trace!("Initializing slab slab_allocator");
+    let mut alloc = ALLOCATOR.slab_allocator.lock();
+    alloc.init();
+    // map pages for large allocator.
+    let mut addr = LARGE_ALLOC_BASE_ADDR;
+    let pages = (super::PAGE_2M * 5)/super::PAGE_4K;
+    for _ in 0..pages {
+        unsafe {
+            kalloc_page(VirtAddr::new(addr), PageType::Arbitrary).unwrap();
+        }
+        addr += super::PAGE_4K as u64;
+    }
+    unsafe { ALLOCATOR.large_allocator.lock().init(LARGE_ALLOC_BASE_ADDR as *mut u8, (super::PAGE_2M * 5)); }
     trace!("Slab allocator initialized with base address 0x{SLAB_BASE_ADDR:x}",);
 }

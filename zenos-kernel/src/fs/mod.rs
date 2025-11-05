@@ -100,7 +100,7 @@ impl HbaPrdtEntry {
         self.dbau = ((addr.as_u64() >> 32) & 0xFFFF_FFFF) as u32;
     }
 
-    fn set_byte_count(&mut self, bytes: u32, interrupt_on_completion: bool) {
+    fn _set_byte_count(&mut self, bytes: u32, interrupt_on_completion: bool) {
         self.dbc = (bytes - 1)
             | if interrupt_on_completion {
                 flags::PRDT_IOC

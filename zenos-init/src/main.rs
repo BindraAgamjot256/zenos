@@ -17,7 +17,7 @@ pub extern "C" fn _start() -> ! {
     let ret: isize;
     unsafe {
         asm!(
-        "syscall",
+        "int 0x80",
         in("rax") 1usize,            // syscall number: write
         in("rdi") 1usize,            // fd = 1 (stdout)
         in("rsi") buf.as_ptr(),      // buffer pointer
