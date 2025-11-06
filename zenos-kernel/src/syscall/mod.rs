@@ -2,7 +2,7 @@ mod write;
 
 use crate::interrupts::gdt::GDT;
 use crate::syscall::write::FileDescriptor;
-use core::arch::{asm};
+use core::arch::asm;
 use core::slice;
 use log::debug;
 use x86_64::structures::idt::InterruptStackFrame;

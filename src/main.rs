@@ -61,7 +61,7 @@ fn main() {
         cmd.arg("-S");
         println!("remember to attach the debugger.")
     }
-    
+
     print!("running command: {cmd:#?}");
     let mut child = cmd.spawn().unwrap();
     child.wait().expect("failed to wait on child");

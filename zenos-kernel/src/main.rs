@@ -13,12 +13,9 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use alloc::vec::Vec;
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
 use fatfs::{Read, Write};
-use x86_64::VirtAddr;
-use zenos_kernel::memory::{PageType, ualloc_page};
 use zenos_kernel::{kinit, kprintln, serial_println};
 
 static CONFIG: BootloaderConfig = {
@@ -137,23 +134,23 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     #[cfg(feature = "test_stub")]
     {
         let buf = include_bytes!("syscall/syscall_test_stub.bin");
-        let ptr = VirtAddr::new(0x2000000u64);
-        ualloc_page(ptr, PageType::Arbitrary).unwrap();
+        let ptr = x86_64::VirtAddr::new(0x2000000u64);
+        zenos_kernel::memory::ualloc_page(ptr, zenos_kernel::memory::PageType::Arbitrary).unwrap();
 
         unsafe {
             core::ptr::copy_nonoverlapping(buf.as_ptr(), ptr.as_mut_ptr(), buf.len());
         }
         unsafe { asm!("jmp {0}", in(reg) ptr.as_ptr::<u8>()) }
     }
-    
+
     kprintln!("loading init process");
-    
+
     let pinit = zenos_kernel::process::init_process();
-    
+
     pinit.load();
-    
+
     kprintln!("process loaded, pid: {}", pinit.pid);
-    
+
     //Enter the main kernel loop
     // TODO: Implement proper scheduling and process management
     loop {
