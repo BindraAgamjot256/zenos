@@ -16,7 +16,7 @@ use core::{
     slice,
     sync::atomic::{AtomicU64, Ordering},
 };
-use log::{error, trace};
+use log::{error, trace, warn};
 use spin::Mutex;
 use x86_64::structures::paging::Translate;
 use x86_64::structures::paging::mapper::UnmapError;
@@ -556,7 +556,7 @@ pub fn kalloc_page(virtaddr: VirtAddr, ptype: PageType) -> Result<PhysAddr, MapE
     let frame = allocate_frame(alloc, &virtaddr, &ptype)?;
 
     // Setup flags
-    let mut flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+    let mut flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
     match ptype {
         PageType::Mmio => flags |= PageTableFlags::NO_CACHE,
         PageType::Identity | PageType::Recursive | PageType::Arbitrary => {
@@ -610,6 +610,42 @@ pub fn ualloc_page(virtaddr: VirtAddr, ptype: PageType) -> Result<PhysAddr, MapE
         frame.0.as_u64()
     );
 
+    Ok(frame.0)
+}
+
+pub fn ualloc_page_flags(virtaddr: VirtAddr, ptype: PageType, flags: PageTableFlags) -> Result<PhysAddr, MapErr> {
+    let mut alloc_guard = ALLOCATOR.lock();
+    let alloc = alloc_guard.as_mut().ok_or(MapErr::Uninitialized)?;
+    
+    // Validate alignment for huge pages (because misaligned huge pages are a crime)
+    if matches!(ptype, PageType::Huge) && virtaddr.as_u64() % PAGE_2M as u64 != 0 {
+        return Err(MapErr::InvalidAlignment);
+    }
+    
+    // Allocate physical memory
+    let frame = allocate_frame(alloc, &virtaddr, &ptype)?;
+    
+    // Setup flags
+    let mut flags = flags | PageTableFlags::PRESENT;
+    match ptype {
+        PageType::Mmio => flags |= PageTableFlags::NO_CACHE,
+        PageType::Identity | PageType::Recursive | PageType::Arbitrary => {
+            flags |= PageTableFlags::GLOBAL
+        }
+        PageType::Huge => flags |= PageTableFlags::HUGE_PAGE,
+    }
+    
+    flags |= PageTableFlags::USER_ACCESSIBLE;
+    
+    // Actually map the page
+    map_page(&virtaddr, &frame, flags, alloc, &ptype)?;
+    
+    trace!(
+        "Map successful, {:#x} -> {:#x}",
+        virtaddr.as_u64(),
+        frame.0.as_u64()
+    );
+    
     Ok(frame.0)
 }
 
@@ -701,7 +737,14 @@ fn map_page(
                     Err(x86_64::structures::paging::mapper::MapToError::ParentEntryHugePage) => {
                         // a huge page already covers this 4KiB page, ignore
                     }
-                    Err(_) => return Err(MapErr::OutOfMemory),
+                    Err(x86_64::structures::paging::mapper::MapToError::PageAlreadyMapped(e)) => {
+                        // page is already mapped... ignore but warn
+                        warn!("Page already mapped {e:#?}");
+                    }
+                    Err(e) => {
+                        error!("err: {e:#?}");
+                        return Err(MapErr::OutOfMemory);
+                    },
                 }
             }
         };

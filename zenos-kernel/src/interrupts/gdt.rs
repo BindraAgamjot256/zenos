@@ -23,7 +23,7 @@ pub static TSS: Lazy<TaskStateSegment> = Lazy::new(|| {
     let stack_top = stack_virt + 4096;
 
     tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX] = stack_top;
-
+    tss.privilege_stack_table[0] = VirtAddr::new(crate::memory::KERNEL_STACK_BASE);
     tss
 });
 

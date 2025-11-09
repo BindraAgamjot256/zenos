@@ -24,6 +24,7 @@ pub fn joint_keyboard_handler(scancode: u8) {
 }
 
 fn raw_key_handler(key: KeyCode) {
+    // we use separate handlers for arrow keys and other keys, since arrow keys are
     match key {
         KeyCode::LShift | KeyCode::RShift => {}
         KeyCode::ArrowDown | KeyCode::ArrowUp => {

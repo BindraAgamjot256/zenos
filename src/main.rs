@@ -44,7 +44,7 @@ fn main() {
     cmd.arg("-m").arg("2048M");
     cmd.arg("-smp").arg("2");
     cmd.arg("-serial").arg("stdio");
-    cmd.arg("-no-reboot").arg("-no-shutdown");
+    cmd.arg("-no-reboot").arg("-no-shutdown").arg("-d").arg("cpu_reset");
 
     // AHCI controller (no bus specified)
     cmd.arg("-device").arg("ahci,id=ahci");

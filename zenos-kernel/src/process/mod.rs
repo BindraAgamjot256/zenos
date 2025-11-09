@@ -1,13 +1,18 @@
 use crate::fs::FS;
 use crate::kprintln;
-use crate::memory::{PAGE_4K, PageType, kalloc_page};
+use crate::memory::{PAGE_4K, PageType, kalloc_page, kfree_page, ualloc_page_flags, ualloc_page};
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use fatfs::{Read, Seek, SeekFrom};
-use log::{error, trace};
+use log::{error, info, trace, warn};
 use spin::Mutex;
+use x86_64::registers::rflags::RFlags;
+use x86_64::structures::idt::InterruptStackFrame;
+use x86_64::structures::paging::PageTableFlags;
 use x86_64::VirtAddr;
+use xmas_elf::program;
+use xmas_elf::program::Type;
 
 const PROCESS_ADDR: u64 = 0x2000000;
 
@@ -26,7 +31,7 @@ impl<'a> Process<'a> {
         let p = Process {
             pid,
             parent_pid: parent.pid,
-            state: ProcessState::default(),
+            state: ProcessState::new(),
             name,
             code,
         };
@@ -34,10 +39,81 @@ impl<'a> Process<'a> {
         p
     }
 
-    pub fn load(&self) {
+    pub fn load(&mut self) {
         let elf = xmas_elf::ElfFile::new(&self.code).unwrap();
         let header = elf.header;
-        log::info!("ELF header: {:?}", header);
+        info!("ELF header: {:?}", header);
+        self.state.loaded = true;
+        
+        for program_header in elf.program_iter() {
+            let res = program::sanity_check(program_header, &elf);
+            if res.is_err() {
+                error!("Invalid program header: {:?}", res.err().unwrap());
+                panic!("Invalid program header");
+            }else{
+                continue
+            }
+        }
+        
+        for program_header in elf.program_iter() {
+            unsafe {
+                match program_header.get_type() {
+                    Ok(Type::Load) => {
+                        let segment = program_header;
+                        let start_addr = segment.virtual_addr();
+                        let end_addr = segment.virtual_addr() + segment.file_size();
+                        let flags = segment.flags();
+                        info!("Loading segment: {:#?}, start-end = {start_addr:x}-{end_addr:x}", segment);
+                        let mut ptf = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+                        if flags.is_write() {
+                            ptf |= PageTableFlags::WRITABLE;
+                        }
+                        if !flags.is_execute() {
+                            ptf |= PageTableFlags::NO_EXECUTE;
+                        }
+                        ptf |= PageTableFlags::WRITABLE; // temporarily fuck W^X... don't tell anyone 🤫
+                        let mem_size = segment.mem_size();
+                        let seg_start = VirtAddr::new(segment.virtual_addr() + PROCESS_ADDR);
+                        let seg_end = VirtAddr::new(segment.virtual_addr() + mem_size + PROCESS_ADDR);
+                        let page_start = seg_start.align_down(PAGE_4K as u64);
+                        let page_end = seg_end.align_up(PAGE_4K as u64);
+                        
+                        let mut addr = page_start;
+                        while addr < page_end {
+                            ualloc_page_flags(addr, PageType::Arbitrary, ptf).unwrap();
+                            addr += PAGE_4K as u64;
+                        }
+                        let src = &self.code[segment.offset() as usize..(segment.offset() + segment.file_size()) as usize];
+                        let dst = ((segment.virtual_addr() as *mut u8) as u64 + PROCESS_ADDR) as *mut u8;
+                        let src = src.as_ptr() as *mut u8;
+                        let len = segment.file_size() as usize;
+                        
+                        unsafe {
+                            core::ptr::copy(src, dst, len); // ptr overlaps with the dst, so it will cause a err in copy_nonoverlapping.
+                        }
+                        info!("Segment {} copied to {seg_start:x}-{seg_end:x}", segment.virtual_addr());
+                        let bss_len = segment.mem_size() - segment.file_size();
+                        if bss_len > 0 {
+                            core::ptr::write_bytes(
+                                (segment.virtual_addr() + segment.file_size() + PROCESS_ADDR) as *mut u8,
+                                0,
+                                bss_len as usize
+                            );
+                        }
+                        
+                    }
+                    _ => {}
+                }
+            }
+        }
+        self.state.rip = header.pt2.entry_point() + PROCESS_ADDR;
+        unsafe{
+            ualloc_page(VirtAddr::new(PROCESS_ADDR + 0x00ff_0000), PageType::Arbitrary).unwrap(); // stack
+            let rflags = RFlags::RESUME_FLAG | RFlags::ZERO_FLAG | RFlags::PARITY_FLAG | RFlags::from_bits_truncate(0x2);
+            let isf = InterruptStackFrame::new(VirtAddr::new(self.state.rip), crate::interrupts::gdt::GDT.user_code_segment, rflags, VirtAddr::new(PROCESS_ADDR + 0x00ff_0000),crate::interrupts::gdt::GDT._user_data_segment);
+            warn!("isf: {isf:#?}... calling iretq. fingers crossed...");
+            isf.iretq();
+        }
     }
     pub fn trace(&self) {
         kprintln!("{:#?}", self.state);
@@ -49,6 +125,18 @@ struct ProcessState {
     rax: u64,
     rip: u64,
     cr3: u64,
+    loaded: bool,
+}
+
+impl ProcessState {
+    fn new() -> Self {
+        ProcessState {
+            rax: 0,
+            rip: 0,
+            cr3: 0,
+            loaded: false,
+        }
+    }
 }
 
 static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
