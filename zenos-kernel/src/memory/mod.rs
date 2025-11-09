@@ -613,18 +613,22 @@ pub fn ualloc_page(virtaddr: VirtAddr, ptype: PageType) -> Result<PhysAddr, MapE
     Ok(frame.0)
 }
 
-pub fn ualloc_page_flags(virtaddr: VirtAddr, ptype: PageType, flags: PageTableFlags) -> Result<PhysAddr, MapErr> {
+pub fn ualloc_page_flags(
+    virtaddr: VirtAddr,
+    ptype: PageType,
+    flags: PageTableFlags,
+) -> Result<PhysAddr, MapErr> {
     let mut alloc_guard = ALLOCATOR.lock();
     let alloc = alloc_guard.as_mut().ok_or(MapErr::Uninitialized)?;
-    
+
     // Validate alignment for huge pages (because misaligned huge pages are a crime)
     if matches!(ptype, PageType::Huge) && virtaddr.as_u64() % PAGE_2M as u64 != 0 {
         return Err(MapErr::InvalidAlignment);
     }
-    
+
     // Allocate physical memory
     let frame = allocate_frame(alloc, &virtaddr, &ptype)?;
-    
+
     // Setup flags
     let mut flags = flags | PageTableFlags::PRESENT;
     match ptype {
@@ -634,18 +638,18 @@ pub fn ualloc_page_flags(virtaddr: VirtAddr, ptype: PageType, flags: PageTableFl
         }
         PageType::Huge => flags |= PageTableFlags::HUGE_PAGE,
     }
-    
+
     flags |= PageTableFlags::USER_ACCESSIBLE;
-    
+
     // Actually map the page
     map_page(&virtaddr, &frame, flags, alloc, &ptype)?;
-    
+
     trace!(
         "Map successful, {:#x} -> {:#x}",
         virtaddr.as_u64(),
         frame.0.as_u64()
     );
-    
+
     Ok(frame.0)
 }
 
@@ -744,7 +748,7 @@ fn map_page(
                     Err(e) => {
                         error!("err: {e:#?}");
                         return Err(MapErr::OutOfMemory);
-                    },
+                    }
                 }
             }
         };

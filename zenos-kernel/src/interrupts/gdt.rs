@@ -51,7 +51,7 @@ pub struct GdtWrapper {
     pub tss_selector: SegmentSelector,
     pub _data_selector: SegmentSelector,
     pub user_code_segment: SegmentSelector,
-    pub _user_data_segment: SegmentSelector,
+    pub user_data_segment: SegmentSelector,
 }
 
 impl GdtWrapper {
@@ -71,7 +71,7 @@ impl GdtWrapper {
             tss_selector: slop.2,
             _data_selector: slop.3,
             user_code_segment: slop.4,
-            _user_data_segment: slop.5,
+            user_data_segment: slop.5,
         }
     }
 

@@ -7,6 +7,13 @@ edition = "2024"
 
 
 
+[target.x86_64-unknown-zenos-user]
+rustflags = [
+    "-C", "link-arg=-Tlink.ld",
+]
+
+
+
 [[bin]]
 name = "zenos-init"
 path = "src/main.rs"
