@@ -16,6 +16,7 @@ use alloc::boxed::Box;
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
 use fatfs::{Read, Write};
+use log::info;
 use zenos_kernel::{kinit, kprintln, serial_println};
 
 static CONFIG: BootloaderConfig = {
@@ -48,6 +49,7 @@ static CONFIG: BootloaderConfig = {
 fn _panic(info: &core::panic::PanicInfo) -> ! {
     use log::error;
     error!("Kernel Panic: {info}");
+    zenos_kernel::print_stack_trace();
     // Halt the CPU
     unsafe {
         asm!(
@@ -145,9 +147,11 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
 
     kprintln!("loading init process");
 
-    let mut pinit = zenos_kernel::process::init_process();
+    zenos_kernel::process::init_process();
+    let pinit = &mut zenos_kernel::process::PROCESSES.lock()[0];
 
     pinit.load();
+    pinit.run().unwrap();
 
     kprintln!("process loaded, pid: {}", pinit.pid);
 

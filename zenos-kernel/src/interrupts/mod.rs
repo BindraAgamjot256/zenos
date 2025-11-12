@@ -2,11 +2,9 @@ pub(crate) mod gdt;
 
 use crate::hardware::idt_vectors::*;
 use crate::interrupts::gdt::DOUBLE_FAULT_IST_INDEX;
-use core::ops::Add;
 use log::{error, warn};
 use spin::Lazy;
 use x86_64::PrivilegeLevel::Ring3;
-use x86_64::VirtAddr;
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
@@ -86,5 +84,6 @@ extern "x86-interrupt" fn undefined_opcode(isf: InterruptStackFrame) {
 
     error!("undefined opcode occurred... bytes: {:x?}", bytes);
     error!("stack frame: {isf:#?}");
+    crate::print_stack_trace();
     panic!("undefined opcode occurred");
 }

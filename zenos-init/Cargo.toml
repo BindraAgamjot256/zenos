@@ -5,12 +5,15 @@ edition = "2024"
 
 [dependencies]
 
-
-
-[target.x86_64-unknown-zenos-user]
+[target.'cfg(target_os = "none")']
 rustflags = [
-    "-C", "link-arg=-Tlink.ld",
+    "-C", "relocation-model=static",
+    "-C", "link-arg=-nostartfiles",
+    "-C", "link-arg=-static",
+    "-C", "link-arg=-no-pie",
+    "-C", "panic=abort",
 ]
+
 
 
 

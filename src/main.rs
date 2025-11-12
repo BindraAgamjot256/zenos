@@ -101,7 +101,7 @@ fn build_kernel(args: Args) -> PathBuf {
             .spawn()
             .expect("failed to run nasm");*/ //
     }
-
+    cmd.env("RUSTFLAGS", "-Cforce-frame-pointers=yes");
     let status = cmd.status().expect("failed to build kernel");
     if !status.success() {
         panic!("kernel build failed");
@@ -137,6 +137,7 @@ fn build_init(_args: Args) {
     cmd.arg("-Z")
         .arg("build-std-features=compiler-builtins-mem");
 
+    cmd.env("RUSTFLAGS", "-Cforce-frame-pointers=yes");
     let status = cmd.status().expect("failed to build init");
     if !status.success() {
         panic!("init build failed");
