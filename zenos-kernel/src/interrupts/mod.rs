@@ -84,5 +84,6 @@ extern "x86-interrupt" fn undefined_opcode(isf: InterruptStackFrame) {
 
     error!("undefined opcode occurred... bytes: {:x?}", bytes);
     error!("stack frame: {isf:#?}");
+    crate::print_stack_trace();
     panic!("undefined opcode occurred");
 }
