@@ -519,7 +519,7 @@ pub fn init() {
         ALLOCATOR
             .large_allocator
             .lock()
-            .init(LARGE_ALLOC_BASE_ADDR as *mut u8, (super::PAGE_2M * 5));
+            .init(LARGE_ALLOC_BASE_ADDR as *mut u8, super::PAGE_2M * 5);
     }
     trace!("Slab allocator initialized with base address 0x{SLAB_BASE_ADDR:x}",);
 }

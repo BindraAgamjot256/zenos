@@ -24,6 +24,7 @@
 #![no_std]
 #![feature(abi_x86_interrupt)]
 #![feature(cold_path)]
+#![feature(never_type)]
 #![allow(unsafe_op_in_unsafe_fn)] // rustc 2024 doesn't allow unsafe ops in unsafe functions, so we enable it manually
 #![deny(static_mut_refs)] // to be replaced later with deny... for now only.
 #![warn(clippy::missing_safety_doc)]
@@ -38,7 +39,7 @@ use bootloader_api::{BootInfo, info::MemoryRegion};
 use core::hint::cold_path;
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb888};
 use heapless::Vec;
-use log::{debug, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use x86_64::VirtAddr;
 
 /// ACPI Module for handling ACPI-related functionality. (currently only hosts acpi handler for acpi crate)
@@ -76,7 +77,7 @@ pub static TESTS: &[&[&(dyn Testable + Sync)]] = {
     }
 };
 
-/// Initializes the kernel with essential components.
+/// Initializes the kernel with essential parts.
 ///
 /// This function is called early in the boot process to set up critical kernel
 /// subsystems, including the framebuffer for display output, the logger and serial output, the
@@ -214,4 +215,55 @@ fn merge_contiguous_regions(regions: &mut [MemoryRegion]) -> &mut [MemoryRegion]
     // todo
     // for now, just return the regions as is
     regions
+}
+
+/// Prints the current stack trace by walking frame pointers
+pub fn print_stack_trace() {
+    use x86_64::VirtAddr;
+
+    error!("Stack trace:");
+
+    unsafe {
+        let mut rbp: u64;
+        core::arch::asm!("mov {}, rbp", out(reg) rbp);
+
+        let mut frame_num = 0;
+        error!("  #{}: <entry>", frame_num);
+        while rbp != 0 && frame_num < 64 {
+            let return_addr_ptr = (rbp + 8) as *const u64;
+            if return_addr_ptr.is_null() {
+                error!("  #{}: <null>", frame_num);
+                break;
+            }
+
+            let return_addr = *return_addr_ptr;
+            if return_addr == 0 {
+                error!("  #{}: <null>", frame_num);
+                break;
+            }
+
+            // Stop if we’ve crossed into userland
+            // Typical split: user < 0x0000800000000000 (or 0x00007fffffffffff)
+            if return_addr < 0xffff800000000000 {
+                error!(
+                    "  #{}: {:#018x} <userland, stopping>",
+                    frame_num, return_addr
+                );
+                break;
+            }
+
+            error!("  #{}: {:#018x}", frame_num, return_addr);
+
+            let next_rbp_ptr = rbp as *const u64;
+            let next_rbp = *next_rbp_ptr;
+
+            if next_rbp <= rbp {
+                error!("  #{}: <recursion>", frame_num);
+                break;
+            }
+
+            rbp = next_rbp;
+            frame_num += 1;
+        }
+    }
 }

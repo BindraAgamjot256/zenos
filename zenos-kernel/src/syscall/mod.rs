@@ -2,15 +2,17 @@ mod write;
 
 use crate::interrupts::gdt::GDT;
 use crate::syscall::write::FileDescriptor;
+use alloc::vec::Vec;
 use core::arch::asm;
 use core::slice;
-use log::debug;
+use log::{debug, info};
 use x86_64::structures::idt::InterruptStackFrame;
 
 #[unsafe(no_mangle)]
 #[allow(unused_assignments)] // to shut cargo up about shit like ret being unused.
 #[allow(unused_variables)]
 pub extern "x86-interrupt" fn sys_rt0(_interrupt_stack_frame: InterruptStackFrame) {
+    //todo: swapgs, stack switching etc.
     let mut syscall_num: u64;
     let mut user_rip: u64;
     let mut rflags: u64;
@@ -95,12 +97,21 @@ pub unsafe fn syscall_main(
             let buf_ptr = rsi;
             let len = rdx;
 
-            let buf = unsafe { slice::from_raw_parts(buf_ptr as *const u8, len as usize) };
+            debug!(
+                "syscall write: fd={:#x}, buf={:#x}, len={:#x}",
+                fd, buf_ptr, len
+            );
+
+            let ptr = copy_from_user(buf_ptr as *const u8, len as usize);
+            if ptr.is_err() {
+                ret = u64::MAX;
+            }
+            let mut buf = ptr.unwrap();
             let fd = FileDescriptor::try_from(fd);
             if fd.is_err() {
                 ret = u64::MAX;
             } else {
-                let val = write::sys_write(buf, fd.unwrap());
+                let val = write::sys_write(&mut buf, fd.unwrap());
                 if val.is_some() {
                     ret = val.unwrap()
                 } else {
@@ -143,4 +154,42 @@ pub fn init() {
     let mut efer = x86_64::registers::model_specific::Msr::new(0xC0000080);
     let val = unsafe { efer.read() };
     unsafe { efer.write(val | 1) }; // set SCE bit
+}
+
+use core::ptr;
+
+/// Copies data from a user-space pointer to a kernel-owned buffer.
+/// Returns `Ok(Vec<u8>)` if successful, `Err(())` if anything looks sketchy.
+///
+/// Safety: This assumes the pointer and length are from user space, so we must
+/// be paranoid and check for nulls, overflows, and nonsense.
+fn copy_from_user(user_ptr: *const u8, len: usize) -> Result<Vec<u8>, ()> {
+    //todo: support unaligned reads
+    info!("copy from user {:x} len {len:x}", user_ptr as usize);
+    // sanity checks
+    if user_ptr.is_null() || len == 0 {
+        return Err(());
+    }
+
+    // Prevent integer overflow on pointer arithmetic
+    (user_ptr as usize).checked_add(len).ok_or(())?;
+
+    // You can optionally validate if `end_addr` is still in user space.
+    // Example: ensure it's below some USER_SPACE_LIMIT.
+    // if end_addr >= USER_SPACE_LIMIT {
+    //     return Err(());
+    // }
+
+    let mut buf = Vec::with_capacity(len);
+
+    // SAFETY:
+    // - user_ptr must be readable.
+    // - buf has enough space for `len` bytes.
+    // - We assume we're in a context that allows accessing user memory.
+    unsafe {
+        buf.set_len(len);
+        ptr::copy_nonoverlapping(user_ptr, buf.as_mut_ptr(), len);
+    }
+
+    Ok(buf)
 }

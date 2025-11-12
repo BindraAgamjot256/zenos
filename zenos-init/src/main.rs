@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-/// TODO: this is still a wip.. the kernel needs to support elf loading first. for now, use the syscall_test_stub.asm in the syscall dir.
 use core::arch::asm;
 
 #[panic_handler]
@@ -11,10 +10,15 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
+    main();
+    unreachable!()
+}
+
+fn main() {
     // Minimal init process that loops forever
     let buf = b"hello world\n";
     let len = buf.len();
-    let ret: isize;
+    let _ret: isize;
     unsafe {
         asm!(
         "int 0x80",
@@ -22,7 +26,7 @@ pub extern "C" fn _start() -> ! {
         in("rdi") 1usize,            // fd = 1 (stdout)
         in("rsi") buf.as_ptr(),      // buffer pointer
         in("rdx") len,               // buffer length
-        lateout("rax") ret,          // syscall return -> rax
+        lateout("rax") _ret,         // syscall return -> rax
         out("rcx") _,                // syscall clobbers rcx
         out("r11") _,                // syscall clobbers r11
         options(nostack),            // we don't touch the stack here
