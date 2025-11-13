@@ -2,6 +2,7 @@ use crate::fs::FS;
 use crate::interrupts::gdt::GDT;
 use crate::kprintln;
 use crate::memory::{PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags};
+use crate::testing::Testable;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::arch::global_asm;
@@ -265,3 +266,181 @@ fn get_len<T: Seek>(obj: &mut T) -> Result<u64, ()> {
         .map_err(|e| error!("Seek restore failed: {:?}", e))?;
     Ok(end)
 }
+
+mod tests {
+    use super::*;
+    use crate::test_assert_eq as assert_eq;
+    use fatfs::IoBase;
+
+    pub fn test_process_state_new() -> Option<()> {
+        let state = ProcessState::new();
+        assert_eq!(state.rax, 0);
+        assert_eq!(state.rip, 0);
+        assert_eq!(state.cr3, 0);
+        assert_eq!(state.loaded, false);
+        Some(())
+    }
+
+    pub fn test_process_state_default() -> Option<()> {
+        let state = ProcessState::default();
+        assert_eq!(state.rax, 0);
+        assert_eq!(state.rip, 0);
+        assert_eq!(state.cr3, 0);
+        assert_eq!(state.loaded, false);
+        Some(())
+    }
+
+    pub fn test_process_state_copy() -> Option<()> {
+        let state1 = ProcessState {
+            rax: 42,
+            rip: 0x1000,
+            cr3: 0x2000,
+            loaded: true,
+        };
+        let state2 = state1;
+        assert_eq!(state1.rax, state2.rax);
+        assert_eq!(state1.rip, state2.rip);
+        assert_eq!(state1.cr3, state2.cr3);
+        assert_eq!(state1.loaded, state2.loaded);
+        Some(())
+    }
+
+    // Mock seekable object for testing get_len
+    struct MockSeekable {
+        pos: u64,
+        len: u64,
+    }
+
+    impl MockSeekable {
+        fn new(len: u64) -> Self {
+            MockSeekable { pos: 0, len }
+        }
+    }
+
+    impl IoBase for MockSeekable {
+        type Error = ();
+    }
+
+    impl Seek for MockSeekable {
+        fn seek(&mut self, pos: SeekFrom) -> Result<u64, ()> {
+            match pos {
+                SeekFrom::Start(n) => {
+                    self.pos = n;
+                    Ok(self.pos)
+                }
+                SeekFrom::Current(n) => {
+                    self.pos = (self.pos as i64 + n) as u64;
+                    Ok(self.pos)
+                }
+                SeekFrom::End(n) => {
+                    self.pos = (self.len as i64 + n) as u64;
+                    Ok(self.pos)
+                }
+            }
+        }
+    }
+
+    pub fn test_get_len_empty() -> Option<()> {
+        let mut obj = MockSeekable::new(0);
+        let len = get_len(&mut obj);
+        assert_eq!(len, Ok(0));
+        assert_eq!(obj.pos, 0); // Position should be restored
+        Some(())
+    }
+
+    pub fn test_get_len_with_data() -> Option<()> {
+        let mut obj = MockSeekable::new(1024);
+        let len = get_len(&mut obj);
+        assert_eq!(len, Ok(1024));
+        assert_eq!(obj.pos, 0); // Position should be restored
+        Some(())
+    }
+
+    pub fn test_get_len_preserves_position() -> Option<()> {
+        let mut obj = MockSeekable::new(1024);
+        obj.seek(SeekFrom::Start(512)).unwrap();
+        let len = get_len(&mut obj);
+        assert_eq!(len, Ok(1024));
+        assert_eq!(obj.pos, 512); // Position should be restored to 512
+        Some(())
+    }
+
+    pub fn test_get_len_large_file() -> Option<()> {
+        let mut obj = MockSeekable::new(10 * 1024 * 1024); // 10 MB
+        let len = get_len(&mut obj);
+        assert_eq!(len, Ok(10 * 1024 * 1024));
+        assert_eq!(obj.pos, 0);
+        Some(())
+    }
+
+    // Create a minimal valid ELF file for testing
+    fn create_minimal_elf() -> [u8; 64] {
+        let mut elf = [0u8; 64]; // ELF header size
+        // ELF magic number
+        elf[0] = 0x7f;
+        elf[1] = b'E';
+        elf[2] = b'L';
+        elf[3] = b'F';
+        // 64-bit
+        elf[4] = 2;
+        // Little endian
+        elf[5] = 1;
+        // Version
+        elf[6] = 1;
+        // Type: executable
+        elf[16] = 2;
+        elf[17] = 0;
+        // Machine: x86-64
+        elf[18] = 0x3e;
+        elf[19] = 0;
+        // Version
+        elf[20] = 1;
+        elf[21] = 0;
+        elf[22] = 0;
+        elf[23] = 0;
+        // Entry point
+        elf[24] = 0x00;
+        elf[25] = 0x10;
+        elf[26] = 0x00;
+        elf[27] = 0x00;
+        elf[28] = 0x00;
+        elf[29] = 0x00;
+        elf[30] = 0x00;
+        elf[31] = 0x00;
+        // e_phoff (program header offset) - set to 64
+        elf[32] = 64;
+        elf[33] = 0;
+        elf[34] = 0;
+        elf[35] = 0;
+        elf[36] = 0;
+        elf[37] = 0;
+        elf[38] = 0;
+        elf[39] = 0;
+        // e_ehsize (header size)
+        elf[52] = 64;
+        elf[53] = 0;
+        // e_phentsize (program header entry size)
+        elf[54] = 56;
+        elf[55] = 0;
+        // e_phnum (number of program headers)
+        elf[56] = 0;
+        elf[57] = 0;
+        elf
+    }
+}
+
+pub(crate) static TESTS: &[&(dyn Testable + Sync)] = {
+    if cfg!(test) || cfg!(debug_assertions) {
+        &[
+            &tests::test_get_len_empty,
+            &tests::test_get_len_large_file,
+            &tests::test_get_len_preserves_position,
+            &tests::test_get_len_with_data,
+            &tests::test_process_state_copy,
+            &tests::test_process_state_default,
+            &tests::test_process_state_new,
+        ]
+    } else {
+        &[]
+    }
+};

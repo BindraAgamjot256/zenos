@@ -71,7 +71,12 @@ compile_error!("zenos only supports x86_64");
 
 pub static TESTS: &[&[&(dyn Testable + Sync)]] = {
     if cfg!(test) || cfg!(debug_assertions) {
-        &[framebuffer::TESTS, memory::TESTS, testing::TESTS]
+        &[
+            framebuffer::TESTS,
+            memory::TESTS,
+            testing::TESTS,
+            process::TESTS,
+        ]
     } else {
         &[]
     }

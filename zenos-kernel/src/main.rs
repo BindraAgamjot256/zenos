@@ -48,8 +48,8 @@ static CONFIG: BootloaderConfig = {
 #[cfg_attr(not(test), panic_handler)]
 fn _panic(info: &core::panic::PanicInfo) -> ! {
     use log::error;
-    error!("Kernel Panic: {info}");
     zenos_kernel::print_stack_trace();
+    error!("Kernel Panic: {info}");
     // Halt the CPU
     unsafe {
         asm!(
