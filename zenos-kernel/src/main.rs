@@ -94,17 +94,6 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
 
     // Initialize kernel subsystems
     kinit(boot_info);
-    serial_println!("allocating boxes");
-
-    let the_box = Box::new(100u8);
-
-    serial_println!("{:?}", the_box);
-    drop(the_box);
-
-    let vec = alloc::vec![1u8; 1000];
-    serial_println!("{:?}", vec.len());
-
-    drop(vec);
 
     let fs = zenos_kernel::fs::FS.lock();
     let mut binding = [0; 13];

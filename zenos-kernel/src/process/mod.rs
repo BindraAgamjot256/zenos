@@ -2,18 +2,17 @@ use crate::fs::FS;
 use crate::interrupts::gdt::GDT;
 use crate::kprintln;
 use crate::memory::{PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags};
+use crate::percpu::{PerCpuData, PerCpuVar};
 use crate::testing::Testable;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::arch::global_asm;
+use core::mem::offset_of;
 use core::sync::atomic::{AtomicU64, Ordering};
 use fatfs::{Read, Seek, SeekFrom};
 use log::{error, info, trace};
 use spin::Mutex;
 use x86_64::VirtAddr;
-use x86_64::registers::rflags::RFlags;
-use x86_64::structures::gdt::SegmentSelector;
-use x86_64::structures::idt::InterruptStackFrame;
 use x86_64::structures::paging::PageTableFlags;
 use xmas_elf::program;
 use xmas_elf::program::Type;
@@ -125,6 +124,9 @@ impl<'a> Process<'a> {
         if !self.state.loaded {
             return Err(());
         }
+        unsafe {
+            CURRENT_PID.write(self.pid);
+        }
         let user_stack_top = PROCESS_ADDR + 0x0100_0000;
         for addr in (user_stack_top - 0x4000..user_stack_top).step_by(PAGE_4K) {
             ualloc_page(VirtAddr::new(addr), PageType::Arbitrary).unwrap();
@@ -201,6 +203,7 @@ global_asm!(
     "
 .global jmp_userland
 jmp_userland:
+    swapgs
     mov rbp, 0
     mov rsp, r11
     push rax
@@ -266,6 +269,7 @@ fn get_len<T: Seek>(obj: &mut T) -> Result<u64, ()> {
         .map_err(|e| error!("Seek restore failed: {:?}", e))?;
     Ok(end)
 }
+static CURRENT_PID: PerCpuVar<u64> = PerCpuVar::new(offset_of!(PerCpuData, curr_pid));
 
 mod tests {
     use super::*;
@@ -371,61 +375,6 @@ mod tests {
         assert_eq!(len, Ok(10 * 1024 * 1024));
         assert_eq!(obj.pos, 0);
         Some(())
-    }
-
-    // Create a minimal valid ELF file for testing
-    fn create_minimal_elf() -> [u8; 64] {
-        let mut elf = [0u8; 64]; // ELF header size
-        // ELF magic number
-        elf[0] = 0x7f;
-        elf[1] = b'E';
-        elf[2] = b'L';
-        elf[3] = b'F';
-        // 64-bit
-        elf[4] = 2;
-        // Little endian
-        elf[5] = 1;
-        // Version
-        elf[6] = 1;
-        // Type: executable
-        elf[16] = 2;
-        elf[17] = 0;
-        // Machine: x86-64
-        elf[18] = 0x3e;
-        elf[19] = 0;
-        // Version
-        elf[20] = 1;
-        elf[21] = 0;
-        elf[22] = 0;
-        elf[23] = 0;
-        // Entry point
-        elf[24] = 0x00;
-        elf[25] = 0x10;
-        elf[26] = 0x00;
-        elf[27] = 0x00;
-        elf[28] = 0x00;
-        elf[29] = 0x00;
-        elf[30] = 0x00;
-        elf[31] = 0x00;
-        // e_phoff (program header offset) - set to 64
-        elf[32] = 64;
-        elf[33] = 0;
-        elf[34] = 0;
-        elf[35] = 0;
-        elf[36] = 0;
-        elf[37] = 0;
-        elf[38] = 0;
-        elf[39] = 0;
-        // e_ehsize (header size)
-        elf[52] = 64;
-        elf[53] = 0;
-        // e_phentsize (program header entry size)
-        elf[54] = 56;
-        elf[55] = 0;
-        // e_phnum (number of program headers)
-        elf[56] = 0;
-        elf[57] = 0;
-        elf
     }
 }
 

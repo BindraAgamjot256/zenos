@@ -25,6 +25,7 @@
 #![feature(abi_x86_interrupt)]
 #![feature(cold_path)]
 #![feature(never_type)]
+#![feature(ptr_as_ref_unchecked)]
 #![allow(unsafe_op_in_unsafe_fn)] // rustc 2024 doesn't allow unsafe ops in unsafe functions, so we enable it manually
 #![deny(static_mut_refs)] // to be replaced later with deny... for now only.
 #![warn(clippy::missing_safety_doc)]
@@ -32,6 +33,7 @@
 extern crate alloc;
 
 pub use crate::framebuffer::helpers::*;
+use crate::percpu::get_percpu_data;
 use crate::testing::Testable;
 use ::acpi::InterruptModel;
 use bootloader_api::info::MemoryRegionKind;
@@ -44,7 +46,7 @@ use x86_64::VirtAddr;
 
 /// ACPI Module for handling ACPI-related functionality. (currently only hosts acpi handler for acpi crate)
 pub mod acpi;
-/// Architecture-specific code(only does inb, outb etc., as os is designed for x86_64)
+/// Architecture-specific code (only does inb, outb etc., as os is designed for x86_64)
 mod arch;
 /// Framebuffer module for display output
 pub(crate) mod framebuffer;
@@ -56,6 +58,7 @@ pub mod interrupts;
 /// Memory module for handling memory-related functionality
 pub mod memory;
 mod pci;
+mod percpu;
 pub mod process;
 /// Serial module for logging output
 pub mod serial;
@@ -76,6 +79,7 @@ pub static TESTS: &[&[&(dyn Testable + Sync)]] = {
             memory::TESTS,
             testing::TESTS,
             process::TESTS,
+            percpu::TESTS,
         ]
     } else {
         &[]
@@ -98,11 +102,11 @@ pub static TESTS: &[&[&(dyn Testable + Sync)]] = {
 /// This function expects to be called only once during system initialization.
 #[track_caller]
 pub fn kinit(boot_info: &'static mut BootInfo) {
-    log::set_logger(&serial::LOGGER).expect("PANIK");
+    log::set_logger(&serial::LOGGER).expect("PANIC");
 
     #[cfg(debug_assertions)]
     {
-        log::set_max_level(log::LevelFilter::Debug); // do not use trace unless you have half an hour to spare....
+        log::set_max_level(log::LevelFilter::Debug); // do not use trace unless you have half an hour to spare...
     }
 
     #[cfg(not(debug_assertions))]
@@ -190,7 +194,7 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
                 let _ = isr_overrides
                     .as_mut()
                     .unwrap()
-                    .push((i.isa_source as u64, i.global_system_interrupt as u64)); // 128 isr overrides is unlikely if i do say so myself...
+                    .push((i.isa_source as u64, i.global_system_interrupt as u64)); // 128 isr overrides is unlikely if I do say so myself...
                 trace!(
                     "ISR Override: {} -> {}",
                     i.isa_source, i.global_system_interrupt
@@ -206,6 +210,8 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
         apic_info.1.as_mut_slice(),
         isr_overrides.unwrap_or(Vec::new()).as_mut_slice(),
     );
+    debug!("Hardware initialized, enabling percpu data");
+    unsafe { percpu::init_percpu(&mut percpu::PER_CPU_AREAS[0] as *mut percpu::PerCpuData) };
 
     debug!("Enabling syscalls");
     syscall::init();
@@ -214,6 +220,7 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
     debug!("everything initialized, enabling interrupts now");
     x86_64::instructions::interrupts::enable();
     debug!("Interrupts enabled");
+    debug!("cpu online, {:#?}", unsafe { *get_percpu_data() })
 }
 
 fn merge_contiguous_regions(regions: &mut [MemoryRegion]) -> &mut [MemoryRegion] {
@@ -224,8 +231,6 @@ fn merge_contiguous_regions(regions: &mut [MemoryRegion]) -> &mut [MemoryRegion]
 
 /// Prints the current stack trace by walking frame pointers
 pub fn print_stack_trace() {
-    use x86_64::VirtAddr;
-
     error!("Stack trace:");
 
     unsafe {

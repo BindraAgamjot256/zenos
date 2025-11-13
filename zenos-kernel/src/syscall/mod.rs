@@ -4,7 +4,6 @@ use crate::interrupts::gdt::GDT;
 use crate::syscall::write::FileDescriptor;
 use alloc::vec::Vec;
 use core::arch::asm;
-use core::slice;
 use log::{debug, info};
 use x86_64::structures::idt::InterruptStackFrame;
 
@@ -72,6 +71,7 @@ pub extern "x86-interrupt" fn sys_rt0(_interrupt_stack_frame: InterruptStackFram
     }
 }
 
+#[allow(unused_assignments)]
 pub unsafe fn syscall_main(
     syscall_num: u64,
     rdi: u64,
@@ -81,7 +81,6 @@ pub unsafe fn syscall_main(
     r8: u64,
     r9: u64,
 ) -> u64 {
-    #[allow(unused_assignments)]
     let mut ret = 0;
 
     debug!("syscall num: {}", syscall_num);
