@@ -17,7 +17,7 @@ use x86_64::structures::paging::PageTableFlags;
 use xmas_elf::program;
 use xmas_elf::program::Type;
 
-const PROCESS_ADDR: u64 = 0x2000000;
+const PROCESS_ADDR: u64 = 0;
 const ELF_ADDR: u64 = 0x1000000;
 
 #[derive(Debug)]
