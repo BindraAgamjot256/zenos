@@ -21,6 +21,7 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt[SPURIOUS].set_handler_fn(spurious_interrupt);
     idt[IRQ1_KEYBOARD].set_handler_fn(keyboard);
     idt[IRQ2_CASCADE].set_handler_fn(cascade_handler);
+    idt[IRQ4_SERIAL1].set_handler_fn(cascade_handler);
     idt.invalid_opcode.set_handler_fn(undefined_opcode);
     idt[0x80]
         .set_handler_fn(crate::syscall::sys_rt0)
@@ -34,7 +35,10 @@ extern "x86-interrupt" fn double_fault_handler(ist: InterruptStackFrame, error_c
     panic!("Double fault occurred, error code: {}", error_code);
 }
 
-extern "x86-interrupt" fn cascade_handler(_: InterruptStackFrame) {}
+extern "x86-interrupt" fn cascade_handler(ist: InterruptStackFrame) {
+    error!("interrupt occured");
+    error!("ist: {ist:#?}");
+}
 
 extern "x86-interrupt" fn page_fault_handler(
     ist: InterruptStackFrame,

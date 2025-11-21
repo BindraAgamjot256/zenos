@@ -74,15 +74,7 @@ impl log::Log for SerialLogger {
     }
 
     fn log(&self, record: &log::Record) {
-        if let Some(module) = record.module_path() {
-            if (module.starts_with("zenos_kernel::memory")
-                || module.starts_with("zenos_kernel::hardware")
-                || module.starts_with("zenos_kernel::memory::alloc"))
-                && record.level() >= log::Level::Warn
-            {
-                return; // skip these logs
-            }
-        }
+        
 
         let level_color = match record.level() {
             log::Level::Error => COLOR_ERROR,

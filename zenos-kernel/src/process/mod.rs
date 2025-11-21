@@ -5,6 +5,7 @@ use crate::memory::{PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_fla
 use crate::percpu::{PerCpuData, PerCpuVar};
 use crate::testing::Testable;
 use alloc::string::String;
+use core::arch::asm;
 use alloc::vec::Vec;
 use core::arch::global_asm;
 use core::mem::offset_of;
@@ -145,15 +146,19 @@ impl<'a> Process<'a> {
         info!("RFLAGS: {rflags:x}");
         assert_eq!(user_stack % 16, 0, "stack must be 16-byte aligned");
         unsafe {
-            core::arch::asm!(
-            "jmp {0}",
-            in(reg) jmp_userland,
-            in("rax") user_ss,
-            in("r11") user_stack,
-            in("rcx") rflags,
-            in("r8") user_cs,
-            in("r9") user_entry,
-            )
+            asm!(
+    "swapgs",
+    "mov rbp, 0",
+    "mov rsp, r11",
+    "push rax",
+    "push r11",
+    "push rcx",
+    "push r8",
+    "push r9",
+    "iretq",
+    options(noreturn)
+);
+
         }
         Ok(())
     }
