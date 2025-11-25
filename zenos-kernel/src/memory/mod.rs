@@ -196,7 +196,7 @@ impl PageAllocator {
                                         Ordering::Acquire,
                                     ) {
                                         Ok(_) => {
-                                            log::debug!("Allocated 4KiB page at {phys:#x}");
+                                            // log::debug!("Allocated 4KiB page at {phys:#x}");
                                             return Some(phys_addr);
                                         }
                                         Err(new_val) => {

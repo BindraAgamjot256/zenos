@@ -13,9 +13,11 @@ pub static LOGGER: SerialLogger = SerialLogger;
 
 #[doc(hidden)]
 pub fn _sprint(args: core::fmt::Arguments) {
+
     use core::fmt::Write;
     use x86_64::instructions::interrupts::without_interrupts;
     without_interrupts(|| {
+        unsafe {SERIAL.force_unlock()}
         let mut serial = SERIAL.lock();
         serial.write_fmt(args).unwrap();
     })
@@ -74,8 +76,6 @@ impl log::Log for SerialLogger {
     }
 
     fn log(&self, record: &log::Record) {
-        
-
         let level_color = match record.level() {
             log::Level::Error => COLOR_ERROR,
             log::Level::Warn => COLOR_WARN,
@@ -84,9 +84,6 @@ impl log::Log for SerialLogger {
             log::Level::Trace => COLOR_TRACE,
         };
         let reset = COLOR_RESET;
-        unsafe {
-            SERIAL.force_unlock();
-        }
         serial_println!(
             "{}[{}: {}: {}]{}: {}",
             level_color,

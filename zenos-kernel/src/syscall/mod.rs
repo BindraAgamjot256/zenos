@@ -1,20 +1,21 @@
 mod write;
 
+use crate::hardware::keyboard;
 use crate::interrupts::gdt::GDT;
+use crate::memory::{PAGE_4K, virt_to_phys};
 use crate::syscall::write::FileDescriptor;
 use alloc::vec::Vec;
 use core::arch::asm;
 use log::{debug, info};
+use x86_64::VirtAddr;
 use x86_64::structures::idt::InterruptStackFrame;
 
 #[unsafe(no_mangle)]
 #[allow(unused_assignments)] // to shut cargo up about shit like ret being unused.
 #[allow(unused_variables)]
-pub extern "x86-interrupt" fn sys_rt0(_interrupt_stack_frame: InterruptStackFrame) {
+pub extern "x86-interrupt" fn sys_rt0(stack_frame: InterruptStackFrame) {
     //todo: swapgs, stack switching etc.
     let mut syscall_num: u64;
-    let mut user_rip: u64;
-    let mut rflags: u64;
     let mut rdi_val: u64;
     let mut rsi_val: u64;
     let mut rdx_val: u64;
@@ -23,12 +24,12 @@ pub extern "x86-interrupt" fn sys_rt0(_interrupt_stack_frame: InterruptStackFram
     let mut r9_val: u64;
     let mut ret: u64 = 0;
 
-    // Grab everything up front, like a responsible adult.
+    info!("syscall interrupt triggered from userspace");
+    
+    // For int 0x80, syscall number is in RAX, arguments in standard calling convention
     unsafe {
         asm!(
         "mov {syscall}, rax",
-        "mov {rip}, rcx",
-        "mov {rfl}, r11",
         "mov {rdi_val}, rdi",
         "mov {rsi_val}, rsi",
         "mov {rdx_val}, rdx",
@@ -36,8 +37,6 @@ pub extern "x86-interrupt" fn sys_rt0(_interrupt_stack_frame: InterruptStackFram
         "mov {r8_val}, r8",
         "mov {r9_val}, r9",
         syscall = out(reg) syscall_num,
-        rip = out(reg) user_rip,
-        rfl = out(reg) rflags,
         rdi_val = out(reg) rdi_val,
         rsi_val = out(reg) rsi_val,
         rdx_val = out(reg) rdx_val,
@@ -59,13 +58,10 @@ pub extern "x86-interrupt" fn sys_rt0(_interrupt_stack_frame: InterruptStackFram
         );
     }
     unsafe {
+        // For int 0x80 we only need to place the return value in RAX
         asm!(
-        "mov {ret}, rax",
-        "mov {rip}, rcx",
-        "mov {rfl}, r11",
-        ret = out(reg) ret,
-        rip = out(reg) user_rip, // just in case I need it later
-        rfl = out(reg) rflags,   // see above
+        "mov rax, {ret}",
+        ret = in(reg) ret,
         options(nostack, preserves_flags),
         );
     }
@@ -90,6 +86,34 @@ pub unsafe fn syscall_main(
     );
 
     match syscall_num {
+        0 => {
+            // read(fd, buf, len)
+            let fd = rdi;
+            let buf_ptr = rsi as *mut u8;
+            let len = rdx as usize;
+
+            debug!(
+                "syscall read: fd={:#x}, buf={:#x}, len={:#x}",
+                fd, buf_ptr as u64, len
+            );
+
+            if fd != 0 || buf_ptr.is_null() || len == 0 {
+                ret = u64::MAX;
+            } else {
+                let mut kbuf = [0u8; 256];
+                let max_len = if len > kbuf.len() { kbuf.len() } else { len };
+                let read = keyboard::read_into(&mut kbuf[..max_len]);
+
+                if read == 0 {
+                    // nothing available right now
+                    ret = 0;
+                } else if copy_to_user(buf_ptr, &kbuf[..read]).is_ok() {
+                    ret = read as u64;
+                } else {
+                    ret = u64::MAX;
+                }
+            }
+        }
         1 => {
             // write(fd, buf, len)
             let fd = rdi;
@@ -157,6 +181,31 @@ pub fn init() {
 
 use core::ptr;
 
+/// Quickly checks whether the entire user range [ptr, ptr+len) is mapped in the
+/// current page tables. This avoids taking a page fault when copying.
+fn user_range_is_mapped(user_ptr: *const u8, len: usize) -> bool {
+    if user_ptr.is_null() || len == 0 {
+        return false;
+    }
+
+    let start = user_ptr as u64;
+    let end = match start.checked_add(len as u64) {
+        Some(v) => v,
+        None => return false,
+    };
+
+    // Walk each 4 KiB page in the range and ensure it has a valid mapping.
+    let mut addr = start & !(PAGE_4K as u64 - 1);
+    while addr < end {
+        if virt_to_phys(VirtAddr::new(addr)).is_none() {
+            return false;
+        }
+        addr += PAGE_4K as u64;
+    }
+
+    true
+}
+
 /// Copies data from a user-space pointer to a kernel-owned buffer.
 /// Returns `Ok(Vec<u8>)` if successful, `Err(())` if anything looks sketchy.
 ///
@@ -165,30 +214,41 @@ use core::ptr;
 fn copy_from_user(user_ptr: *const u8, len: usize) -> Result<Vec<u8>, ()> {
     //todo: support unaligned reads
     info!("copy from user {:x} len {len:x}", user_ptr as usize);
-    // sanity checks
-    if user_ptr.is_null() || len == 0 {
+
+    if !user_range_is_mapped(user_ptr, len) {
         return Err(());
     }
-
-    // Prevent integer overflow on pointer arithmetic
-    (user_ptr as usize).checked_add(len).ok_or(())?;
-
-    // You can optionally validate if `end_addr` is still in user space.
-    // Example: ensure it's below some USER_SPACE_LIMIT.
-    // if end_addr >= USER_SPACE_LIMIT {
-    //     return Err(());
-    // }
 
     let mut buf = Vec::with_capacity(len);
 
     // SAFETY:
-    // - user_ptr must be readable.
+    // - `user_ptr` has been validated as mapped and readable.
     // - buf has enough space for `len` bytes.
-    // - We assume we're in a context that allows accessing user memory.
     unsafe {
         buf.set_len(len);
         ptr::copy_nonoverlapping(user_ptr, buf.as_mut_ptr(), len);
     }
 
     Ok(buf)
+}
+
+/// Copies data from a kernel-owned buffer to a user-space pointer.
+/// Returns `Ok(())` if successful, `Err(())` on invalid pointers or overflow.
+fn copy_to_user(user_ptr: *mut u8, buf: &[u8]) -> Result<(), ()> {
+    info!("copy to user {:x} len {:x}", user_ptr as usize, buf.len());
+
+    let len = buf.len();
+    if len == 0 {
+        return Ok(());
+    }
+
+    if !user_range_is_mapped(user_ptr as *const u8, len) {
+        return Err(());
+    }
+
+    unsafe {
+        ptr::copy_nonoverlapping(buf.as_ptr(), user_ptr, len);
+    }
+
+    Ok(())
 }

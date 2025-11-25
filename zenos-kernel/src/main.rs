@@ -137,12 +137,17 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     kprintln!("loading init process");
 
     zenos_kernel::process::init_process();
-    let pinit = &mut zenos_kernel::process::PROCESSES.lock()[0];
+    
+    let (entry, stack, pid) = {
+        let mut processes = zenos_kernel::process::PROCESSES.lock();
+        let pinit = &mut processes[0];
+        pinit.load();
+        let (e, s) = pinit.prepare_run().unwrap();
+        (e, s, pinit.pid)
+    };
 
-    pinit.load();
-    pinit.run().unwrap();
-
-    kprintln!("process loaded, pid: {}", pinit.pid);
+    kprintln!("process loaded, pid: {}", pid);
+    zenos_kernel::process::enter_user_mode(entry, stack);
 
     //Enter the main kernel loop
     // TODO: Implement proper scheduling and process management

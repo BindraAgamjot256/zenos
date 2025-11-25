@@ -2,6 +2,8 @@ pub(crate) mod gdt;
 
 use crate::hardware::idt_vectors::*;
 use crate::interrupts::gdt::DOUBLE_FAULT_IST_INDEX;
+use crate::kprintln;
+use crate::serial::SERIAL;
 use log::{error, warn};
 use spin::Lazy;
 use x86_64::PrivilegeLevel::Ring3;
@@ -14,7 +16,7 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     unsafe {
         idt.double_fault
             .set_handler_fn(double_fault_handler)
-            .set_stack_index(DOUBLE_FAULT_IST_INDEX as u16)
+            .set_stack_index((DOUBLE_FAULT_IST_INDEX + 1) as u16)
     };
     idt.page_fault.set_handler_fn(page_fault_handler);
     idt[IRQ0_PIT].set_handler_fn(timer);
@@ -30,6 +32,8 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
 });
 
 extern "x86-interrupt" fn double_fault_handler(ist: InterruptStackFrame, error_code: u64) -> ! {
+    unsafe { SERIAL.force_unlock() }
+    kprintln!("DOUBLE FAULT!");
     error!("Double fault occurred, error code: {error_code}");
     error!("stack frame: {ist:#?}");
     panic!("Double fault occurred, error code: {}", error_code);
@@ -85,7 +89,7 @@ extern "x86-interrupt" fn keyboard(_: InterruptStackFrame) {
 
 extern "x86-interrupt" fn undefined_opcode(isf: InterruptStackFrame) {
     let bytes: &[u8] = unsafe { core::slice::from_raw_parts(isf.instruction_pointer.as_ptr(), 20) };
-
+    unsafe { SERIAL.force_unlock() }
     error!("undefined opcode occurred... bytes: {:x?}", bytes);
     error!("stack frame: {isf:#?}");
     panic!("undefined opcode occurred");
