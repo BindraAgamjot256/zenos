@@ -1,3 +1,7 @@
+mod isolation;
+
+use crate::percpu::swapgs;
+use crate::process::isolation::create_cr3_from_current_page_tables;
 use crate::{
     fs::FS,
     interrupts::gdt::GDT,
@@ -15,49 +19,88 @@ use core::{
 use fatfs::{Read, Seek, SeekFrom};
 use log::{error, info, trace, warn};
 use spin::Mutex;
-use x86_64::{VirtAddr, structures::paging::PageTableFlags};
-use xmas_elf::{header::Type as ElfType, program, program::Type as PhType};
+use x86_64::instructions::tlb::flush_all;
+use x86_64::registers::control::Cr3;
+use x86_64::structures::paging::PhysFrame;
+use x86_64::{PhysAddr, VirtAddr, structures::paging::PageTableFlags};
+use xmas_elf::{ElfFile, header::Type as ElfType, program, program::Type as PhType};
 
 // Choose a default userspace base for PIE/ET_DYN binaries
 const DEFAULT_USER_BASE: u64 = 0x0000_0000_0040_0000; // 4 MiB, away from the null page(0x0)
 const ELF_ADDR: u64 = 0x1000000 + KERNEL_BASE;
 
 #[derive(Debug)]
-pub struct Process<'a> {
+pub struct Process {
     pub pid: u64,
     parent_pid: u64,
     name: String,
     state: ProcessState,
-    code: xmas_elf::ElfFile<'a>,
+    cr3: PhysAddr,
+    end: u64,
+    entry_point: u64,
+
     // Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
     load_bias: u64,
 }
-impl Eq for Process<'_> {}
-impl PartialEq for Process<'_> {
+impl Eq for Process {}
+impl PartialEq for Process {
     fn eq(&self, other: &Self) -> bool {
         self.pid == other.pid
     }
 }
 
-impl<'a> Process<'a> {
-    fn new(parent: &Process, name: String, code: &'a [u8]) -> Self {
+impl Process {
+    fn new(parent: &Process, name: String) -> Self {
+        let cr3 = unsafe { create_cr3_from_current_page_tables() };
+
         let pid = NEXT_PID.load(Ordering::Acquire);
-        let elf = xmas_elf::ElfFile::new(code).expect("Failed to parse process");
-        let load_bias = compute_load_bias(&elf);
+        let load_bias = 0;
         let p = Process {
             pid,
             parent_pid: parent.pid,
             state: ProcessState::new(),
             name,
-            code: elf,
             load_bias,
+            end: 0,
+            entry_point: 0,
+            cr3,
         };
         NEXT_PID.store(pid + 1, Ordering::Release);
         p
     }
 
-    pub fn load(&mut self) {
-        let elf = &self.code;
+    pub fn load(&mut self, bytes: &[u8]) {
+        // CRITICAL: We need to modify the NEW process's memory.
+        // Since your ualloc_page and ptr::copy work on the ACTIVE CR3,
+        // we must temporarily switch, do the work, and switch back.
+
+        let saved_cr3 = Cr3::read().0;
+
+        // 1. Switch to the new process context
+        unsafe {
+            Cr3::write(
+                x86_64::structures::paging::PhysFrame::containing_address(self.cr3),
+                x86_64::registers::control::Cr3Flags::empty(),
+            );
+            flush_all();
+        }
+
+        // 2. Do the loading (allocating pages, copying ELF data)
+        // This works because ELF_ADDR is in the Kernel (Upper) half,
+        // which is shared/copied in create_cr3.
+        self.internal_load(bytes);
+
+        // 3. Switch BACK to the creator's context
+        unsafe {
+            Cr3::write(saved_cr3, x86_64::registers::control::Cr3Flags::empty());
+        }
+
+        self.state.loaded = true;
+    }
+
+    fn internal_load(&mut self, bytes: &[u8]) {
+        let elf = ElfFile::new(bytes).expect("Failed to parse process");
+        self.load_bias = compute_load_bias(&elf);
         let header = elf.header;
         info!("ELF header: {:?}", header);
         self.state.loaded = true;
@@ -114,7 +157,7 @@ impl<'a> Process<'a> {
                     );
 
                     // Check if entry point will be in this segment
-                    let entry = self.code.header.pt2.entry_point();
+                    let entry = elf.header.pt2.entry_point();
                     if entry >= segment.virtual_addr()
                         && entry < segment.virtual_addr() + segment.file_size()
                     {
@@ -156,19 +199,9 @@ impl<'a> Process<'a> {
                 }
             }
         }
-    }
-
-    pub fn prepare_run(&mut self) -> Result<(u64, u64), ()> {
-        if !self.state.loaded {
-            return Err(());
-        }
-        unsafe {
-            CURRENT_PID.write(self.pid);
-        }
-
         // Determine a safe user stack top: above the highest mapped segment + some gap
         let mut max_end = 0u64;
-        for ph in self.code.program_iter() {
+        for ph in elf.program_iter() {
             if let Ok(PhType::Load) = ph.get_type() {
                 let end = ph.virtual_addr() + ph.mem_size();
                 if end > max_end {
@@ -176,6 +209,26 @@ impl<'a> Process<'a> {
                 }
             }
         }
+        self.end = max_end;
+        self.entry_point = elf.header.pt2.entry_point();
+    }
+
+    pub fn prepare_run(&mut self) -> Result<(u64, u64), ()> {
+        if !self.state.loaded {
+            return Err(());
+        }
+
+        let new_cr3 = PhysFrame::containing_address(self.cr3);
+        unsafe {
+            Cr3::write(new_cr3, x86_64::registers::control::Cr3Flags::empty());
+        }
+
+        unsafe {
+            CURRENT_PID.write(self.pid);
+        }
+
+        let max_end = self.end;
+
         let stack_gap = 0x20_000; // 128 KiB gap above image
         let stack_size = 0x4000; // 16 KiB user stack
         let user_stack_top =
@@ -194,7 +247,7 @@ impl<'a> Process<'a> {
             addr += PAGE_4K as u64;
         }
 
-        self.state.rip = self.code.header.pt2.entry_point() + self.load_bias;
+        self.state.rip = self.entry_point + self.load_bias;
         let user_stack = user_stack_top;
         let user_entry = self.state.rip;
 
@@ -233,6 +286,7 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
     unsafe {
         asm!(
             "cli",                    // be explicit; IF will be restored from RFLAGS
+        "swapgs",
             "push {user_ss}",         // SS
             "push {user_rsp}",        // RSP
             "push {rflags}",          // RFLAGS
@@ -255,13 +309,6 @@ pub fn switch_to(process: &Process) {
     if !p.contains(process) {
         warn!("Process {} not found in process list", process.pid);
     }
-    // TODO: This needs to be updated to use prepare_run and enter_user_mode
-    // But switch_to seems unused for now or at least not in the main path I'm fixing.
-    // I'll leave it broken/commented or fix it if I can.
-    // Since I can't easily change the signature of switch_to to drop the lock inside,
-    // and it takes &Process which might be from the lock...
-    // Actually switch_to takes &Process, then locks PROCESSES again? That would deadlock if called with a reference from the lock.
-    // But here it locks PROCESSES.
 
     if let Some(i) = p_idx {
         let proc = &mut p[i];
@@ -275,16 +322,15 @@ pub fn switch_to(process: &Process) {
 struct ProcessState {
     rax: u64,
     rip: u64,
-    cr3: u64,
     loaded: bool,
 }
 
 impl ProcessState {
     fn new() -> Self {
+        //todo: add all regs.
         ProcessState {
             rax: 0,
             rip: 0,
-            cr3: 0,
             loaded: false,
         }
     }
@@ -293,7 +339,7 @@ impl ProcessState {
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
 static NEXT_PID: AtomicU64 = AtomicU64::new(1);
 
-pub fn init_process() {
+pub fn init_process() -> &'static [u8] {
     let fs = FS.lock();
     let mut file = match fs
         .root_dir()
@@ -336,17 +382,21 @@ pub fn init_process() {
     info!("Read {} bytes from init.elf", offset);
 
     trace!("init code copied to 0x{:x}", ELF_ADDR);
-    let elf = xmas_elf::ElfFile::new(buf).expect("Failed to parse init");
+    let elf = ElfFile::new(buf).expect("Failed to parse init");
+    let cr3 = Cr3::read().0;
     let load_bias = compute_load_bias(&elf);
     let process = Process {
         pid: 0,
         parent_pid: u64::MAX,
         state: ProcessState::default(),
         name: String::from("init"),
-        code: elf,
+        end: 0,
+        entry_point: 0,
         load_bias,
+        cr3: cr3.start_address(),
     };
     PROCESSES.lock().push(process);
+    buf
 }
 
 fn get_len<T: Seek>(obj: &mut T) -> Result<u64, ()> {
@@ -395,7 +445,6 @@ mod tests {
         let state = ProcessState::new();
         assert_eq!(state.rax, 0);
         assert_eq!(state.rip, 0);
-        assert_eq!(state.cr3, 0);
         assert_eq!(state.loaded, false);
         Some(())
     }
@@ -404,7 +453,6 @@ mod tests {
         let state = ProcessState::default();
         assert_eq!(state.rax, 0);
         assert_eq!(state.rip, 0);
-        assert_eq!(state.cr3, 0);
         assert_eq!(state.loaded, false);
         Some(())
     }
@@ -413,13 +461,11 @@ mod tests {
         let state1 = ProcessState {
             rax: 42,
             rip: 0x1000,
-            cr3: 0x2000,
             loaded: true,
         };
         let state2 = state1;
         assert_eq!(state1.rax, state2.rax);
         assert_eq!(state1.rip, state2.rip);
-        assert_eq!(state1.cr3, state2.cr3);
         assert_eq!(state1.loaded, state2.loaded);
         Some(())
     }
