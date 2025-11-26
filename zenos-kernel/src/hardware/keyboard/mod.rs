@@ -35,6 +35,9 @@ pub fn joint_keyboard_handler(scancode: u8) {
 pub fn read_into(buf: &mut [u8]) -> usize {
     let mut kb = KEYBUF.lock();
     let mut count = 0;
+    while kb.len() == 0 {
+        core::hint::spin_loop() /* fixme: preempt here...*/
+    } // actually I should preempt every call of spin_loop.
     while count < buf.len() {
         if let Some(b) = kb.pop_front() {
             buf[count] = b;

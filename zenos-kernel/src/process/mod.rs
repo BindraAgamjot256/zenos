@@ -1,3 +1,4 @@
+mod file_handles;
 mod isolation;
 
 use crate::percpu::swapgs;

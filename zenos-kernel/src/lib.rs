@@ -26,6 +26,7 @@
 #![feature(cold_path)]
 #![feature(never_type)]
 #![feature(ptr_as_ref_unchecked)]
+#![feature(associated_type_defaults)]
 #![allow(unsafe_op_in_unsafe_fn)] // rustc 2024 doesn't allow unsafe ops in unsafe functions, so we enable it manually
 #![deny(static_mut_refs)] // to be replaced later with deny... for now only.
 #![warn(clippy::missing_safety_doc)]
