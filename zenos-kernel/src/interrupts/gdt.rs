@@ -25,6 +25,8 @@ pub static TSS: Lazy<TaskStateSegment> = Lazy::new(|| {
     tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX] = stack_top;
 
     // Allocate and map a page for the privilege stack (Ring 0)
+    // IDK why it works but it does, so I'm gonna leave it like this.
+    // Anyone who touches this will be fucked in the ass.
     let stack_phys = kalloc_page(VirtAddr::new(0xFFFF_FF00_0001_0000), PageType::Arbitrary)
         .expect("Failed to allocate stack for RSP0");
     let stack_virt = VirtAddr::new(HIGHER_HALF_BASE + stack_phys.as_u64());

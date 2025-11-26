@@ -50,6 +50,8 @@ pub enum PageType {
     Huge,
     /// An arbitrary page (4KiB, recursive style, but will be mapped to the last free physical address)
     Arbitrary,
+    /// An arbitrary page(4KiB recursive style, mapped to a specific physical address)
+    ArbitraryPhys(PhysAddr),
 }
 
 /// Possible page allocation/mapping errors
@@ -559,10 +561,8 @@ pub fn kalloc_page(virtaddr: VirtAddr, ptype: PageType) -> Result<PhysAddr, MapE
     let mut flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
     match ptype {
         PageType::Mmio => flags |= PageTableFlags::NO_CACHE,
-        PageType::Identity | PageType::Recursive | PageType::Arbitrary => {
-            flags |= PageTableFlags::GLOBAL
-        }
         PageType::Huge => flags |= PageTableFlags::HUGE_PAGE,
+        _ => flags |= PageTableFlags::GLOBAL,
     }
 
     // Actually map the page
@@ -593,10 +593,8 @@ pub fn ualloc_page(virtaddr: VirtAddr, ptype: PageType) -> Result<PhysAddr, MapE
     let mut flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
     match ptype {
         PageType::Mmio => flags |= PageTableFlags::NO_CACHE,
-        PageType::Identity | PageType::Recursive | PageType::Arbitrary => {
-            flags |= PageTableFlags::GLOBAL
-        }
         PageType::Huge => flags |= PageTableFlags::HUGE_PAGE,
+        _ => {}
     }
 
     flags |= PageTableFlags::USER_ACCESSIBLE;
@@ -633,10 +631,8 @@ pub fn ualloc_page_flags(
     let mut flags = flags | PageTableFlags::PRESENT;
     match ptype {
         PageType::Mmio => flags |= PageTableFlags::NO_CACHE,
-        PageType::Identity | PageType::Recursive | PageType::Arbitrary => {
-            flags |= PageTableFlags::GLOBAL
-        }
         PageType::Huge => flags |= PageTableFlags::HUGE_PAGE,
+        _ => {}
     }
 
     flags |= PageTableFlags::USER_ACCESSIBLE;
@@ -672,6 +668,7 @@ fn allocate_frame(
             )),
         ),
         PageType::Arbitrary => alloc.map_last_free_page(PageSize::Size4KiB),
+        PageType::ArbitraryPhys(phhys) => Some(*phhys),
     };
 
     addr.map(|a| {

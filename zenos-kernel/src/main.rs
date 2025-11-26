@@ -137,7 +137,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     kprintln!("loading init process");
 
     zenos_kernel::process::init_process();
-    
+
     let (entry, stack, pid) = {
         let mut processes = zenos_kernel::process::PROCESSES.lock();
         let pinit = &mut processes[0];

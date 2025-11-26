@@ -1,11 +1,14 @@
 mod write;
 
-use crate::hardware::keyboard;
+// use crate::hardware::keyboard;
 use crate::interrupts::gdt::GDT;
 use crate::memory::{PAGE_4K, virt_to_phys};
+use crate::percpu::PerCpuData;
 use crate::syscall::write::FileDescriptor;
 use alloc::vec::Vec;
 use core::arch::asm;
+use core::mem::offset_of;
+use core::ptr;
 use log::{debug, info};
 use x86_64::VirtAddr;
 use x86_64::structures::idt::InterruptStackFrame;
@@ -23,9 +26,8 @@ pub extern "x86-interrupt" fn sys_rt0(stack_frame: InterruptStackFrame) {
     let mut r8_val: u64;
     let mut r9_val: u64;
     let mut ret: u64 = 0;
+    let mut rsp: u64;
 
-    info!("syscall interrupt triggered from userspace");
-    
     // For int 0x80, syscall number is in RAX, arguments in standard calling convention
     unsafe {
         asm!(
@@ -36,6 +38,8 @@ pub extern "x86-interrupt" fn sys_rt0(stack_frame: InterruptStackFrame) {
         "mov {r10_val}, r10",
         "mov {r8_val}, r8",
         "mov {r9_val}, r9",
+        "mov {stack}, rsp",
+        stack = out(reg) rsp,
         syscall = out(reg) syscall_num,
         rdi_val = out(reg) rdi_val,
         rsi_val = out(reg) rsi_val,
@@ -55,6 +59,7 @@ pub extern "x86-interrupt" fn sys_rt0(stack_frame: InterruptStackFrame) {
             r10_val,
             r8_val,
             r9_val,
+            rsp,
         );
     }
     unsafe {
@@ -76,9 +81,11 @@ pub unsafe fn syscall_main(
     r10: u64,
     r8: u64,
     r9: u64,
+    rsp: u64,
 ) -> u64 {
     let mut ret = 0;
 
+    debug!("rsp: {:#x}", rsp);
     debug!("syscall num: {}", syscall_num);
     debug!(
         "args: rdi={:#x}, rsi={:#x}, rdx={:#x}, r10={:#x}, r8={:#x}, r9={:#x}",
@@ -88,31 +95,10 @@ pub unsafe fn syscall_main(
     match syscall_num {
         0 => {
             // read(fd, buf, len)
-            let fd = rdi;
-            let buf_ptr = rsi as *mut u8;
-            let len = rdx as usize;
-
-            debug!(
-                "syscall read: fd={:#x}, buf={:#x}, len={:#x}",
-                fd, buf_ptr as u64, len
-            );
-
-            if fd != 0 || buf_ptr.is_null() || len == 0 {
-                ret = u64::MAX;
-            } else {
-                let mut kbuf = [0u8; 256];
-                let max_len = if len > kbuf.len() { kbuf.len() } else { len };
-                let read = keyboard::read_into(&mut kbuf[..max_len]);
-
-                if read == 0 {
-                    // nothing available right now
-                    ret = 0;
-                } else if copy_to_user(buf_ptr, &kbuf[..read]).is_ok() {
-                    ret = read as u64;
-                } else {
-                    ret = u64::MAX;
-                }
-            }
+            //let fd = rdi;
+            //let buf_ptr = rsi;
+            //let len = rdx;
+            todo!("syscall read is not implemented yet");
         }
         1 => {
             // write(fd, buf, len)
@@ -152,7 +138,7 @@ pub unsafe fn syscall_main(
     ret
 }
 
-#[allow(unreachable_code)]
+#[allow(unreachable_code, unused_variables, unused_assignments)]
 pub fn init() {
     return;
     //todo use syscall/sysret instead of int 0x80/iret
@@ -178,8 +164,6 @@ pub fn init() {
     let val = unsafe { efer.read() };
     unsafe { efer.write(val | 1) }; // set SCE bit
 }
-
-use core::ptr;
 
 /// Quickly checks whether the entire user range [ptr, ptr+len) is mapped in the
 /// current page tables. This avoids taking a page fault when copying.

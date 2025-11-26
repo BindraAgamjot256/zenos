@@ -13,11 +13,10 @@ pub static LOGGER: SerialLogger = SerialLogger;
 
 #[doc(hidden)]
 pub fn _sprint(args: core::fmt::Arguments) {
-
     use core::fmt::Write;
     use x86_64::instructions::interrupts::without_interrupts;
     without_interrupts(|| {
-        unsafe {SERIAL.force_unlock()}
+        unsafe { SERIAL.force_unlock() }
         let mut serial = SERIAL.lock();
         serial.write_fmt(args).unwrap();
     })

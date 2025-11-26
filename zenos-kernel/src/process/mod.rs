@@ -102,15 +102,23 @@ impl<'a> Process<'a> {
                         ((segment.virtual_addr() as *mut u8) as u64 + self.load_bias) as *mut u8;
                     let len = segment.file_size() as usize;
 
-                    info!("Copy: src={:#x}, dst={:#x}, len={:#x}", src as u64, dst as u64, len);
-                    
+                    info!(
+                        "Copy: src={:#x}, dst={:#x}, len={:#x}",
+                        src as u64, dst as u64, len
+                    );
+
                     // Check if entry point will be in this segment
                     let entry = self.code.header.pt2.entry_point();
-                    if entry >= segment.virtual_addr() && entry < segment.virtual_addr() + segment.file_size() {
+                    if entry >= segment.virtual_addr()
+                        && entry < segment.virtual_addr() + segment.file_size()
+                    {
                         let offset_in_seg = (entry - segment.virtual_addr()) as usize;
                         let src_entry = unsafe { (src as *const u8).add(offset_in_seg) };
                         let src_entry_bytes = unsafe { core::slice::from_raw_parts(src_entry, 16) };
-                        info!("Entry {:#x} is in this segment at offset {:#x}, source bytes: {:x?}", entry, offset_in_seg, src_entry_bytes);
+                        info!(
+                            "Entry {:#x} is in this segment at offset {:#x}, source bytes: {:x?}",
+                            entry, offset_in_seg, src_entry_bytes
+                        );
                     }
 
                     unsafe {
@@ -166,10 +174,12 @@ impl<'a> Process<'a> {
         let stack_size = 0x4000; // 16 KiB user stack
         let user_stack_top =
             (self.load_bias + max_end + stack_gap + (PAGE_4K as u64 - 1)) & !((PAGE_4K as u64) - 1);
-        
-        info!("Allocating user stack: max_end={:#x}, stack_top={:#x}, stack_size={:#x}", 
-              max_end, user_stack_top, stack_size);
-        
+
+        info!(
+            "Allocating user stack: max_end={:#x}, stack_top={:#x}, stack_size={:#x}",
+            max_end, user_stack_top, stack_size
+        );
+
         let stack_start = user_stack_top - stack_size;
         let mut addr = stack_start;
         while addr < user_stack_top {
@@ -199,15 +209,18 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
     info!("Switching to user mode");
     info!("Entry: {user_entry:x}");
     info!("Stack: {user_stack:x}");
-    info!("GDT user_code raw: {:#x}, user_data raw: {:#x}", GDT.user_code_segment.0, GDT.user_data_segment.0);
+    info!(
+        "GDT user_code raw: {:#x}, user_data raw: {:#x}",
+        GDT.user_code_segment.0, GDT.user_data_segment.0
+    );
     info!("CS: {user_cs:x}");
     info!("SS: {user_ss:x}");
     info!("RFLAGS: {rflags:x}");
-    
+
     // Sanity check: verify we can read the entry point
     let entry_bytes = unsafe { core::slice::from_raw_parts(user_entry as *const u8, 16) };
     info!("Entry point bytes: {:x?}", entry_bytes);
-    
+
     assert_eq!(user_stack % 16, 0, "stack must be 16-byte aligned");
 
     // Build a user IRET frame and drop to ring 3
@@ -225,9 +238,9 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
             rflags = in(reg) rflags,
             user_cs = in(reg) user_cs,
             user_rip = in(reg) user_entry,
-            options(noreturn)
         );
     }
+    unreachable!();
 }
 
 pub fn switch_to(process: &Process) {
@@ -246,7 +259,7 @@ pub fn switch_to(process: &Process) {
     // and it takes &Process which might be from the lock...
     // Actually switch_to takes &Process, then locks PROCESSES again? That would deadlock if called with a reference from the lock.
     // But here it locks PROCESSES.
-    
+
     if let Some(i) = p_idx {
         let proc = &mut p[i];
         // proc.run().unwrap(); // run() is gone
@@ -303,7 +316,7 @@ pub fn init_process() {
     }
     let buf = unsafe { core::slice::from_raw_parts_mut(ELF_ADDR as *mut u8, len as usize) };
     trace!("len: {} bytes", len);
-    
+
     let mut offset = 0;
     loop {
         match file.read(&mut buf[offset..]) {
