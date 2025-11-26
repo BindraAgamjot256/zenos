@@ -18,11 +18,11 @@ use core::{
 };
 use log::{error, trace, warn};
 use spin::Mutex;
-use x86_64::structures::paging::Translate;
-use x86_64::structures::paging::mapper::UnmapError;
 use x86_64::{
     PhysAddr, VirtAddr,
     registers::control::Cr3,
+    structures::paging::Translate,
+    structures::paging::mapper::UnmapError,
     structures::paging::{
         FrameAllocator, FrameDeallocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags,
         PhysFrame, Size2MiB, Size4KiB,

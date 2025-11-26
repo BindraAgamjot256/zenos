@@ -148,12 +148,6 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
 
     kprintln!("process loaded, pid: {}", pid);
     zenos_kernel::process::enter_user_mode(entry, stack);
-
-    //Enter the main kernel loop
-    // TODO: Implement proper scheduling and process management
-    loop {
-        x86_64::instructions::hlt(); // Halt the CPU until the next interrupt
-    }
 }
 
 /// A constant that determines whether to run the test suite based on the current build configuration.

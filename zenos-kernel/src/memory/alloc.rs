@@ -1,10 +1,14 @@
 //! Zenos slab slab_allocator v0.0.sqrt(-1)-don't_you_dare_test_it_on_hardware. Yes... That's its full version. Don't judge
 
-use crate::memory::{PageType, kalloc_page};
-use crate::serial_println;
-use core::alloc::{GlobalAlloc, Layout};
-use core::mem::size_of;
-use core::ptr::NonNull;
+use crate::{
+    memory::{PageType, kalloc_page},
+    serial_println,
+};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    mem::size_of,
+    ptr::NonNull,
+};
 use heapless::Vec;
 use linked_list_allocator::LockedHeap;
 use log::{error, trace, warn};

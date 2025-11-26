@@ -1,17 +1,16 @@
 mod write;
 
 // use crate::hardware::keyboard;
-use crate::interrupts::gdt::GDT;
-use crate::memory::{PAGE_4K, virt_to_phys};
-use crate::percpu::PerCpuData;
-use crate::syscall::write::FileDescriptor;
+use crate::{
+    interrupts::gdt::GDT,
+    memory::{PAGE_4K, virt_to_phys},
+    percpu::PerCpuData,
+    syscall::write::FileDescriptor,
+};
 use alloc::vec::Vec;
-use core::arch::asm;
-use core::mem::offset_of;
-use core::ptr;
+use core::{arch::asm, mem::offset_of, ptr};
 use log::{debug, info};
-use x86_64::VirtAddr;
-use x86_64::structures::idt::InterruptStackFrame;
+use x86_64::{VirtAddr, structures::idt::InterruptStackFrame};
 
 #[unsafe(no_mangle)]
 #[allow(unused_assignments)] // to shut cargo up about shit like ret being unused.

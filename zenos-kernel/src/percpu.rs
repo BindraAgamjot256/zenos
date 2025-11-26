@@ -4,9 +4,7 @@
 //! and provides safe (well, as safe as kernel code gets) abstractions.
 
 use crate::testing::Testable;
-use core::arch::asm;
-use core::marker::PhantomData;
-use core::ptr;
+use core::{arch::asm, marker::PhantomData, ptr};
 use x86_64::registers::model_specific::Msr;
 
 /// MSR identifiers (same as Intel SDM)

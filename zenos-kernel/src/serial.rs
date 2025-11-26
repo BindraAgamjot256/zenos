@@ -73,7 +73,7 @@ impl log::Log for SerialLogger {
     fn enabled(&self, _metadata: &log::Metadata) -> bool {
         true
     }
-
+    #[cfg(debug_assertions)]
     fn log(&self, record: &log::Record) {
         let level_color = match record.level() {
             log::Level::Error => COLOR_ERROR,
@@ -92,6 +92,25 @@ impl log::Log for SerialLogger {
             reset,
             record.args()
         );
+    }
+    #[cfg(not(debug_assertions))]
+    fn log(&self, record: &log::Record) {
+        use alloc::format;
+        use fatfs::Write;
+
+        let args = format!("[{}] {}", record.level(), record.args()); // remove time and color in release cuz both block the op..
+        let fs = crate::fs::FS.lock();
+        let mut logfile = fs.root_dir().open_file("log.log").unwrap_or_else(|e| {
+            fs.root_dir()
+                .create_file("log.log")
+                .expect("failed to create log.log");
+            fs.root_dir()
+                .open_file("log.log")
+                .expect("failed to open log.log")
+        });
+        logfile
+            .write(args.as_bytes())
+            .expect("failed to write to log.log");
     }
 
     fn flush(&self) {}

@@ -1,5 +1,4 @@
 use crate::serial::SerialPort;
-use bootloader_api::info::FrameBufferInfo;
 use conquer_once::spin::OnceCell;
 use core::fmt::Write;
 use spinning_top::Spinlock;
@@ -14,12 +13,7 @@ pub struct LockedLogger {
 
 impl LockedLogger {
     /// Create a new instance that logs to the given framebuffer.
-    pub fn new(
-        _framebuffer: &'static mut [u8],
-        _info: FrameBufferInfo,
-        _frame_buffer_logger_status: bool,
-        serial_logger_status: bool,
-    ) -> Self {
+    pub fn new(serial_logger_status: bool) -> Self {
         let serial = match serial_logger_status {
             true => Some(Spinlock::new(unsafe { SerialPort::init() })),
             false => None,

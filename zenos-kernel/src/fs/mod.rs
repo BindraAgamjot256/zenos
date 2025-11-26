@@ -4,8 +4,10 @@ use crate::memory::{
 };
 use crate::pci::scan_pci_for_ahci;
 use alloc::boxed::Box;
-use core::ptr::{read_volatile, write_volatile};
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::{
+    ptr::{read_volatile, write_volatile},
+    sync::atomic::{Ordering, compiler_fence},
+};
 use fatfs::{
     DefaultTimeProvider, FileSystem, IoBase, LossyOemCpConverter, Read, Seek, SeekFrom, Write,
 };

@@ -53,7 +53,7 @@ impl<T> RacyCell<T> {
 
 unsafe impl<T> Sync for RacyCell<T> {}
 
-impl<T> core::ops::Deref for RacyCell<T> {
+impl<T> Deref for RacyCell<T> {
     type Target = UnsafeCell<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -513,7 +513,6 @@ fn init_logger(
 
     let mode_info = gop.current_mode_info();
     let mut framebuffer = gop.frame_buffer();
-    let slice = unsafe { slice::from_raw_parts_mut(framebuffer.as_mut_ptr(), framebuffer.size()) };
     let info = FrameBufferInfo {
         byte_len: framebuffer.size(),
         width: mode_info.resolution().0,
@@ -529,13 +528,7 @@ fn init_logger(
         stride: mode_info.stride(),
     };
 
-    bootloader_x86_64_common::init_logger(
-        slice,
-        info,
-        config.log_level,
-        config.frame_buffer_logging,
-        config.serial_logging,
-    );
+    bootloader_x86_64_common::init_logger(config.log_level, config.serial_logging);
 
     Some(RawFrameBufferInfo {
         addr: PhysAddr::new(framebuffer.as_mut_ptr() as u64),

@@ -33,11 +33,9 @@
 extern crate alloc;
 
 pub use crate::framebuffer::helpers::*;
-use crate::percpu::get_percpu_data;
-use crate::testing::Testable;
+use crate::{percpu::get_percpu_data, testing::Testable};
 use ::acpi::InterruptModel;
-use bootloader_api::info::MemoryRegionKind;
-use bootloader_api::{BootInfo, info::MemoryRegion};
+use bootloader_api::{BootInfo, info::MemoryRegion, info::MemoryRegionKind};
 use core::hint::cold_path;
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb888};
 use heapless::Vec;

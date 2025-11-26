@@ -10,8 +10,7 @@ use core::arch::x86_64::__cpuid;
 use heapless::Vec;
 use log::{debug, error, info, trace, warn};
 use spin::{Lazy, Mutex};
-use x86_64::VirtAddr;
-use x86_64::registers::model_specific::Msr;
+use x86_64::{VirtAddr, registers::model_specific::Msr};
 
 /// Maximum number of IOAPICs supported
 pub(crate) const MAX_IOAPICS: usize = 8;

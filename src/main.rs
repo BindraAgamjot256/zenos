@@ -99,8 +99,9 @@ fn build_kernel(args: Args) -> PathBuf {
             .arg("zenos-kernel/src/syscall/syscall_test_stub.bin")
             .arg("zenos-kernel/src/syscall/syscall_test_stub.asm")
             .spawn()
-            .expect("failed to run nasm");*/ //
+            .expect("failed to run nasm");*/ // fixme: this is a hack to get the test stub compiled
     }
+    #[cfg(debug_assertions)]
     cmd.env("RUSTFLAGS", "-Cforce-frame-pointers=yes");
     let status = cmd.status().expect("failed to build kernel");
     if !status.success() {
@@ -137,6 +138,7 @@ fn build_init(_args: Args) {
     cmd.arg("-Z")
         .arg("build-std-features=compiler-builtins-mem");
 
+    #[cfg(debug_assertions)]
     cmd.env("RUSTFLAGS", "-Cforce-frame-pointers=yes");
     let status = cmd.status().expect("failed to build init");
     if !status.success() {

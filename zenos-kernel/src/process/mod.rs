@@ -1,26 +1,26 @@
-use crate::fs::FS;
-use crate::interrupts::gdt::GDT;
-use crate::kprintln;
-use crate::memory::{PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags};
-use crate::percpu::{PerCpuData, PerCpuVar};
-use crate::testing::Testable;
-use alloc::string::String;
-use alloc::vec::Vec;
-use core::arch::asm;
-use core::mem::offset_of;
-use core::sync::atomic::{AtomicU64, Ordering};
+use crate::{
+    fs::FS,
+    interrupts::gdt::GDT,
+    kprintln,
+    memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},
+    percpu::{PerCpuData, PerCpuVar},
+    testing::Testable,
+};
+use alloc::{string::String, vec::Vec};
+use core::{
+    arch::asm,
+    mem::offset_of,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use fatfs::{Read, Seek, SeekFrom};
-use log::{error, info, trace};
+use log::{error, info, trace, warn};
 use spin::Mutex;
-use x86_64::VirtAddr;
-use x86_64::structures::paging::PageTableFlags;
-use xmas_elf::header::Type as ElfType;
-use xmas_elf::program;
-use xmas_elf::program::Type as PhType;
+use x86_64::{VirtAddr, structures::paging::PageTableFlags};
+use xmas_elf::{header::Type as ElfType, program, program::Type as PhType};
 
 // Choose a default userspace base for PIE/ET_DYN binaries
-const DEFAULT_USER_BASE: u64 = 0x0000_0000_0040_0000; // 4 MiB, away from null page
-const ELF_ADDR: u64 = 0x1000000;
+const DEFAULT_USER_BASE: u64 = 0x0000_0000_0040_0000; // 4 MiB, away from the null page(0x0)
+const ELF_ADDR: u64 = 0x1000000 + KERNEL_BASE;
 
 #[derive(Debug)]
 pub struct Process<'a> {
@@ -31,6 +31,12 @@ pub struct Process<'a> {
     code: xmas_elf::ElfFile<'a>,
     // Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
     load_bias: u64,
+}
+impl Eq for Process<'_> {}
+impl PartialEq for Process<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.pid == other.pid
+    }
 }
 
 impl<'a> Process<'a> {
@@ -223,7 +229,7 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
 
     assert_eq!(user_stack % 16, 0, "stack must be 16-byte aligned");
 
-    // Build a user IRET frame and drop to ring 3
+    // Build a user IRETQ frame and drop to ring 3
     unsafe {
         asm!(
             "cli",                    // be explicit; IF will be restored from RFLAGS
@@ -245,12 +251,9 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
 
 pub fn switch_to(process: &Process) {
     let mut p = PROCESSES.lock();
-    let mut p_idx = None;
-    for (i, p_ref) in p.iter().enumerate() {
-        if p_ref.pid == process.pid {
-            p_idx = Some(i);
-            break;
-        }
+    let p_idx = p.iter().position(|p| p.pid == process.pid);
+    if !p.contains(process) {
+        warn!("Process {} not found in process list", process.pid);
     }
     // TODO: This needs to be updated to use prepare_run and enter_user_mode
     // But switch_to seems unused for now or at least not in the main path I'm fixing.
@@ -262,7 +265,6 @@ pub fn switch_to(process: &Process) {
 
     if let Some(i) = p_idx {
         let proc = &mut p[i];
-        // proc.run().unwrap(); // run() is gone
         let (entry, stack) = proc.prepare_run().unwrap();
         drop(p); // Release lock!
         enter_user_mode(entry, stack);

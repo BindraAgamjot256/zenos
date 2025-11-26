@@ -1,14 +1,15 @@
 pub(crate) mod gdt;
 
-use crate::hardware::idt_vectors::*;
-use crate::interrupts::gdt::DOUBLE_FAULT_IST_INDEX;
-use crate::kprintln;
-use crate::serial::SERIAL;
+use crate::{
+    hardware::idt_vectors::*, interrupts::gdt::DOUBLE_FAULT_IST_INDEX, kprintln, serial::SERIAL,
+};
 use log::{error, warn};
 use spin::Lazy;
-use x86_64::PrivilegeLevel::Ring3;
-use x86_64::instructions::port::Port;
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
+use x86_64::{
+    PrivilegeLevel::Ring3,
+    instructions::port::Port,
+    structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode},
+};
 
 static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     let mut idt = InterruptDescriptorTable::new();

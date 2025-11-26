@@ -1,6 +1,6 @@
 #![allow(unexpected_cfgs)]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 const BOOTLOADER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -27,14 +27,10 @@ fn build_uefi_bootloader() -> PathBuf {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     let mut cmd = Command::new(cargo);
     cmd.arg("install").arg("bootloader-x86_64-uefi");
-    if Path::new("uefi").exists() {
-        // local build
-        cmd.arg("--path").arg("uefi");
-        println!("cargo:rerun-if-changed=uefi");
-        println!("cargo:rerun-if-changed=common");
-    } else {
-        cmd.arg("--version").arg(BOOTLOADER_VERSION);
-    }
+    // local build
+    cmd.arg("--path").arg("uefi");
+    println!("cargo:rerun-if-changed=uefi");
+    println!("cargo:rerun-if-changed=common");
     cmd.arg("--locked");
     cmd.arg("--target").arg("x86_64-unknown-uefi");
     cmd.arg("-Zbuild-std=core")
