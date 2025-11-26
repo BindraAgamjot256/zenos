@@ -86,6 +86,7 @@ pub mod constants {
     pub const PAGE_2M: usize = 2 * 1024 * 1024;
     pub const KERNEL_BASE: u64 = 0xFFFF_8000_5000_0000;
     pub const KERNEL_STACK_BASE: u64 = 0xFFFF_8001_0000_0000;
+    pub const KERNEL_CR3_SCRATCH: u64 = 0xFFFF_FFFF_0000_0000;
 }
 
 pub(crate) struct PageAllocator {
@@ -813,7 +814,49 @@ pub fn kfree_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
     // For now, we assume virtual address maps to physical via the kernel offset
     Ok(())
 }
+pub fn kleak_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
+    let mut alloc = ALLOCATOR.lock();
+    let alloc = alloc.as_mut().ok_or(MapErr::Uninitialized)?;
+    let size = match ptype {
+        PageType::Huge => PageSize::Size2MiB,
+        _ => PageSize::Size4KiB,
+    };
 
+    let mut ptable = MAPPER.lock();
+    let ptable = ptable.as_mut().ok_or(MapErr::Uninitialized)?;
+
+    match size {
+        PageSize::Size2MiB => {
+            let err = ptable.unmap(Page::<Size4KiB>::containing_address(virtaddr));
+
+            match err {
+                Ok((_, flush)) => flush.flush(), // fwoosh
+                Err(e) => match e {
+                    UnmapError::ParentEntryHugePage => {}
+                    _ => {
+                        error!("err: {e:#?}");
+                        return Err(MapErr::NotMapped);
+                    }
+                },
+            }
+        }
+        PageSize::Size4KiB => {
+            let err = ptable.unmap(Page::<Size4KiB>::containing_address(virtaddr));
+
+            match err {
+                Ok((_, flush)) => flush.flush(), // fwoosh
+                Err(e) => match e {
+                    UnmapError::ParentEntryHugePage => {}
+                    _ => {
+                        error!("err: {e:#?}");
+                        return Err(MapErr::NotMapped);
+                    }
+                },
+            }
+        }
+    }
+    Ok(())
+}
 static DMA_BASE: AtomicU64 = AtomicU64::new(KERNEL_BASE + 0x200_000);
 
 pub fn kalloc_dma_pages(len: usize) -> Result<&'static mut [u8], MapErr> {

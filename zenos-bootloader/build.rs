@@ -2,7 +2,6 @@
 
 use std::path::PathBuf;
 use std::process::Command;
-const BOOTLOADER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() {
     uefi_main();
