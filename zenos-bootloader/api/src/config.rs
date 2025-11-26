@@ -1,6 +1,6 @@
 #![allow(deprecated)]
 
-use crate::{concat::*, version_info};
+use crate::version_info;
 
 /// Allows configuring the bootloader behavior.
 ///
@@ -24,7 +24,7 @@ pub struct BootloaderConfig {
     /// The bootloader starts the kernel with a valid stack pointer. This setting defines
     /// the stack size that the bootloader should allocate and map.
     ///
-    /// The stack is created with a additional guard page, so a stack overflow will lead to
+    /// The stack is created with an additional guard page, so a stack overflow will lead to
     /// a page fault.
     pub kernel_stack_size: u64,
 
@@ -110,30 +110,30 @@ impl BootloaderConfig {
         let buf = concat_67_10(
             buf,
             match physical_memory {
-                Option::None => [0; 10],
-                Option::Some(m) => concat_1_9([1], m.serialize()),
+                None => [0; 10],
+                Some(m) => concat_1_9([1], m.serialize()),
             },
         );
         let buf = concat_77_10(
             buf,
             match page_table_recursive {
-                Option::None => [0; 10],
-                Option::Some(m) => concat_1_9([1], m.serialize()),
+                None => [0; 10],
+                Some(m) => concat_1_9([1], m.serialize()),
             },
         );
         let buf = concat_87_1(buf, [(*aslr) as u8]);
         let buf = concat_88_9(
             buf,
             match dynamic_range_start {
-                Option::None => [0; 9],
-                Option::Some(addr) => concat_1_8([1], addr.to_le_bytes()),
+                None => [0; 9],
+                Some(addr) => concat_1_8([1], addr.to_le_bytes()),
             },
         );
         let buf = concat_97_9(
             buf,
             match dynamic_range_end {
-                Option::None => [0; 9],
-                Option::Some(addr) => concat_1_8([1], addr.to_le_bytes()),
+                None => [0; 9],
+                Some(addr) => concat_1_8([1], addr.to_le_bytes()),
             },
         );
 
@@ -142,16 +142,16 @@ impl BootloaderConfig {
         let buf = concat_115_9(
             buf,
             match minimum_framebuffer_height {
-                Option::None => [0; 9],
-                Option::Some(addr) => concat_1_8([1], addr.to_le_bytes()),
+                None => [0; 9],
+                Some(addr) => concat_1_8([1], addr.to_le_bytes()),
             },
         );
 
         concat_124_9(
             buf,
             match minimum_framebuffer_width {
-                Option::None => [0; 9],
-                Option::Some(addr) => concat_1_8([1], addr.to_le_bytes()),
+                None => [0; 9],
+                Some(addr) => concat_1_8([1], addr.to_le_bytes()),
             },
         )
     }
@@ -220,13 +220,13 @@ impl BootloaderConfig {
                 boot_info: Mapping::deserialize(&boot_info)?,
                 framebuffer: Mapping::deserialize(&framebuffer)?,
                 physical_memory: match physical_memory_some {
-                    [0] if physical_memory == [0; 9] => Option::None,
-                    [1] => Option::Some(Mapping::deserialize(&physical_memory)?),
+                    [0] if physical_memory == [0; 9] => None,
+                    [1] => Some(Mapping::deserialize(&physical_memory)?),
                     _ => return Err("invalid phys memory value"),
                 },
                 page_table_recursive: match page_table_recursive_some {
-                    [0] if page_table_recursive == [0; 9] => Option::None,
-                    [1] => Option::Some(Mapping::deserialize(&page_table_recursive)?),
+                    [0] if page_table_recursive == [0; 9] => None,
+                    [1] => Some(Mapping::deserialize(&page_table_recursive)?),
                     _ => return Err("invalid page table recursive value"),
                 },
                 aslr: match alsr {
@@ -235,13 +235,13 @@ impl BootloaderConfig {
                     _ => return Err("invalid aslr value"),
                 },
                 dynamic_range_start: match dynamic_range_start_some {
-                    [0] if dynamic_range_start == [0; 8] => Option::None,
-                    [1] => Option::Some(u64::from_le_bytes(dynamic_range_start)),
+                    [0] if dynamic_range_start == [0; 8] => None,
+                    [1] => Some(u64::from_le_bytes(dynamic_range_start)),
                     _ => return Err("invalid dynamic range start value"),
                 },
                 dynamic_range_end: match dynamic_range_end_some {
-                    [0] if dynamic_range_end == [0; 8] => Option::None,
-                    [1] => Option::Some(u64::from_le_bytes(dynamic_range_end)),
+                    [0] if dynamic_range_end == [0; 8] => None,
+                    [1] => Some(u64::from_le_bytes(dynamic_range_end)),
                     _ => return Err("invalid dynamic range end value"),
                 },
                 ramdisk_memory: Mapping::deserialize(&ramdisk_memory)?,
@@ -257,13 +257,13 @@ impl BootloaderConfig {
 
             let frame_buffer = FrameBuffer {
                 minimum_framebuffer_height: match min_framebuffer_height_some {
-                    [0] if min_framebuffer_height == [0; 8] => Option::None,
-                    [1] => Option::Some(u64::from_le_bytes(min_framebuffer_height)),
+                    [0] if min_framebuffer_height == [0; 8] => None,
+                    [1] => Some(u64::from_le_bytes(min_framebuffer_height)),
                     _ => return Err("minimum_framebuffer_height invalid"),
                 },
                 minimum_framebuffer_width: match min_framebuffer_width_some {
-                    [0] if min_framebuffer_width == [0; 8] => Option::None,
-                    [1] => Option::Some(u64::from_le_bytes(min_framebuffer_width)),
+                    [0] if min_framebuffer_width == [0; 8] => None,
+                    [1] => Some(u64::from_le_bytes(min_framebuffer_width)),
                     _ => return Err("minimum_framebuffer_width invalid"),
                 },
             };
@@ -301,7 +301,7 @@ pub struct ApiVersion {
     version_patch: u16,
     /// Whether the bootloader API version is a pre-release.
     ///
-    /// We can't store the full prerelease string of the version number since it could be
+    /// We can't store the full pre-release string of the version number since it could be
     /// arbitrarily long.
     pre_release: bool,
 }
@@ -343,7 +343,7 @@ impl Default for ApiVersion {
     }
 }
 
-/// Allows to configure the virtual memory mappings created by the bootloader.
+/// Allows one to configure the virtual memory mappings created by the bootloader.
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 #[non_exhaustive]
 pub struct Mappings {
@@ -380,7 +380,7 @@ pub struct Mappings {
     pub physical_memory: Option<Mapping>,
     /// As an alternative to mapping the whole physical memory (see [`Self::physical_memory`]),
     /// the bootloader also has support for setting up a
-    /// [recursive level 4 page table](https://os.phil-opp.com/paging-implementation/#recursive-page-tables).
+    /// [recursive level 4-page table](https://os.phil-opp.com/paging-implementation/#recursive-page-tables).
     ///
     /// Defaults to `None`, i.e. no recursive mapping.
     pub page_table_recursive: Option<Mapping>,
@@ -413,8 +413,8 @@ impl Mappings {
             kernel_base: Mapping::new_default(),
             boot_info: Mapping::new_default(),
             framebuffer: Mapping::new_default(),
-            physical_memory: Option::None,
-            page_table_recursive: Option::None,
+            physical_memory: None,
+            page_table_recursive: None,
             aslr: false,
             dynamic_range_start: None,
             dynamic_range_end: None,
@@ -502,8 +502,8 @@ impl FrameBuffer {
     /// Creates a default configuration without any requirements.
     pub const fn new_default() -> Self {
         Self {
-            minimum_framebuffer_height: Option::None,
-            minimum_framebuffer_width: Option::None,
+            minimum_framebuffer_height: None,
+            minimum_framebuffer_width: None,
         }
     }
 }

@@ -149,7 +149,7 @@ where
             }
         }
 
-        self.inner.remove_copied_flags(&self.elf_file).unwrap();
+        self.inner.remove_copied_flags(&self.elf_file)?;
 
         Ok(tls_template)
     }

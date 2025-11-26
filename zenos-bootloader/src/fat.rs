@@ -79,7 +79,7 @@ pub fn add_files_to_image(
         let mut new_file = root_dir
             .create_file(target_path_raw)
             .with_context(|| format!("failed to create file at `{}`", target_path.display()))?;
-        new_file.truncate().unwrap();
+        new_file.truncate()?;
 
         source.copy_to(&mut new_file).with_context(|| {
             format!(

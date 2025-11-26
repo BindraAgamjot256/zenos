@@ -80,7 +80,7 @@ where
         // skip frame 0 because the rust core library does not see 0 as a valid address
         // Also skip at least the lower 1MB of frames, there are use cases that require lower conventional memory access (Such as SMP SIPI).
         let lower_mem_end = PhysFrame::containing_address(PhysAddr::new(LOWER_MEMORY_END_PAGE));
-        let frame = core::cmp::max(frame, lower_mem_end);
+        let frame = cmp::max(frame, lower_mem_end);
         Self {
             original: memory_map.clone(),
             memory_map,
@@ -223,7 +223,7 @@ where
     ) where
         U: Iterator<Item = UsedMemorySlice> + Clone,
     {
-        assert!(region.kind == MemoryRegionKind::Usable);
+        assert_eq!(region.kind, MemoryRegionKind::Usable);
         // Each loop iteration takes a chunk of `region` and adds it to
         // `regions`. Do this until `region` is empty.
         while region.start != region.end {

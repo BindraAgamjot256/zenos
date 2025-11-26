@@ -22,10 +22,10 @@ linked_list_allocator = "0.10.1"
 
 [dependencies.fatfs]
 version = "0.4"
-git="https://github.com/rafalh/rust-fatfs/"
+git = "https://github.com/rafalh/rust-fatfs/"
 default-features = false
 features = ["alloc", "log_level_debug"]
 
 [dependencies.log]
-version =  "0.4.27"
+version = "0.4.27"
 default-features = false

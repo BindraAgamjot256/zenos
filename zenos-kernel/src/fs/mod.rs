@@ -294,7 +294,7 @@ impl Port {
 
         // --- ALLOCATE A PINNED DMA PAGE (safe) ---
         let total_bytes = sector_count as usize * SECTOR_SIZE;
-        if total_bytes == 0 || total_bytes > PAGE_4K as usize {
+        if total_bytes == 0 || total_bytes > PAGE_4K {
             error!("Unsupported transfer size: {} bytes", total_bytes);
             return Err(());
         }
@@ -472,8 +472,8 @@ pub(crate) unsafe fn init() {
         let fis_phys = kalloc_page(virt_fis, PageType::Recursive).expect("Failed to allocate FIS");
 
         // Zero out command list and FIS memory (using the virtual addresses we just reserved)
-        core::ptr::write_bytes(virt_cmd_list.as_mut_ptr::<u8>(), 0, PAGE_4K as usize);
-        core::ptr::write_bytes(virt_fis.as_mut_ptr::<u8>(), 0, PAGE_4K as usize);
+        core::ptr::write_bytes(virt_cmd_list.as_mut_ptr::<u8>(), 0, PAGE_4K);
+        core::ptr::write_bytes(virt_fis.as_mut_ptr::<u8>(), 0, PAGE_4K);
 
         // Configure command list and FIS addresses in controller (controller expects physical addresses)
         port.write_reg(reg::CLB, cmd_list_phys.as_u64() as u32);

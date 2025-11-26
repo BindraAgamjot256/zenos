@@ -117,7 +117,7 @@ impl PageAllocator {
 
             let bitmap_virt = node_virt + size_of::<BitmapNode>() as u64;
             let bitmap_ptr = bitmap_virt as *mut AtomicU64;
-            let bitmap_slice = core::slice::from_raw_parts_mut(bitmap_ptr, bitmap_words);
+            let bitmap_slice = slice::from_raw_parts_mut(bitmap_ptr, bitmap_words);
 
             (*node_ptr).next = head;
             (*node_ptr).base_phys = aligned_start;
@@ -816,7 +816,7 @@ pub fn kfree_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
 }
 pub fn kleak_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
     let mut alloc = ALLOCATOR.lock();
-    let alloc = alloc.as_mut().ok_or(MapErr::Uninitialized)?;
+    alloc.as_mut().ok_or(MapErr::Uninitialized)?;
     let size = match ptype {
         PageType::Huge => PageSize::Size2MiB,
         _ => PageSize::Size4KiB,

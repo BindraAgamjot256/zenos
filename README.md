@@ -2,11 +2,14 @@
 
 An experimental x86_64 operating system written in Rust.
 
-> **Note on pronunciation**: "Zenos" is pronounced /ˈziː.nɒsss/ (like "Zeno's paradox" with emphasis on the 's'), not as "zen OS."
+> **Note on pronunciation**: "Zenos" is pronounced /ˈziː.nɒsss/ (like "Zeno's paradox" with emphasis on the 's'), not
+> as "zen OS."
 
 ## Overview
 
-Zenos is a bare-metal operating system that demonstrates modern OS development techniques using Rust's memory safety and zero-cost abstractions. The project includes a custom UEFI bootloader and implements core kernel functionality including memory management, interrupt handling, and hardware abstraction.
+Zenos is a bare-metal operating system that demonstrates modern OS development techniques using Rust's memory safety and
+zero-cost abstractions. The project includes a custom UEFI bootloader and implements core kernel functionality including
+memory management, interrupt handling, and hardware abstraction.
 
 ## Features
 
@@ -46,11 +49,13 @@ Zenos is a bare-metal operating system that demonstrates modern OS development t
 ### Running
 
 Build and run the OS in QEMU:
+
 ```bash
 cargo run
 ```
 
 This will automatically:
+
 1. Build the kernel and bootloader
 2. Create a bootable disk image
 3. Launch QEMU with the appropriate configuration
@@ -58,6 +63,7 @@ This will automatically:
 ### Testing
 
 Run the kernel test suite:
+
 ```bash
 cargo run -- --test # currently not implemented, but this is how it will work. for now, test output is shown when cargo run is invoked, as soon as bootloader hands over to kernel.
 ```
@@ -132,7 +138,8 @@ cargo clippy
 
 ## Contributing
 
-This is an experimental project primarily for learning and demonstration purposes. Contributions are welcome, particularly:
+This is an experimental project primarily for learning and demonstration purposes. Contributions are welcome,
+particularly:
 
 - Additional hardware support
 - Improved memory management algorithms
@@ -145,6 +152,7 @@ MIT License—see LICENSE file for details.
 
 ## Acknowledgments
 
-- Built with the [bootloader](https://github.com/rust-osdev/bootloader) ecosystem, forked in our own [zenos_bootloader](./zenos_bootloader/Cargo.toml) directory
+- Built with the [bootloader](https://github.com/rust-osdev/bootloader) ecosystem, forked in our
+  own [zenos_bootloader](./zenos-bootloader/) directory
 - Uses [x86_64](https://github.com/rust-osdev/x86_64) for low-level hardware access
 - Inspired by the [Writing an OS in Rust](https://os.phil-opp.com/) blog series

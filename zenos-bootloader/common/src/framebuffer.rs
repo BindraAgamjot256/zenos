@@ -31,7 +31,7 @@ mod font_constants {
     pub const FONT_WEIGHT: FontWeight = FontWeight::Regular;
 }
 
-/// Returns the raster of the given char or the raster of [`font_constants::BACKUP_CHAR`].
+/// Returns the raster of the given char or the raster of [`BACKUP_CHAR`].
 fn get_char_raster(c: char) -> RasterizedChar {
     fn get(c: char) -> Option<RasterizedChar> {
         get_raster(

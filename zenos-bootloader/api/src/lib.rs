@@ -32,8 +32,8 @@ mod version_info {
 ///
 /// This macro supports an optional second parameter to configure how the bootloader should
 /// boot the kernel. The second parameter needs to be given as `config = ...` and be of type
-/// [`&BootloaderConfig`](crate::BootloaderConfig). If not given, the configuration defaults to
-/// [`BootloaderConfig::new_default`](crate::BootloaderConfig::new_default).
+/// [`&BootloaderConfig`](BootloaderConfig). If not given, the configuration defaults to
+/// [`BootloaderConfig::new_default`](BootloaderConfig::new_default).
 ///
 /// ## Examples
 ///
@@ -101,7 +101,7 @@ mod version_info {
 ///   silently become incompatible on dependency updates since the Rust compiler cannot
 ///   check the signature of custom entry point functions.
 /// - **Configuration:** Behind the scenes, the configuration struct is serialized using
-///   [`BootloaderConfig::serialize`](crate::BootloaderConfig::serialize). The resulting byte
+///   [`BootloaderConfig::serialize`](BootloaderConfig::serialize). The resulting byte
 ///   array is then stored as a static variable annotated with
 ///   `#[link_section = ".bootloader-config"]`, which instructs the Rust compiler to store it
 ///   in a special section of the resulting ELF executable. From there, the bootloader will

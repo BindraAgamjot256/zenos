@@ -6,6 +6,7 @@
 Welcome to the trenches. This is the real shit that happens behind the scenes.
 
 ## Quick start
+
 ```bash
     git clone <repository-url>
     cd zenos
@@ -17,7 +18,9 @@ Welcome to the trenches. This is the real shit that happens behind the scenes.
 
 ## What the fuck is this?
 
-Zenos is an x86_64 operating system written in Rust because apparently writing an OS in C wasn't masochistic enough. I decided to combine the pain of bare-metal programming with Rust's borrow checker yelling at us for trying to do literally anything.
+Zenos is an x86_64 operating system written in Rust because apparently writing an OS in C wasn't masochistic enough. I
+decided to combine the pain of bare-metal programming with Rust's borrow checker yelling at us for trying to do
+literally anything.
 
 ### Why Rust for an OS?
 
@@ -31,21 +34,26 @@ Zenos is an x86_64 operating system written in Rust because apparently writing a
 
 I have a two-tier memory management system because one layer of complexity wasn't enough:
 
-1. **Page Allocator**: A bitmap-based allocator that uses linked lists stored in higher-half virtual addresses. Yes, I store the metadata in the memory I'me managing. It's turtles all the way down.
+1. **Page Allocator**: A bitmap-based allocator that uses linked lists stored in higher-half virtual addresses. Yes, I
+   store the metadata in the memory I'me managing. It's turtles all the way down.
 
-2. **Slab Allocator**: Because malloc() is for wimps, I implemented my own fixed-size block allocator. It has nine size classes from 8 bytes to 2KiB because fuck you, that's why.
+2. **Slab Allocator**: Because malloc() is for wimps, I implemented my own fixed-size block allocator. It has nine size
+   classes from 8 bytes to 2KiB because fuck you, that's why.
 
-The slab allocator version is literally `v0.0.sqrt(-1)-don't_you_dare_test_it_on_hardware`. That's not a joke, that's the actual version string in the code comments.
+The slab allocator version is literally `v0.0.sqrt(-1)-don't_you_dare_test_it_on_hardware`. That's not a joke, that's
+the actual version string in the code comments.
 
 ### Build System - A Beautiful Disaster
 
 Our build process is an unholy marriage of:
+
 - Cargo workspaces (because one crate is never enough)
 - Custom build scripts that coordinate between kernel and bootloader
 - QEMU integration that ~~sometimes~~ always works
 - ~~A custom target specification because `x86_64-unknown-none` wasn't good enough~~
 
 The build flow goes like this:
+
 1. Build the kernel for a target that doesn't officially exist
 2. Build a bootloader that packages said kernel
 3. Create a disk image that UEFI can understand
@@ -55,6 +63,7 @@ The build flow goes like this:
 ### Testing Framework—The Least Broken Part
 
 Surprisingly, our testing framework is the most sane part of this entire project:
+
 - Tests run in QEMU (because testing an OS on the host OS is... problematic)
 - I have a custom test harness that actually works
 - Serial output for debugging (because printf debugging is eternal)
@@ -62,7 +71,9 @@ Surprisingly, our testing framework is the most sane part of this entire project
 
 ### The Bootloader Situation
 
-I forked the `bootloader` crate because apparently I needed to ~~make our lives even more complicated~~ get better logs. The bootloader:
+I forked the `bootloader` crate because apparently I needed to ~~make our lives even more complicated~~ get better logs.
+The bootloader:
+
 - Creates UEFI-compatible disk images
 - Handles memory region discovery
 - Sets up the initial memory mappings
@@ -116,18 +127,24 @@ When shit inevitably hits the fan:
 
 **"It doesn't boot"**: Check that OVMF is properly installed and QEMU can find it.
 
-**"Tests fail randomly"**: Welcome to bare-metal programming, where race conditions are everywhere and debugging is hell.
+**"Tests fail randomly"**: Welcome to bare-metal programming, where race conditions are everywhere and debugging is
+hell.
 
-**"Memory allocator panics"**: The slab allocator is held together with duct tape and hope. Check that page allocation is working first.
+**"Memory allocator panics"**: The slab allocator is held together with duct tape and hope. Check that page allocation
+is working first.
 
-**"ACPI parsing fails"**: Different machines have different ACPI tables. QEMU's are relatively sane, real hardware is chaos. If anything bad happens, tell the ACPI crate.
+**"ACPI parsing fails"**: Different machines have different ACPI tables. QEMU's are relatively sane, real hardware is
+chaos. If anything bad happens, tell the ACPI crate.
 
-**"Build fails with cryptic errors"**: Nightly Rust sometimes breaks. Pin to a known-good version or sacrifice a rubber duck to the compiler gods.
+**"Build fails with cryptic errors"**: Nightly Rust sometimes breaks. Pin to a known-good version or sacrifice a rubber
+duck to the compiler gods.
 
 ## Code Organization (aka "Where Everything Lives")
 
 ### zenos-kernel/
+
 The main event. Contains:
+
 - `memory/`: Both allocators and all the pain they bring
 - `framebuffer/`: Graphics because serial output is for peasants
 - `interrupts/`: GDT and IDT setup (dragons be here)
@@ -135,12 +152,15 @@ The main event. Contains:
 - `testing/`: The test framework that keeps us ~~in~~sane
 
 ### zenos-bootloader/
+
 Our custom bootloader because apparently I hate myself:
+
 - `api/`: Interface between bootloader and kernel
 - `common/`: Shared code that both sides need
 - `uefi/`: UEFI-specific implementation details
 
 ### Root Directory
+
 - `src/main.rs`: QEMU launcher (literally just runs qemu-system-x86_64)
 - `build.rs`: Build orchestration nightmare
 - `Cargo.toml`: Workspace coordination
@@ -170,7 +190,7 @@ If you want to contribute to this beautiful disaster:
 
 1. **Read the code**: It's simultaneously the best and worst documentation
 2. **Test everything**: If it compiles, it might work. If it works, it might be correct.
-3. **Add tests**: Future you will thank past you. ~~PS: Tests can be written by ChatGPT~~ 
+3. **Add tests**: Future you will thank past you. ~~PS: Tests can be written by ChatGPT~~
 4. **Document your crimes**: ~~LOL Maybe~~ Leave comments explaining why you did what you did
 
 ### Code Style
@@ -195,6 +215,7 @@ This is not a performance-focused OS. It's a learning project. That said:
 ## Future Plans (aka "Pipe Dreams")
 
 Things I might implement if I ever finish what I started:
+
 - Process management (currently just runs one kernel thread)
 - Network stack (serial is good enough for now)
 - SMP support (single-core is simpler)
@@ -208,7 +229,8 @@ This project exists at the intersection of "educational" and "questionable life 
 development, welcome to the pain. If you're here to use this as a real OS, please reconsider your life decisions, and
 switch to the superior operating system(~~Linux~~ TempleOS).
 
-The code quality varies from "not terrible" to "what was I thinking?" Comments like "FIX THE FUCKING TEST WILL YOU?" are not bugs, they're features.
+The code quality varies from "not terrible" to "what was I thinking?" Comments like "FIX THE FUCKING TEST WILL YOU?" are
+not bugs, they're features.
 
 Remember: if it compiles, ship it. If it doesn't crash immediately, call it stable. If the tests pass, celebrate.
 
@@ -219,5 +241,6 @@ Good luck, and may the odds be ever in your favor.
 
 ---
 
-*"zenos" is pronounced like Zeno's paradox, not "zen OS." Though given the amount of zen required to debug this thing, the confusion is understandable.*
+*"zenos" is pronounced like Zeno's paradox, not "zen OS." Though given the amount of zen required to debug this thing,
+the confusion is understandable.*
 

@@ -80,7 +80,7 @@ impl Process {
         // 1. Switch to the new process context
         unsafe {
             Cr3::write(
-                x86_64::structures::paging::PhysFrame::containing_address(self.cr3),
+                PhysFrame::containing_address(self.cr3),
                 x86_64::registers::control::Cr3Flags::empty(),
             );
             flush_all();
@@ -286,19 +286,19 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
     // Build a user IRETQ frame and drop to ring 3
     unsafe {
         asm!(
-            "cli",                    // be explicit; IF will be restored from RFLAGS
+        "cli",                    // be explicit; IF will be restored from RFLAGS
         "swapgs",
-            "push {user_ss}",         // SS
-            "push {user_rsp}",        // RSP
-            "push {rflags}",          // RFLAGS
-            "push {user_cs}",         // CS
-            "push {user_rip}",        // RIP
-            "iretq",
-            user_ss = in(reg) user_ss,
-            user_rsp = in(reg) user_stack,
-            rflags = in(reg) rflags,
-            user_cs = in(reg) user_cs,
-            user_rip = in(reg) user_entry,
+        "push {user_ss}",         // SS
+        "push {user_rsp}",        // RSP
+        "push {rflags}",          // RFLAGS
+        "push {user_cs}",         // CS
+        "push {user_rip}",        // RIP
+        "iretq",
+        user_ss = in(reg) user_ss,
+        user_rsp = in(reg) user_stack,
+        rflags = in(reg) rflags,
+        user_cs = in(reg) user_cs,
+        user_rip = in(reg) user_entry,
         );
     }
     unreachable!();
@@ -430,7 +430,7 @@ pub(crate) static TESTS: &[&(dyn Testable + Sync)] = {
 };
 
 // Helper to choose a per-process load bias for PIC/PIE binaries
-fn compute_load_bias(elf: &xmas_elf::ElfFile) -> u64 {
+fn compute_load_bias(elf: &ElfFile) -> u64 {
     match elf.header.pt2.type_().as_type() {
         ElfType::SharedObject => DEFAULT_USER_BASE,
         _ => 0,
