@@ -1,6 +1,6 @@
+mod table;
 mod write;
 
-// use crate::hardware::keyboard;
 use crate::{
     interrupts::gdt::GDT,
     memory::{PAGE_4K, virt_to_phys},
@@ -8,6 +8,7 @@ use crate::{
     syscall::write::FileDescriptor,
 };
 use alloc::vec::Vec;
+use core::ops::Deref;
 use core::{arch::asm, mem::offset_of, ptr};
 use log::{debug, info};
 use x86_64::{VirtAddr, structures::idt::InterruptStackFrame};
@@ -90,50 +91,15 @@ pub unsafe fn syscall_main(
         "args: rdi={:#x}, rsi={:#x}, rdx={:#x}, r10={:#x}, r8={:#x}, r9={:#x}",
         rdi, rsi, rdx, r10, r8, r9
     );
-
-    match syscall_num {
-        0 => {
-            // read(fd, buf, len)
-            //let fd = rdi;
-            //let buf_ptr = rsi;
-            //let len = rdx;
-            todo!("syscall read is not implemented yet");
-        }
-        1 => {
-            // write(fd, buf, len)
-            let fd = rdi;
-            let buf_ptr = rsi;
-            let len = rdx;
-
-            debug!(
-                "syscall write: fd={:#x}, buf={:#x}, len={:#x}",
-                fd, buf_ptr, len
-            );
-
-            let ptr = copy_from_user(buf_ptr as *const u8, len as usize);
-            if ptr.is_err() {
-                ret = u64::MAX;
-            }
-            let mut buf = ptr.unwrap();
-            let fd = FileDescriptor::try_from(fd);
-            if fd.is_err() {
-                ret = u64::MAX;
-            } else {
-                let val = write::sys_write(&mut buf, fd.unwrap());
-                if val.is_some() {
-                    ret = val.unwrap()
-                } else {
-                    ret = u64::MAX;
-                }
-            }
-        }
-        _ => {
-            panic!("unsupported syscall number: {}", syscall_num);
-        }
+    let syscall = table::SYSCALL_TABLE.deref()[syscall_num as usize];
+    if syscall.is_some() {
+        let func = syscall.unwrap();
+        ret = func(rdi, rsi, rdx, r10, r8, r9);
+    } else {
+        info!("invalid syscall number: {}", syscall_num);
+        ret = u64::MAX;
     }
-
     debug!("returning {:#x} from syscall_main", ret);
-
     ret
 }
 

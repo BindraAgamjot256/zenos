@@ -19,6 +19,7 @@ acpi = "5.2.0"
 xmas-elf = "0.10.0"
 pc-keyboard = "0.8.0"
 linked_list_allocator = "0.10.1"
+syscall_macro = { path = "../syscall-macro" }  # local path to the macro crate
 
 [dependencies.fatfs]
 version = "0.4"

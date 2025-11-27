@@ -11,7 +11,7 @@ members = [
     "zenos-bootloader/common",
     "zenos-bootloader/common/config",
     "zenos-bootloader/uefi",
-    "zenos-init",
+    "zenos-init", "syscall-macro",
 ]
 
 [workspace.package]
