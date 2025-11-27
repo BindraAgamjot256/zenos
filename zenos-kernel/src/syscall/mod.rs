@@ -1,3 +1,4 @@
+mod errors;
 mod table;
 mod write;
 
@@ -5,7 +6,6 @@ use crate::{
     interrupts::gdt::GDT,
     memory::{PAGE_4K, virt_to_phys},
     percpu::PerCpuData,
-    syscall::write::FileDescriptor,
 };
 use alloc::vec::Vec;
 use core::ops::Deref;
@@ -31,6 +31,7 @@ pub extern "x86-interrupt" fn sys_rt0(stack_frame: InterruptStackFrame) {
     // For int 0x80, syscall number is in RAX, arguments in standard calling convention
     unsafe {
         asm!(
+        "swapgs",
         "mov {syscall}, rax",
         "mov {rdi_val}, rdi",
         "mov {rsi_val}, rsi",
@@ -65,6 +66,7 @@ pub extern "x86-interrupt" fn sys_rt0(stack_frame: InterruptStackFrame) {
     unsafe {
         // For int 0x80 we only need to place the return value in RAX
         asm!(
+        "swapgs",
         "mov rax, {ret}",
         ret = in(reg) ret,
         options(nostack, preserves_flags),
@@ -97,7 +99,7 @@ pub unsafe fn syscall_main(
         ret = func(rdi, rsi, rdx, r10, r8, r9);
     } else {
         info!("invalid syscall number: {}", syscall_num);
-        ret = u64::MAX;
+        ret = errors::ENOSYS as u64;
     }
     debug!("returning {:#x} from syscall_main", ret);
     ret

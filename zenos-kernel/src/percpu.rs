@@ -24,7 +24,7 @@ pub struct PerCpuData {
     /// Scratch space for use during interrupts
     pub scratch: [u64; 4],
 
-    pub(crate) curr_pid: u64,
+    pub curr_pid: u64,
 }
 
 impl PerCpuData {

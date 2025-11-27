@@ -1,7 +1,8 @@
-mod file_handles;
+pub(crate) mod file_handles;
 mod isolation;
 
 use crate::percpu::swapgs;
+use crate::process::file_handles::{FileHandle, Stderr, Stdin, Stdout};
 use crate::process::isolation::create_cr3_from_current_page_tables;
 use crate::{
     fs::FS,
@@ -11,6 +12,7 @@ use crate::{
     percpu::{PerCpuData, PerCpuVar},
     testing::Testable,
 };
+use alloc::boxed::Box;
 use alloc::{string::String, vec::Vec};
 use core::{
     arch::asm,
@@ -39,7 +41,7 @@ pub struct Process {
     cr3: PhysAddr,
     end: u64,
     entry_point: u64,
-
+    file_handles: heapless::Vec<file_handles::FileHandle, 256>,
     // Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
     load_bias: u64,
 }
@@ -56,6 +58,17 @@ impl Process {
 
         let pid = NEXT_PID.load(Ordering::Acquire);
         let load_bias = 0;
+        let mut file_handles = heapless::Vec::new();
+        file_handles
+            .push(FileHandle::new(0, Box::new(Stdin)))
+            .unwrap();
+        file_handles
+            .push(FileHandle::new(1, Box::new(Stdout)))
+            .unwrap();
+        file_handles
+            .push(FileHandle::new(3, Box::new(Stderr)))
+            .unwrap();
+
         let p = Process {
             pid,
             parent_pid: parent.pid,
@@ -65,6 +78,7 @@ impl Process {
             end: 0,
             entry_point: 0,
             cr3,
+            file_handles,
         };
         NEXT_PID.store(pid + 1, Ordering::Release);
         p
@@ -255,11 +269,22 @@ impl Process {
         info!("Prepared process: {}", self.name);
         Ok((user_entry, user_stack))
     }
+    pub fn get_file_handle(&mut self, fd: u64) -> Option<&mut FileHandle> {
+        for handle in self.file_handles.iter_mut() {
+            if handle.id() == fd as u32 {
+                return Some(handle);
+            }
+        }
+        None
+    }
 
     pub fn trace(&self) {
         kprintln!("{:#?}", self.state);
     }
 }
+
+unsafe impl Send for Process {}
+unsafe impl Sync for Process {}
 
 pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
     let user_cs = (GDT.user_code_segment.0 | 3) as u64;
@@ -386,6 +411,17 @@ pub fn init_process() -> &'static [u8] {
     let elf = ElfFile::new(buf).expect("Failed to parse init");
     let cr3 = Cr3::read().0;
     let load_bias = compute_load_bias(&elf);
+
+    let mut file_handles = heapless::Vec::new();
+    file_handles
+        .push(FileHandle::new(0, Box::new(Stdin)))
+        .unwrap();
+    file_handles
+        .push(FileHandle::new(1, Box::new(Stdout)))
+        .unwrap();
+    file_handles
+        .push(FileHandle::new(3, Box::new(Stderr)))
+        .unwrap();
     let process = Process {
         pid: 0,
         parent_pid: u64::MAX,
@@ -395,6 +431,7 @@ pub fn init_process() -> &'static [u8] {
         entry_point: 0,
         load_bias,
         cr3: cr3.start_address(),
+        file_handles,
     };
     PROCESSES.lock().push(process);
     buf

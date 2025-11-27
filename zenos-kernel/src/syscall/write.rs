@@ -1,25 +1,9 @@
 use crate::kprint;
+use crate::process::Process;
+use crate::process::file_handles::FileLike;
+use crate::syscall::copy_from_user;
 use crate::syscall::table::SyscallPtr;
-use crate::syscall::{copy_from_user, write};
 use log::debug;
-
-#[repr(u64)]
-pub enum FileDescriptor {
-    Stdout,
-    Stderr,
-}
-
-impl TryFrom<u64> for FileDescriptor {
-    type Error = ();
-    fn try_from(value: u64) -> Result<Self, Self::Error> {
-        let val = match value {
-            1 => Self::Stdout,
-            2 => Self::Stderr,
-            _ => return Err(()),
-        };
-        Ok(val)
-    }
-}
 
 #[syscall_macro::syscall(1)]
 fn write(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
@@ -39,29 +23,28 @@ fn write(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         ret = u64::MAX;
     }
     let mut buf = ptr.unwrap();
-    let fd = FileDescriptor::try_from(fd);
-    if fd.is_err() {
-        ret = u64::MAX;
+    let val = write_inner(&mut buf, fd);
+    if val.is_some() {
+        ret = val.unwrap();
     } else {
-        let val = sys_write(&mut buf, fd.unwrap());
-        if val.is_some() {
-            ret = val.unwrap();
-        } else {
-            ret = u64::MAX;
-        }
+        ret = u64::MAX;
     }
     ret
 }
 
-pub(crate) fn sys_write(buf: &[u8], fd: FileDescriptor) -> Option<u64> {
-    match fd {
-        FileDescriptor::Stdout => {
-            kprint!("{}", core::str::from_utf8(buf).unwrap());
-            Some(buf.len() as u64)
-        }
-        FileDescriptor::Stderr => {
-            kprint!("ERR, {}", core::str::from_utf8(buf).unwrap());
-            Some(buf.len() as u64)
-        }
+pub(crate) fn write_inner(buf: &[u8], fd: u64) -> Option<u64> {
+    let mut processes = crate::process::PROCESSES.lock();
+    let curr_pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
+    let process = processes.iter_mut().find(|p| p.pid == curr_pid)?;
+    let file_table = process.get_file_handle(fd);
+    if file_table.is_none() {
+        return None;
     }
+    let file_table = file_table.unwrap();
+    let handle = &mut *file_table.descriptor();
+    let write_res = FileLike::write(handle, buf);
+    if write_res.is_err() {
+        return None;
+    }
+    Some(write_res.unwrap() as u64)
 }
