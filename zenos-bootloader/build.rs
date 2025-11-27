@@ -46,8 +46,10 @@ fn build_uefi_bootloader() -> PathBuf {
             path.exists(),
             "uefi bootloader executable does not exist after building"
         );
+        println!("build successful, uefi bootloader at {}", path.display());
         path
     } else {
+        println!("build failed with status: {}", status);
         panic!("failed to build uefi bootloader");
     }
 }

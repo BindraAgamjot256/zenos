@@ -1,7 +1,7 @@
 #![allow(deprecated)]
 
+use crate::concat::*;
 use crate::version_info;
-
 /// Allows configuring the bootloader behavior.
 ///
 /// TODO: describe use together with `entry_point` macro
