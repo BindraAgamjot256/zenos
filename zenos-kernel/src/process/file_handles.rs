@@ -1,20 +1,24 @@
 use crate::kprint;
 use alloc::boxed::Box;
 use core::any::Any;
+use core::cmp::Ordering;
 use core::fmt::Debug;
-use fatfs::{IoBase, Read, Seek, SeekFrom, Write};
+use fatfs::{Error, IoBase, IoError, Read, Seek, SeekFrom, Write};
 
+#[derive(Clone)]
 pub struct Stdout;
+#[derive(Clone)]
 pub struct Stderr;
+#[derive(Clone)]
 pub struct Stdin;
 
 impl IoBase for Stdout {
-    type Error = ();
+    type Error = FileError;
 }
 
 impl FileLike for Stdout {
     fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, Self::Error> {
-        Err(())
+        Err(FileError::UnsupportedOperation)
     }
 
     fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
@@ -23,17 +27,17 @@ impl FileLike for Stdout {
     }
 
     fn seek(&mut self, _position: u64) -> Result<u64, Self::Error> {
-        Err(())
+        Err(FileError::UnsupportedOperation)
     }
 }
 
 impl IoBase for Stderr {
-    type Error = ();
+    type Error = FileError;
 }
 
 impl FileLike for Stderr {
     fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, Self::Error> {
-        Err(())
+        Err(FileError::UnsupportedOperation)
     }
 
     fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
@@ -42,12 +46,12 @@ impl FileLike for Stderr {
     }
 
     fn seek(&mut self, _position: u64) -> Result<u64, Self::Error> {
-        Err(())
+        Err(FileError::UnsupportedOperation)
     }
 }
 
 impl IoBase for Stdin {
-    type Error = ();
+    type Error = FileError;
 }
 
 impl FileLike for Stdin {
@@ -56,11 +60,11 @@ impl FileLike for Stdin {
     }
 
     fn write(&mut self, _buffer: &[u8]) -> Result<usize, Self::Error> {
-        Err(())
+        Err(FileError::UnsupportedOperation)
     }
 
     fn seek(&mut self, _position: u64) -> Result<u64, Self::Error> {
-        Err(())
+        Err(FileError::UnsupportedOperation)
     }
 }
 
@@ -72,9 +76,10 @@ pub(crate) trait FileLike: IoBase {
 
 impl<T> FileLike for T
 where
-    T: Read + Write + Seek + IoBase,
+    T: Read + Write + Seek,
 {
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, <Self as IoBase>::Error> {
+        Seek::seek(self, SeekFrom::Start(0))?;
         Read::read(self, buffer)
     }
 
@@ -89,11 +94,11 @@ where
 
 pub(crate) struct FileHandle {
     id: u32,
-    descriptor: Box<dyn FileLike<Error = ()>>,
+    descriptor: Box<dyn FileLike<Error = FileError>>,
 }
 
 impl FileHandle {
-    pub fn new(id: u32, descriptor: Box<dyn FileLike<Error = ()>>) -> Self {
+    pub fn new(id: u32, descriptor: Box<dyn FileLike<Error = FileError>>) -> Self {
         Self { id, descriptor }
     }
 
@@ -101,7 +106,7 @@ impl FileHandle {
         self.id
     }
 
-    pub fn descriptor(&mut self) -> &mut dyn FileLike<Error = ()> {
+    pub fn descriptor(&mut self) -> &mut dyn FileLike<Error = FileError> {
         self.descriptor.as_mut()
     }
 }
@@ -112,5 +117,60 @@ impl Debug for FileHandle {
             .field("id", &self.id)
             .field("type", &self.descriptor.type_id())
             .finish()
+    }
+}
+
+impl Eq for FileHandle {}
+
+impl PartialEq<Self> for FileHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl PartialOrd<Self> for FileHandle {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.id.cmp(&other.id))
+    }
+}
+
+impl Ord for FileHandle {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+#[derive(Debug)]
+pub enum FileError {
+    UnsupportedOperation,
+    InvalidDescriptor,
+    ReadError,
+    WriteError,
+    SeekError,
+    IoError(Error<()>),
+}
+
+impl IoError for FileError {
+    fn is_interrupted(&self) -> bool {
+        false
+    }
+
+    fn new_unexpected_eof_error() -> Self {
+        Self::IoError(Error::UnexpectedEof)
+    }
+
+    fn new_write_zero_error() -> Self {
+        Self::IoError(Error::WriteZero)
+    }
+}
+
+impl From<Error<FileError>> for FileError {
+    fn from(err: Error<FileError>) -> Self {
+        unsafe {
+            match err {
+                Error::Io(e) => e,
+                other => FileError::IoError(core::mem::transmute(other)),
+            }
+        }
     }
 }

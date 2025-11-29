@@ -1,4 +1,6 @@
 mod errors;
+mod open;
+mod read;
 mod table;
 mod write;
 
@@ -101,7 +103,6 @@ pub unsafe fn syscall_main(
         info!("invalid syscall number: {}", syscall_num);
         ret = errors::ENOSYS as u64;
     }
-    debug!("returning {:#x} from syscall_main", ret);
     ret
 }
 

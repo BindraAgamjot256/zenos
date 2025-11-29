@@ -3,7 +3,9 @@ use crate::memory::{
     KERNEL_BASE, PAGE_4K, PageType, kalloc_dma_pages, kalloc_page, kfree_dma_pages, kfree_page,
 };
 use crate::pci::scan_pci_for_ahci;
+use crate::process::file_handles::FileError;
 use alloc::boxed::Box;
+use alloc::string::String;
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{Ordering, compiler_fence},
@@ -13,9 +15,9 @@ use fatfs::{
 };
 use heapless::Vec;
 use log::{debug, error, trace};
+use pc_keyboard::KeyCode::S;
 use spin::{Lazy, Mutex};
 use x86_64::{PhysAddr, VirtAddr};
-
 // ============================================================================
 // Constants
 // ============================================================================
@@ -604,19 +606,23 @@ impl AhciBlockDevice {
 }
 
 impl IoBase for AhciBlockDevice {
-    type Error = ();
+    type Error = FileError;
 }
 
 impl Seek for AhciBlockDevice {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.cursor = match pos {
             SeekFrom::Start(offset) => offset,
-            SeekFrom::End(_) => return Err(()), // TODO: Need disk size
+            SeekFrom::End(_) => return Err(Self::Error::UnsupportedOperation), // TODO: Need disk size
             SeekFrom::Current(offset) => {
                 if offset < 0 {
-                    self.cursor.checked_sub(offset.unsigned_abs()).ok_or(())?
+                    self.cursor
+                        .checked_sub(offset.unsigned_abs())
+                        .ok_or(Self::Error::UnsupportedOperation)?
                 } else {
-                    self.cursor.checked_add(offset as u64).ok_or(())?
+                    self.cursor
+                        .checked_add(offset as u64)
+                        .ok_or(Self::Error::UnsupportedOperation)?
                 }
             }
         };
@@ -633,7 +639,7 @@ impl Read for AhciBlockDevice {
         let sectors = self.sectors_for_bytes(total_bytes_needed);
         let sector_aligned_size = sectors as usize * SECTOR_SIZE;
 
-        let ubuf = kalloc_dma_pages(sector_aligned_size).map_err(|_| ())?;
+        let ubuf = kalloc_dma_pages(sector_aligned_size).map_err(|_| Self::Error::ReadError)?;
         if ubuf.is_empty() {
             return Ok(0);
         }
@@ -644,12 +650,13 @@ impl Read for AhciBlockDevice {
             .and_then(|v| v.iter().filter(|p| p.port_base == self.port_base).next())
         {
             Some(p) => *p,
-            None => return Err(()),
+            None => return Err(Self::Error::ReadError),
         };
         let port = unsafe { Port::new(pinfo) };
 
         unsafe {
-            port.read_sectors(start_lba, ubuf.as_mut_ptr(), sectors)?;
+            port.read_sectors(start_lba, ubuf.as_mut_ptr(), sectors)
+                .map_err(|_| Self::Error::ReadError)?;
         }
 
         // Calculate how many bytes we can actually copy
@@ -660,7 +667,7 @@ impl Read for AhciBlockDevice {
         buf[..bytes_to_copy].copy_from_slice(&ubuf[sector_offset..sector_offset + bytes_to_copy]);
 
         self.cursor += bytes_to_copy as u64; // Increment by BYTES, not sectors
-        kfree_dma_pages(ubuf).map_err(|_| ())?;
+        kfree_dma_pages(ubuf).map_err(|_| Self::Error::ReadError)?;
         Ok(bytes_to_copy)
     }
 }
@@ -674,19 +681,21 @@ impl Write for AhciBlockDevice {
         let total_bytes_needed = sector_offset + buf.len();
         let sectors = self.sectors_for_bytes(total_bytes_needed);
 
-        let ubuf = kalloc_dma_pages(sectors as usize * SECTOR_SIZE).map_err(|_| ())?;
+        let ubuf = kalloc_dma_pages(sectors as usize * SECTOR_SIZE)
+            .map_err(|_| Self::Error::WriteError)?;
 
         // If we're not writing full sectors, read existing data first
         if sector_offset != 0 || buf.len() % SECTOR_SIZE != 0 {
             let ports = PORTS.lock();
             let pinfo = match ports.as_ref().and_then(|v| v.get(0)) {
                 Some(p) => *p,
-                None => return Err(()),
+                None => return Err(Self::Error::WriteError),
             };
             let port = unsafe { Port::new(pinfo) };
 
             unsafe {
-                port.read_sectors(start_lba, ubuf.as_mut_ptr(), sectors)?;
+                port.read_sectors(start_lba, ubuf.as_mut_ptr(), sectors)
+                    .map_err(|_| Self::Error::WriteError)?;
             }
         }
 
@@ -696,16 +705,17 @@ impl Write for AhciBlockDevice {
         let ports = PORTS.lock();
         let pinfo = match ports.as_ref().and_then(|v| v.get(0)) {
             Some(p) => *p,
-            None => return Err(()),
+            None => return Err(Self::Error::WriteError),
         };
         let port = unsafe { Port::new(pinfo) };
 
         unsafe {
-            port.write_sectors(start_lba, ubuf.as_mut_ptr(), sectors)?;
+            port.write_sectors(start_lba, ubuf.as_mut_ptr(), sectors)
+                .map_err(|_| Self::Error::WriteError)?;
         }
 
         self.cursor += buf.len() as u64; // Increment by BYTES written
-        kfree_dma_pages(ubuf).map_err(|_| ())?;
+        kfree_dma_pages(ubuf).map_err(|_| Self::Error::WriteError)?;
         Ok(buf.len())
     }
 
@@ -714,7 +724,7 @@ impl Write for AhciBlockDevice {
     }
 }
 
-pub static FS: Lazy<Mutex<FileSystem<BlockDeviceDriver<()>>>> = Lazy::new(|| {
+pub static FS: Lazy<Mutex<FileSystem<BlockDeviceDriver<FileError>>>> = Lazy::new(|| {
     unsafe { init() }
     let fs = FileSystem::new(
         BlockDeviceDriver::new(Box::new(
@@ -728,4 +738,92 @@ pub static FS: Lazy<Mutex<FileSystem<BlockDeviceDriver<()>>>> = Lazy::new(|| {
 });
 
 pub type File<'a> =
-    fatfs::File<'a, BlockDeviceDriver<()>, DefaultTimeProvider, LossyOemCpConverter>;
+    fatfs::File<'a, BlockDeviceDriver<FileError>, DefaultTimeProvider, LossyOemCpConverter>;
+
+pub struct FileWrapper {
+    path: String,
+    cursor: u64,
+}
+
+impl FileWrapper {
+    pub fn new(path: String) -> Self {
+        Self { path, cursor: 0 }
+    }
+}
+
+impl IoBase for FileWrapper {
+    type Error = FileError;
+}
+
+impl Read for FileWrapper {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let fs = FS.lock();
+        let mut file = fs
+            .root_dir()
+            .open_file(&self.path)
+            .map_err(|_| FileError::InvalidDescriptor)?;
+        file.seek(SeekFrom::Start(self.cursor))
+            .map_err(FileError::from)?;
+        let res = file.read(buf).map_err(FileError::from)?;
+        self.cursor += res as u64;
+        Ok(res)
+    }
+}
+
+impl Write for FileWrapper {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        let mut fs = FS.lock();
+        let mut file = fs
+            .root_dir()
+            .open_file(&self.path)
+            .map_err(|_| FileError::InvalidDescriptor)?;
+        file.seek(SeekFrom::Start(self.cursor))
+            .map_err(FileError::from)?;
+        let res = file.write(buf).map_err(FileError::from)?;
+        self.cursor += res as u64;
+        Ok(res)
+    }
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        let mut fs = FS.lock();
+        let mut file = fs
+            .root_dir()
+            .open_file(&self.path)
+            .map_err(|_| FileError::InvalidDescriptor)?;
+        file.flush().map_err(FileError::from)
+    }
+}
+
+impl Seek for FileWrapper {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        match pos {
+            SeekFrom::Start(o) => {
+                self.cursor = o;
+                Ok(o)
+            }
+            SeekFrom::Current(o) => {
+                let new_cursor = if o >= 0 {
+                    self.cursor.checked_add(o as u64)
+                } else {
+                    self.cursor.checked_sub(o.unsigned_abs())
+                };
+                match new_cursor {
+                    Some(c) => {
+                        self.cursor = c;
+                        Ok(c)
+                    }
+                    None => Err(FileError::SeekError),
+                }
+            }
+            SeekFrom::End(_) => {
+                let fs = FS.lock();
+                let mut file = fs
+                    .root_dir()
+                    .open_file(&self.path)
+                    .map_err(|_| FileError::InvalidDescriptor)?;
+                let res = file.seek(pos).map_err(FileError::from)?;
+                self.cursor = res;
+                Ok(res)
+            }
+        }
+    }
+}

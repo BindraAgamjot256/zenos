@@ -2,7 +2,7 @@ pub(crate) mod file_handles;
 mod isolation;
 
 use crate::percpu::swapgs;
-use crate::process::file_handles::{FileHandle, Stderr, Stdin, Stdout};
+use crate::process::file_handles::{FileError, FileHandle, FileLike, Stderr, Stdin, Stdout};
 use crate::process::isolation::create_cr3_from_current_page_tables;
 use crate::{
     fs::FS,
@@ -12,6 +12,7 @@ use crate::{
     percpu::{PerCpuData, PerCpuVar},
     testing::Testable,
 };
+use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::{string::String, vec::Vec};
 use core::{
@@ -41,7 +42,7 @@ pub struct Process {
     cr3: PhysAddr,
     end: u64,
     entry_point: u64,
-    file_handles: heapless::Vec<file_handles::FileHandle, 256>,
+    file_handles: heapless::Vec<FileHandle, 256>,
     // Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
     load_bias: u64,
 }
@@ -66,7 +67,7 @@ impl Process {
             .push(FileHandle::new(1, Box::new(Stdout)))
             .unwrap();
         file_handles
-            .push(FileHandle::new(3, Box::new(Stderr)))
+            .push(FileHandle::new(2, Box::new(Stderr)))
             .unwrap();
 
         let p = Process {
@@ -278,6 +279,15 @@ impl Process {
         None
     }
 
+    pub fn add_file_handle(
+        &mut self,
+        descriptor: Box<dyn FileLike<Error = FileError>>,
+    ) -> Result<u64, ()> {
+        let new_fd = self.file_handles.iter_mut().max().ok_or(())?.id() + 1;
+        let file_handle = FileHandle::new(new_fd, descriptor);
+        self.file_handles.push(file_handle).map_err(|_e| ())?;
+        Ok(new_fd as u64)
+    }
     pub fn trace(&self) {
         kprintln!("{:#?}", self.state);
     }
@@ -393,7 +403,7 @@ pub fn init_process() -> &'static [u8] {
 
     let mut offset = 0;
     loop {
-        match file.read(&mut buf[offset..]) {
+        match Read::read(&mut file, &mut buf[offset..]) {
             Ok(0) => break,
             Ok(n) => offset += n,
             Err(e) => {

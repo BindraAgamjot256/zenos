@@ -21,6 +21,7 @@ fn write(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     let ptr = copy_from_user(buf_ptr as *const u8, len as usize);
     if ptr.is_err() {
         ret = u64::MAX;
+        return ret;
     }
     let mut buf = ptr.unwrap();
     let val = write_inner(&mut buf, fd);
@@ -28,6 +29,7 @@ fn write(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         ret = val.unwrap();
     } else {
         ret = u64::MAX;
+        return ret;
     }
     ret
 }
