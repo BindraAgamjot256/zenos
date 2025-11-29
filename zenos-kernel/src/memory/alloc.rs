@@ -4,6 +4,8 @@ use crate::{
     memory::{PageType, kalloc_page},
     serial_println,
 };
+use core::cell::UnsafeCell;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use core::{
     alloc::{GlobalAlloc, Layout},
     mem::size_of,
@@ -12,6 +14,7 @@ use core::{
 use heapless::Vec;
 use linked_list_allocator::LockedHeap;
 use log::{error, trace, warn};
+use pc_keyboard::KeyCode::M;
 use spin::Mutex;
 use x86_64::VirtAddr;
 
@@ -104,7 +107,7 @@ impl SlabMeta {
     }
 }
 // The slab slab_allocator with a free list
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Slab {
     base_addr: usize,
     slab_size: usize,
@@ -299,14 +302,14 @@ impl Slab {
 
 #[derive(Default)]
 pub struct SlabAllocator {
-    slabs: Vec<Slab, 9>,
-    base_addr: usize,
+    slabs: Vec<Mutex<Slab>, 9>,
+    base_addr: AtomicUsize,
 }
 impl SlabAllocator {
     pub const fn new() -> Self {
         SlabAllocator {
             slabs: Vec::new(),
-            base_addr: SLAB_BASE_ADDR as usize,
+            base_addr: AtomicUsize::new(SLAB_BASE_ADDR as usize),
         }
     }
 
@@ -321,7 +324,7 @@ impl SlabAllocator {
             );
 
             // Calculate new base address BEFORE allocating pages
-            let current_base = self.base_addr;
+            let current_base = self.base_addr.load(Ordering::Acquire);
 
             // Log transition between slabs clearly
             if i > 0 {
@@ -356,7 +359,7 @@ impl SlabAllocator {
             trace!("Creating slab at base address 0x{current_base:x}");
             let slab = Slab::new(current_base, size, slab_meta);
 
-            match self.slabs.push(slab) {
+            match self.slabs.push(Mutex::new(slab)) {
                 Ok(_) => trace!("Slab {} added to collection", i + 1),
                 Err(_) => {
                     error!("Failed to add slab to collection");
@@ -365,18 +368,19 @@ impl SlabAllocator {
             }
 
             // Update base_addr for next slab
-            self.base_addr = current_base + MAX_SLAB_PAGES * PAGE_SIZE;
+            self.base_addr
+                .store(current_base + MAX_SLAB_PAGES * PAGE_SIZE, Ordering::Release);
             trace!(
                 "Slab {} initialized, next base address: 0x{:x}",
                 i + 1,
-                self.base_addr
+                self.base_addr.load(Ordering::Relaxed)
             );
         }
     }
 }
 
 impl SlabAllocator {
-    unsafe fn alloc(&mut self, layout: Layout) -> *mut u8 {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let size = layout.size();
         let align = layout.align();
         trace!("Allocating {size} bytes with alignment {align}");
@@ -403,8 +407,9 @@ impl SlabAllocator {
 
         // Find a slab that can accommodate this size
         trace!("Finding slab for size {slab_size} bytes");
-        let slab = self.slabs.iter_mut().find(|s| s.slab_size == slab_size);
-        if let Some(slab) = slab {
+        let slab = self.slabs.iter().find(|s| s.lock().slab_size == slab_size);
+        if let Some(mtx) = slab {
+            let mut slab = mtx.lock();
             // Allocate from the slab
             let ptr = slab.alloc();
             if ptr.is_null() {
@@ -423,7 +428,7 @@ impl SlabAllocator {
         }
     }
 
-    unsafe fn dealloc(&mut self, ptr: *mut u8, layout: Layout) {
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         if ptr.is_null() {
             warn!("Dealloc called with null pointer, ignoring");
             return;
@@ -442,7 +447,8 @@ impl SlabAllocator {
         };
 
         // Find the slab with the right size
-        if let Some(slab) = self.slabs.iter_mut().find(|s| s.slab_size == slab_size) {
+        if let Some(mtx) = self.slabs.iter().find(|s| s.lock().slab_size == slab_size) {
+            let mut slab = mtx.lock();
             trace!("Deallocating pointer {ptr:p} in slab with block size {slab_size}",);
             slab.dealloc(ptr);
 
@@ -455,16 +461,21 @@ impl SlabAllocator {
 }
 
 struct LockedAllocator {
-    slab_allocator: Mutex<SlabAllocator>,
+    slab_allocator: UnsafeCell<SlabAllocator>,
     large_allocator: LockedHeap,
 }
 impl LockedAllocator {
     pub const fn new() -> Self {
         {
             LockedAllocator {
-                slab_allocator: Mutex::new(SlabAllocator::new()),
+                slab_allocator: UnsafeCell::new(SlabAllocator::new()),
                 large_allocator: LockedHeap::empty(),
             }
+        }
+    }
+    pub fn init(&self) {
+        unsafe {
+            self.slab_allocator.as_mut_unchecked().init();
         }
     }
 }
@@ -481,8 +492,8 @@ unsafe impl GlobalAlloc for LockedAllocator {
                 return ptr.unwrap().as_ptr();
             }
 
-            let mut allocator = self.slab_allocator.lock();
-            allocator.alloc(layout)
+            let mut allocator = &self.slab_allocator;
+            allocator.as_mut_unchecked().alloc(layout)
         })
     }
 
@@ -496,8 +507,8 @@ unsafe impl GlobalAlloc for LockedAllocator {
                 return self.large_allocator.lock().deallocate(ptr.unwrap(), layout);
             }
 
-            let mut allocator = self.slab_allocator.lock();
-            allocator.dealloc(ptr, layout);
+            let mut allocator = &self.slab_allocator;
+            allocator.as_mut_unchecked().dealloc(ptr, layout);
         })
     }
 }
@@ -510,8 +521,7 @@ static ALLOCATOR: LockedAllocator = LockedAllocator::new();
 
 pub fn init() {
     trace!("Initializing slab slab_allocator");
-    let mut alloc = ALLOCATOR.slab_allocator.lock();
-    alloc.init();
+    ALLOCATOR.init();
     // map pages for large allocator.
     let mut addr = LARGE_ALLOC_BASE_ADDR;
     let pages = (super::PAGE_2M * 5) / super::PAGE_4K;
