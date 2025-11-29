@@ -144,7 +144,7 @@ macro_rules! file_close {
 pub extern "C" fn _start() -> ! {
     // File test
     let path = "/chksum.txt";
-    let fd = file_open!(path) + 2; // adjust for stdio fds
+    let fd = file_open!(path); // adjust for stdio fds
     println!("{:#?}", fd);
 
     if fd != usize::MAX {
@@ -159,7 +159,6 @@ pub extern "C" fn _start() -> ! {
             );
         } else {
             println!("file_read failed. reality is pain");
-            loop {}
         }
     } else {
         println!("file_open failed. reality is pain");

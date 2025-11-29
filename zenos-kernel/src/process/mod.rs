@@ -430,7 +430,7 @@ pub fn init_process() -> &'static [u8] {
         .push(FileHandle::new(1, Box::new(Stdout)))
         .unwrap();
     file_handles
-        .push(FileHandle::new(3, Box::new(Stderr)))
+        .push(FileHandle::new(2, Box::new(Stderr)))
         .unwrap();
     let process = Process {
         pid: 0,

@@ -15,69 +15,62 @@ use core::{arch::asm, mem::offset_of, ptr};
 use log::{debug, info};
 use x86_64::{VirtAddr, structures::idt::InterruptStackFrame};
 
-#[unsafe(no_mangle)]
-#[allow(unused_assignments)] // to shut cargo up about shit like ret being unused.
-#[allow(unused_variables)]
-pub extern "x86-interrupt" fn sys_rt0(stack_frame: InterruptStackFrame) {
-    //todo: swapgs, stack switching etc.
-    let mut syscall_num: u64;
-    let mut rdi_val: u64;
-    let mut rsi_val: u64;
-    let mut rdx_val: u64;
-    let mut r10_val: u64;
-    let mut r8_val: u64;
-    let mut r9_val: u64;
-    let mut ret: u64 = 0;
-    let mut rsp: u64;
+use core::arch::global_asm;
 
-    // For int 0x80, syscall number is in RAX, arguments in standard calling convention
-    unsafe {
-        asm!(
-        "swapgs",
-        "mov {syscall}, rax",
-        "mov {rdi_val}, rdi",
-        "mov {rsi_val}, rsi",
-        "mov {rdx_val}, rdx",
-        "mov {r10_val}, r10",
-        "mov {r8_val}, r8",
-        "mov {r9_val}, r9",
-        "mov {stack}, rsp",
-        stack = out(reg) rsp,
-        syscall = out(reg) syscall_num,
-        rdi_val = out(reg) rdi_val,
-        rsi_val = out(reg) rsi_val,
-        rdx_val = out(reg) rdx_val,
-        r10_val = out(reg) r10_val,
-        r8_val = out(reg) r8_val,
-        r9_val = out(reg) r9_val,
-        options(nostack, preserves_flags),
-        );
-    }
-    unsafe {
-        ret = syscall_main(
-            syscall_num,
-            rdi_val,
-            rsi_val,
-            rdx_val,
-            r10_val,
-            r8_val,
-            r9_val,
-            rsp,
-        );
-    }
-    unsafe {
-        // For int 0x80 we only need to place the return value in RAX
-        asm!(
-        "swapgs",
-        "mov rax, {ret}",
-        ret = in(reg) ret,
-        options(nostack, preserves_flags),
-        );
-    }
+global_asm!(
+    r#"
+.global sys_rt0
+sys_rt0:
+    swapgs
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+
+    mov r11, r9
+    mov r9, r8
+    mov r8, r10
+    mov rcx, rdx
+    mov rdx, rsi
+    mov rsi, rdi
+    mov rdi, rax
+
+    push rsp
+    push r11
+
+    sub rsp, 8
+
+    call syscall_main
+
+    add rsp, 8
+    add rsp, 16
+
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    add rsp, 8
+
+    swapgs
+    iretq
+"#
+);
+
+unsafe extern "x86-interrupt" {
+    pub fn sys_rt0(stack_frame: InterruptStackFrame);
 }
 
-#[allow(unused_assignments)]
-pub unsafe fn syscall_main(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn syscall_main(
     syscall_num: u64,
     rdi: u64,
     rsi: u64,
@@ -135,7 +128,7 @@ pub fn init() {
 
 /// Quickly checks whether the entire user range [ptr, ptr+len) is mapped in the
 /// current page tables. This avoids taking a page fault when copying.
-fn user_range_is_mapped(user_ptr: *const u8, len: usize) -> bool {
+pub(crate) fn user_range_is_mapped(user_ptr: *const u8, len: usize) -> bool {
     if user_ptr.is_null() || len == 0 {
         return false;
     }
