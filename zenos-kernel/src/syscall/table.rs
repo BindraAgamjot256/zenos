@@ -1,3 +1,4 @@
+use log::info;
 use spin::Lazy;
 
 #[repr(C)]
@@ -43,5 +44,8 @@ unsafe fn build_syscall_table() -> [Option<SyscallFn>; 256] {
     table
 }
 
-pub(crate) static SYSCALL_TABLE: Lazy<[Option<SyscallFn>; 256]> =
-    Lazy::new(|| unsafe { build_syscall_table() });
+pub(crate) static SYSCALL_TABLE: Lazy<[Option<SyscallFn>; 256]> = Lazy::new(|| {
+    let tab = unsafe { build_syscall_table() };
+    info!("Syscall table initialized, {:?}", tab);
+    tab
+});
