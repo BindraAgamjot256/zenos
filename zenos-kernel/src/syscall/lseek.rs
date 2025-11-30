@@ -1,6 +1,7 @@
 use crate::fs::{FS, FileWrapper};
 use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;
+use crate::syscall::table::SyscallPtr;
 use alloc::boxed::Box;
 use fatfs::Error;
 use log::{debug, info};
