@@ -156,6 +156,24 @@ macro_rules! file_close {
         }
     }};
 }
+macro_rules! file_lseek {
+    ($fd:expr, $offset:expr, $whence:expr) => {{
+        let mut new_pos: isize;
+        unsafe {
+            asm!(
+                "int 0x80",
+                in("rax") 8usize,           // lseek syscall number (adjust to your table!)
+                in("rdi") $fd as usize,     // fd
+                in("rsi") $offset as isize, // offset
+                in("rdx") $whence as usize, // whence: 0=SET, 1=CUR, 2=END
+                lateout("rax") new_pos,
+                out("rcx") _,
+                out("r11") _,
+            );
+        }
+        new_pos
+    }};
+}
 
 bitflags! {
     #[derive(Default, Debug, Clone, Copy)]
@@ -175,8 +193,12 @@ pub extern "C" fn _start() -> ! {
     println!("{:#?}", fd);
 
     if fd != usize::MAX {
+        // Move cursor back to start of file
+        file_lseek!(fd, 0, 0);
         file_write!(fd, "hello, world\n");
+        // Move cursor back to start of file
 
+        file_lseek!(fd, 0, 0);
         let mut buffer = [0u8; 32];
         let read_len = file_read!(fd, &mut buffer);
         if read_len > 0 {
@@ -187,8 +209,12 @@ pub extern "C" fn _start() -> ! {
         } else {
             println!("file_read failed. reality is pain");
         }
+
+        // Move cursor back to start of file
+        file_lseek!(fd, 0, 0);
         let buf = "Goodbye, world\n";
         file_write!(fd, buf);
+        file_lseek!(fd, 0, 0);
         let mut buffer = [0u8; 32];
         let read_len = file_read!(fd, &mut buffer);
         if read_len > 0 {
