@@ -9,7 +9,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94476c7ef97af4c4d998b3f422c1b01d5211aad57c80ed200baf148d1f1efab6"
 dependencies = [
  "bit_field",
- "bitflags 2.9.1",
+    "bitflags 2.10.0",
  "log",
 ]
 
@@ -104,9 +104,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.9.1"
+version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
+checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 
 [[package]]
 name = "bootloader-boot-config"
@@ -309,7 +309,7 @@ name = "fatfs"
 version = "0.4.0"
 source = "git+https://github.com/rafalh/rust-fatfs/#4eccb50d011146fbed20e133d33b22f3c27292e7"
 dependencies = [
- "bitflags 2.9.1",
+    "bitflags 2.10.0",
  "log",
 ]
 
@@ -351,7 +351,7 @@ version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8283e7331b8c93b9756e0cfdbcfb90312852f953c6faf9bf741e684cc3b6ad69"
 dependencies = [
- "bitflags 2.9.1",
+    "bitflags 2.10.0",
  "crc",
  "log",
  "uuid",
@@ -636,7 +636,7 @@ version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11181fbabf243db407ef8df94a6ce0b2f9a733bd8be4ad02b4eda9602296cac8"
 dependencies = [
- "bitflags 2.9.1",
+    "bitflags 2.10.0",
  "errno",
  "libc",
  "linux-raw-sys",
@@ -798,7 +798,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e492212ac378a5e00da953718dafb1340d9fbaf4f27d6f3c5cab03d931d1c049"
 dependencies = [
- "bitflags 2.9.1",
+    "bitflags 2.10.0",
  "rustversion",
  "x86",
 ]
@@ -809,7 +809,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94d293f51425981fdb1b766beae254dbb711a17e8c4b549dc69b9b7ee0d478d5"
 dependencies = [
- "bitflags 2.9.1",
+    "bitflags 2.10.0",
  "rustversion",
  "x86",
 ]
@@ -1107,7 +1107,7 @@ version = "0.39.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
- "bitflags 2.9.1",
+    "bitflags 2.10.0",
 ]
 
 [[package]]
@@ -1128,7 +1128,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f042214de98141e9c8706e8192b73f56494087cc55ebec28ce10f26c5c364ae"
 dependencies = [
  "bit_field",
- "bitflags 2.9.1",
+    "bitflags 2.10.0",
  "rustversion",
  "volatile",
 ]
@@ -1176,12 +1176,16 @@ dependencies = [
 [[package]]
 name = "zenos-init"
 version = "0.1.0"
+dependencies = [
+    "bitflags 2.10.0",
+]
 
 [[package]]
 name = "zenos-kernel"
 version = "0.1.0"
 dependencies = [
  "acpi",
+    "bitflags 2.10.0",
  "bootloader_api",
  "embedded-graphics",
  "fatfs 0.4.0",

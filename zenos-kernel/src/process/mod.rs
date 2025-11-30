@@ -2,7 +2,9 @@ pub(crate) mod file_handles;
 mod isolation;
 
 use crate::percpu::swapgs;
-use crate::process::file_handles::{FileError, FileHandle, FileLike, Stderr, Stdin, Stdout};
+use crate::process::file_handles::{
+    FileError, FileHandle, FileLike, FileOpenOptions, Stderr, Stdin, Stdout,
+};
 use crate::process::isolation::create_cr3_from_current_page_tables;
 use crate::{
     fs::FS,
@@ -61,13 +63,13 @@ impl Process {
         let load_bias = 0;
         let mut file_handles = heapless::Vec::new();
         file_handles
-            .push(FileHandle::new(0, Box::new(Stdin)))
+            .push(FileHandle::new(0, Box::new(Stdin), FileOpenOptions::all()))
             .unwrap();
         file_handles
-            .push(FileHandle::new(1, Box::new(Stdout)))
+            .push(FileHandle::new(1, Box::new(Stdout), FileOpenOptions::all()))
             .unwrap();
         file_handles
-            .push(FileHandle::new(2, Box::new(Stderr)))
+            .push(FileHandle::new(2, Box::new(Stderr), FileOpenOptions::all()))
             .unwrap();
 
         let p = Process {
@@ -87,17 +89,14 @@ impl Process {
 
     pub fn load(&mut self, bytes: &[u8]) {
         // CRITICAL: We need to modify the NEW process's memory.
-        // Since your ualloc_page and ptr::copy work on the ACTIVE CR3,
+        // Since ualloc_page and ptr::copy work on the ACTIVE CR3,
         // we must temporarily switch, do the work, and switch back.
 
-        let saved_cr3 = Cr3::read().0;
+        let (saved_cr3, flags) = Cr3::read();
 
         // 1. Switch to the new process context
         unsafe {
-            Cr3::write(
-                PhysFrame::containing_address(self.cr3),
-                x86_64::registers::control::Cr3Flags::empty(),
-            );
+            Cr3::write(PhysFrame::containing_address(self.cr3), flags);
             flush_all();
         }
 
@@ -108,7 +107,7 @@ impl Process {
 
         // 3. Switch BACK to the creator's context
         unsafe {
-            Cr3::write(saved_cr3, x86_64::registers::control::Cr3Flags::empty());
+            Cr3::write(saved_cr3, flags);
         }
 
         self.state.loaded = true;
@@ -282,14 +281,25 @@ impl Process {
     pub fn add_file_handle(
         &mut self,
         descriptor: Box<dyn FileLike<Error = FileError>>,
+        foo: FileOpenOptions,
     ) -> Result<u64, ()> {
         let new_fd = self.file_handles.iter_mut().max().ok_or(())?.id() + 1;
-        let file_handle = FileHandle::new(new_fd, descriptor);
+        let file_handle = FileHandle::new(new_fd, descriptor, foo);
         self.file_handles.push(file_handle).map_err(|_e| ())?;
         Ok(new_fd as u64)
     }
     pub fn trace(&self) {
-        kprintln!("{:#?}", self.state);
+        kprintln!("Process {} (pid {})", self.name, self.pid);
+        kprintln!("  Parent PID: {}", self.parent_pid);
+        kprintln!("  CR3: {:#x}", self.cr3.as_u64());
+        kprintln!("  Load Bias: {:#x}", self.load_bias);
+        kprintln!("  Entry Point: {:#x}", self.entry_point);
+        kprintln!("  End Address: {:#x}", self.end);
+        kprintln!("  State: {:?}", self.state);
+        kprintln!("  File Handles:");
+        for handle in self.file_handles.iter() {
+            kprintln!("    FD {:#?}", handle);
+        }
     }
 }
 
@@ -424,13 +434,13 @@ pub fn init_process() -> &'static [u8] {
 
     let mut file_handles = heapless::Vec::new();
     file_handles
-        .push(FileHandle::new(0, Box::new(Stdin)))
+        .push(FileHandle::new(0, Box::new(Stdin), FileOpenOptions::all()))
         .unwrap();
     file_handles
-        .push(FileHandle::new(1, Box::new(Stdout)))
+        .push(FileHandle::new(1, Box::new(Stdout), FileOpenOptions::all()))
         .unwrap();
     file_handles
-        .push(FileHandle::new(2, Box::new(Stderr)))
+        .push(FileHandle::new(2, Box::new(Stderr), FileOpenOptions::all()))
         .unwrap();
     let process = Process {
         pid: 0,

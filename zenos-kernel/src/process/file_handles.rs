@@ -1,5 +1,6 @@
 use crate::kprint;
 use alloc::boxed::Box;
+use bitflags::bitflags;
 use core::any::Any;
 use core::cmp::Ordering;
 use core::fmt::Debug;
@@ -26,7 +27,7 @@ impl FileLike for Stdout {
         Ok(buffer.len())
     }
 
-    fn seek(&mut self, _position: u64) -> Result<u64, Self::Error> {
+    fn seek(&mut self, _position: SeekFrom) -> Result<u64, <Self as IoBase>::Error> {
         Err(FileError::UnsupportedOperation)
     }
 }
@@ -45,7 +46,7 @@ impl FileLike for Stderr {
         Ok(buffer.len())
     }
 
-    fn seek(&mut self, _position: u64) -> Result<u64, Self::Error> {
+    fn seek(&mut self, _position: SeekFrom) -> Result<u64, <Self as IoBase>::Error> {
         Err(FileError::UnsupportedOperation)
     }
 }
@@ -63,7 +64,7 @@ impl FileLike for Stdin {
         Err(FileError::UnsupportedOperation)
     }
 
-    fn seek(&mut self, _position: u64) -> Result<u64, Self::Error> {
+    fn seek(&mut self, _position: SeekFrom) -> Result<u64, <Self as IoBase>::Error> {
         Err(FileError::UnsupportedOperation)
     }
 }
@@ -71,7 +72,7 @@ impl FileLike for Stdin {
 pub(crate) trait FileLike: IoBase {
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, <Self as IoBase>::Error>;
     fn write(&mut self, buffer: &[u8]) -> Result<usize, <Self as IoBase>::Error>;
-    fn seek(&mut self, position: u64) -> Result<u64, <Self as IoBase>::Error>;
+    fn seek(&mut self, position: SeekFrom) -> Result<u64, <Self as IoBase>::Error>;
 }
 
 impl<T> FileLike for T
@@ -87,19 +88,28 @@ where
         Write::write(self, buffer)
     }
 
-    fn seek(&mut self, position: u64) -> Result<u64, <Self as IoBase>::Error> {
-        Seek::seek(self, SeekFrom::Start(position))
+    fn seek(&mut self, position: SeekFrom) -> Result<u64, <Self as IoBase>::Error> {
+        Seek::seek(self, position)
     }
 }
 
 pub(crate) struct FileHandle {
     id: u32,
     descriptor: Box<dyn FileLike<Error = FileError>>,
+    foo: FileOpenOptions,
 }
 
 impl FileHandle {
-    pub fn new(id: u32, descriptor: Box<dyn FileLike<Error = FileError>>) -> Self {
-        Self { id, descriptor }
+    pub fn new(
+        id: u32,
+        descriptor: Box<dyn FileLike<Error = FileError>>,
+        foo: FileOpenOptions,
+    ) -> Self {
+        Self {
+            id,
+            descriptor,
+            foo,
+        }
     }
 
     pub fn id(&self) -> u32 {
@@ -172,5 +182,16 @@ impl From<Error<FileError>> for FileError {
                 other => FileError::IoError(core::mem::transmute(other)),
             }
         }
+    }
+}
+
+bitflags! {
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct FileOpenOptions: u64 {
+        const READ = 0b0001;
+        const WRITE = 0b0010;
+        const CREATE = 0b0100;
+        const TRUNCATE = 0b1000;
+        //todo: more options
     }
 }

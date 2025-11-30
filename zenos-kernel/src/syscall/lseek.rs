@@ -1,0 +1,40 @@
+use crate::fs::{FS, FileWrapper};
+use crate::process::file_handles::FileOpenOptions;
+use crate::syscall::copy_from_user;
+use alloc::boxed::Box;
+use fatfs::Error;
+use log::{debug, info};
+use syscall_macro::syscall;
+
+#[syscall(8)]
+fn lseek(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
+    // lseek(fd, offset, whence)
+    let fd = rdi;
+    let offset = rsi as i64;
+    let whence = rdx;
+    let mut ret = 0;
+
+    debug!(
+        "syscall lseek: fd={}, offset={}, whence={}",
+        fd, offset, whence
+    );
+
+    ret = seek_inner(fd, offset, whence).unwrap_or_else(|| u64::MAX);
+
+    ret
+}
+
+fn seek_inner(fd: u64, offset: i64, whence: u64) -> Option<u64> {
+    let pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
+    let mut processes = crate::process::PROCESSES.lock();
+    let process = processes.iter_mut().find(|p| p.pid == pid)?;
+    let file_handle = process.get_file_handle(fd)?;
+    let seek_from = match whence {
+        0 => fatfs::SeekFrom::Start(offset as u64),
+        1 => fatfs::SeekFrom::Current(offset),
+        2 => fatfs::SeekFrom::End(offset),
+        _ => return None,
+    };
+    let new_pos = file_handle.descriptor().seek(seek_from).ok()?;
+    Some(new_pos)
+}
