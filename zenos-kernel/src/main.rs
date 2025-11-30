@@ -145,7 +145,6 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         let (e, s) = pinit.prepare_run().unwrap();
         (e, s, pinit.pid)
     };
-
     kprintln!("process loaded, pid: {}", pid);
     zenos_kernel::process::enter_user_mode(entry, stack);
 }

@@ -1,4 +1,5 @@
 mod errors;
+mod lseek;
 mod open;
 mod read;
 mod table;

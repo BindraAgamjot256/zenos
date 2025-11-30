@@ -3,7 +3,7 @@ use crate::memory::{
     KERNEL_BASE, PAGE_4K, PageType, kalloc_dma_pages, kalloc_page, kfree_dma_pages, kfree_page,
 };
 use crate::pci::scan_pci_for_ahci;
-use crate::process::file_handles::FileError;
+use crate::process::file_handles::{FileError, FileOpenOptions};
 use alloc::boxed::Box;
 use alloc::string::String;
 use core::{
@@ -724,6 +724,10 @@ impl Write for AhciBlockDevice {
     }
 }
 
+struct FileSystemWrapper {
+    fs: FileSystem<BlockDeviceDriver<FileError>>,
+}
+
 pub static FS: Lazy<Mutex<FileSystem<BlockDeviceDriver<FileError>>>> = Lazy::new(|| {
     unsafe { init() }
     let fs = FileSystem::new(
@@ -743,11 +747,16 @@ pub type File<'a> =
 pub struct FileWrapper {
     path: String,
     cursor: u64,
+    foo: FileOpenOptions,
 }
 
 impl FileWrapper {
-    pub fn new(path: String) -> Self {
-        Self { path, cursor: 0 }
+    pub fn new(path: String, foo: FileOpenOptions) -> Self {
+        Self {
+            path,
+            cursor: 0,
+            foo,
+        }
     }
 }
 
@@ -757,6 +766,9 @@ impl IoBase for FileWrapper {
 
 impl Read for FileWrapper {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        if !self.foo.contains(FileOpenOptions::READ) {
+            return Err(FileError::WriteError);
+        }
         let fs = FS.lock();
         let mut file = fs
             .root_dir()
@@ -772,6 +784,9 @@ impl Read for FileWrapper {
 
 impl Write for FileWrapper {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        if !self.foo.contains(FileOpenOptions::WRITE) {
+            return Err(FileError::WriteError);
+        }
         let mut fs = FS.lock();
         let mut file = fs
             .root_dir()

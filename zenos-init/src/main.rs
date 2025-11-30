@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
+#![feature(format_args_nl)]
 
+use bitflags::bitflags;
 use core::arch::asm;
 use core::fmt::{self, Write};
 
@@ -41,8 +43,7 @@ macro_rules! print {
 macro_rules! println {
     () => (print!("\n"));
     ($($arg:tt)*) => ({
-        print!($($arg)*);
-        print!("\n");
+        print!("{}", format_args_nl!($($arg)*));
     })
 }
 
@@ -80,6 +81,23 @@ macro_rules! file_open {
                 in("rax") 2usize,           // open
                 in("rdi") $path.as_ptr(),   // path ptr
                 in("rsi") $path.len(),      // length
+                in("rdx") FileOpenOptions::all().bits(),           // flags (adjust as needed)
+                lateout("rax") fd,
+                out("rcx") _,
+                out("r11") _,
+            );
+        }
+        fd
+    }};
+    ($path:expr, $foo:expr) => {{
+        let mut fd: usize;
+        unsafe {
+            asm!(
+                "int 0x80",
+                in("rax") 2usize,           // open
+                in("rdi") $path.as_ptr(),   // path ptr
+                in("rsi") $path.len(),      // length
+                in("rdx") $foo.bits(),           // flags (adjust as needed)
                 lateout("rax") fd,
                 out("rcx") _,
                 out("r11") _,
@@ -122,7 +140,6 @@ macro_rules! file_read {
                 out("r11") _,
             );
         }
-        println!("read returned: {}", bytes);
         if bytes > 0 { bytes as usize } else { 0 }
     }};
 }
@@ -140,6 +157,16 @@ macro_rules! file_close {
     }};
 }
 
+bitflags! {
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct FileOpenOptions: u64 {
+        const READ = 0b0001;
+        const WRITE = 0b0010;
+        const CREATE = 0b0100;
+        const TRUNCATE = 0b1000;
+        //todo: more options
+    }
+}
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
     // File test
@@ -150,6 +177,18 @@ pub extern "C" fn _start() -> ! {
     if fd != usize::MAX {
         file_write!(fd, "hello, world\n");
 
+        let mut buffer = [0u8; 32];
+        let read_len = file_read!(fd, &mut buffer);
+        if read_len > 0 {
+            println!(
+                "File says: {}",
+                core::str::from_utf8(&buffer[..read_len]).unwrap_or("?")
+            );
+        } else {
+            println!("file_read failed. reality is pain");
+        }
+        let buf = "Goodbye, world\n";
+        file_write!(fd, buf);
         let mut buffer = [0u8; 32];
         let read_len = file_read!(fd, &mut buffer);
         if read_len > 0 {
