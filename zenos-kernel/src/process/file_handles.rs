@@ -80,7 +80,6 @@ where
     T: Read + Write + Seek,
 {
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, <Self as IoBase>::Error> {
-        Seek::seek(self, SeekFrom::Start(0))?;
         Read::read(self, buffer)
     }
 
