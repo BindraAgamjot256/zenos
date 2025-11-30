@@ -1,4 +1,3 @@
-use crate::syscall::open::open_inner;
 use crate::syscall::table::SyscallPtr;
 use crate::syscall::{copy_from_user, copy_to_user};
 use log::{debug, error, info};

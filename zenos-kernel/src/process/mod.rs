@@ -1,7 +1,6 @@
 pub(crate) mod file_handles;
 mod isolation;
 
-use crate::percpu::swapgs;
 use crate::process::file_handles::{
     FileError, FileHandle, FileLike, FileOpenOptions, Stderr, Stdin, Stdout,
 };
@@ -14,7 +13,6 @@ use crate::{
     percpu::{PerCpuData, PerCpuVar},
     testing::Testable,
 };
-use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::{string::String, vec::Vec};
 use core::{
@@ -269,7 +267,7 @@ impl Process {
         info!("Prepared process: {}", self.name);
         Ok((user_entry, user_stack))
     }
-    pub fn get_file_handle(&mut self, fd: u64) -> Option<&mut FileHandle> {
+    pub(crate) fn get_file_handle(&mut self, fd: u64) -> Option<&mut FileHandle> {
         for handle in self.file_handles.iter_mut() {
             if handle.id() == fd as u32 {
                 return Some(handle);
@@ -278,7 +276,7 @@ impl Process {
         None
     }
 
-    pub fn add_file_handle(
+    pub(crate) fn add_file_handle(
         &mut self,
         descriptor: Box<dyn FileLike<Error = FileError>>,
         foo: FileOpenOptions,

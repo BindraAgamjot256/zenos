@@ -1,12 +1,6 @@
 use log::info;
 use spin::Lazy;
 
-#[repr(C)]
-pub struct SyscallEntry {
-    pub number: usize,
-    pub func: unsafe extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64,
-}
-
 // We define the signature for the syscall handler
 pub type SyscallFn = extern "C" fn(u64, u64, u64, u64, u64, u64) -> u64;
 

@@ -14,7 +14,6 @@ use core::{
 use heapless::Vec;
 use linked_list_allocator::LockedHeap;
 use log::{error, trace, warn};
-use pc_keyboard::KeyCode::M;
 use spin::Mutex;
 use x86_64::VirtAddr;
 
@@ -492,7 +491,7 @@ unsafe impl GlobalAlloc for LockedAllocator {
                 return ptr.unwrap().as_ptr();
             }
 
-            let mut allocator = &self.slab_allocator;
+            let allocator = &self.slab_allocator;
             allocator.as_mut_unchecked().alloc(layout)
         })
     }
@@ -507,7 +506,7 @@ unsafe impl GlobalAlloc for LockedAllocator {
                 return self.large_allocator.lock().deallocate(ptr.unwrap(), layout);
             }
 
-            let mut allocator = &self.slab_allocator;
+            let allocator = &self.slab_allocator;
             allocator.as_mut_unchecked().dealloc(ptr, layout);
         })
     }

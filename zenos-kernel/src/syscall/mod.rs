@@ -1,3 +1,4 @@
+#![allow(unused_assignments)]
 mod errors;
 mod lseek;
 mod open;
@@ -8,11 +9,10 @@ mod write;
 use crate::{
     interrupts::gdt::GDT,
     memory::{PAGE_4K, virt_to_phys},
-    percpu::PerCpuData,
 };
 use alloc::vec::Vec;
 use core::ops::Deref;
-use core::{arch::asm, mem::offset_of, ptr};
+use core::ptr;
 use log::{debug, info};
 use x86_64::{VirtAddr, structures::idt::InterruptStackFrame};
 

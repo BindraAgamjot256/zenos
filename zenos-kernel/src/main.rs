@@ -12,11 +12,9 @@
 
 extern crate alloc;
 
-use alloc::boxed::Box;
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
 use fatfs::{Read, Write};
-use log::info;
 use zenos_kernel::{kinit, kprintln, serial_println};
 
 static CONFIG: BootloaderConfig = {

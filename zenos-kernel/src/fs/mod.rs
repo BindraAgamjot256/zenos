@@ -15,7 +15,6 @@ use fatfs::{
 };
 use heapless::Vec;
 use log::{debug, error, trace};
-use pc_keyboard::KeyCode::S;
 use spin::{Lazy, Mutex};
 use x86_64::{PhysAddr, VirtAddr};
 // ============================================================================
@@ -724,10 +723,6 @@ impl Write for AhciBlockDevice {
     }
 }
 
-struct FileSystemWrapper {
-    fs: FileSystem<BlockDeviceDriver<FileError>>,
-}
-
 pub static FS: Lazy<Mutex<FileSystem<BlockDeviceDriver<FileError>>>> = Lazy::new(|| {
     unsafe { init() }
     let fs = FileSystem::new(
@@ -787,7 +782,7 @@ impl Write for FileWrapper {
         if !self.foo.contains(FileOpenOptions::WRITE) {
             return Err(FileError::WriteError);
         }
-        let mut fs = FS.lock();
+        let fs = FS.lock();
         let mut file = fs
             .root_dir()
             .open_file(&self.path)
@@ -799,7 +794,7 @@ impl Write for FileWrapper {
         Ok(res)
     }
     fn flush(&mut self) -> Result<(), Self::Error> {
-        let mut fs = FS.lock();
+        let fs = FS.lock();
         let mut file = fs
             .root_dir()
             .open_file(&self.path)

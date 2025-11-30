@@ -1,5 +1,3 @@
-use crate::kprint;
-use crate::process::Process;
 use crate::process::file_handles::FileLike;
 use crate::syscall::copy_from_user;
 use crate::syscall::table::SyscallPtr;

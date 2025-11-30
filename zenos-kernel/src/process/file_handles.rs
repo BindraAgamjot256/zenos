@@ -95,19 +95,19 @@ where
 pub(crate) struct FileHandle {
     id: u32,
     descriptor: Box<dyn FileLike<Error = FileError>>,
-    foo: FileOpenOptions,
+    _foo: FileOpenOptions,
 }
 
 impl FileHandle {
     pub fn new(
         id: u32,
         descriptor: Box<dyn FileLike<Error = FileError>>,
-        foo: FileOpenOptions,
+        _foo: FileOpenOptions,
     ) -> Self {
         Self {
             id,
             descriptor,
-            foo,
+            _foo,
         }
     }
 
