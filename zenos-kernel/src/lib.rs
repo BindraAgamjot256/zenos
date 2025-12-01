@@ -23,14 +23,13 @@
 
 #![no_std]
 #![feature(abi_x86_interrupt)]
-#![feature(cold_path)]
-#![feature(never_type)]
 #![feature(ptr_as_ref_unchecked)]
 #![feature(associated_type_defaults)]
 #![feature(unsafe_cell_access)]
 #![allow(unsafe_op_in_unsafe_fn)] // rustc 2024 doesn't allow unsafe ops in unsafe functions, so we enable it manually
-#![deny(static_mut_refs)] // to be replaced later with deny... for now only.
+#![deny(static_mut_refs)]
 #![warn(clippy::missing_safety_doc)]
+#![allow(clippy::disallowed_names)]
 
 extern crate alloc;
 
@@ -38,7 +37,6 @@ pub use crate::framebuffer::helpers::*;
 use crate::{percpu::get_percpu_data, testing::Testable};
 use ::acpi::InterruptModel;
 use bootloader_api::{BootInfo, info::MemoryRegion, info::MemoryRegionKind};
-use core::hint::cold_path;
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb888};
 use heapless::Vec;
 use log::{debug, error, info, trace, warn};
@@ -130,7 +128,6 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
         fb_writer.clear(Rgb888::new(0, 0, 0)).unwrap();
         framebuffer::FRAMEBUFFER.lock().replace(fb_writer);
     } else {
-        cold_path(); // unlikely branch, fallback to serial-only
         warn!("Framebuffer is absent, falling back to serial logging");
     }
 

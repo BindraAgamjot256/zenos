@@ -240,7 +240,7 @@ impl PageAllocator {
                             let offset = phys - node.base_phys;
                             let page_num = (offset / PAGE_4K as u64) as usize;
 
-                            if page_num % step != 0 {
+                            if !page_num.is_multiple_of(step) {
                                 log::debug!("2MiB page at {phys:#x} not aligned to step {step}",);
                                 return None;
                             }
@@ -551,7 +551,7 @@ pub fn kalloc_page(virtaddr: VirtAddr, ptype: PageType) -> Result<PhysAddr, MapE
     let alloc = alloc_guard.as_mut().ok_or(MapErr::Uninitialized)?;
 
     // Validate alignment for huge pages (because misaligned huge pages are a crime)
-    if matches!(ptype, PageType::Huge) && virtaddr.as_u64() % PAGE_2M as u64 != 0 {
+    if matches!(ptype, PageType::Huge) && !virtaddr.as_u64().is_multiple_of(PAGE_2M as u64) {
         return Err(MapErr::InvalidAlignment);
     }
 
@@ -583,7 +583,7 @@ pub fn ualloc_page(virtaddr: VirtAddr, ptype: PageType) -> Result<PhysAddr, MapE
     let alloc = alloc_guard.as_mut().ok_or(MapErr::Uninitialized)?;
 
     // Validate alignment for huge pages (because misaligned huge pages are a crime)
-    if matches!(ptype, PageType::Huge) && virtaddr.as_u64() % PAGE_2M as u64 != 0 {
+    if matches!(ptype, PageType::Huge) && !virtaddr.as_u64().is_multiple_of(PAGE_2M as u64) {
         return Err(MapErr::InvalidAlignment);
     }
 
@@ -621,7 +621,7 @@ pub fn ualloc_page_flags(
     let alloc = alloc_guard.as_mut().ok_or(MapErr::Uninitialized)?;
 
     // Validate alignment for huge pages (because misaligned huge pages are a crime)
-    if matches!(ptype, PageType::Huge) && virtaddr.as_u64() % PAGE_2M as u64 != 0 {
+    if matches!(ptype, PageType::Huge) && !virtaddr.as_u64().is_multiple_of(PAGE_2M as u64) {
         return Err(MapErr::InvalidAlignment);
     }
 
@@ -781,7 +781,7 @@ pub fn kfree_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
         PageSize::Size2MiB => {
             let err = ptable.unmap(Page::<Size4KiB>::containing_address(virtaddr));
 
-            alloc.dealloc(phys, PageSize::Size4KiB).map_err(|e| e)?;
+            alloc.dealloc(phys, PageSize::Size4KiB)?;
 
             match err {
                 Ok((_, flush)) => flush.flush(), // fwoosh
@@ -797,7 +797,7 @@ pub fn kfree_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
         PageSize::Size4KiB => {
             let err = ptable.unmap(Page::<Size4KiB>::containing_address(virtaddr));
 
-            alloc.dealloc(phys, PageSize::Size4KiB).map_err(|e| e)?;
+            alloc.dealloc(phys, PageSize::Size4KiB)?;
 
             match err {
                 Ok((_, flush)) => flush.flush(), // fwoosh
@@ -864,7 +864,7 @@ pub fn kalloc_dma_pages(len: usize) -> Result<&'static mut [u8], MapErr> {
         return Err(MapErr::NotMapped); // or handle zero-size gracefully
     }
 
-    let num_pages = (len + PAGE_4K - 1) / PAGE_4K;
+    let num_pages = len.div_ceil(PAGE_4K);
     let mut virt_base = DMA_BASE.load(Ordering::SeqCst);
 
     kalloc_page(VirtAddr::new(virt_base), PageType::Recursive)?;
@@ -886,7 +886,7 @@ pub fn kfree_dma_pages(buf: &mut [u8]) -> Result<(), MapErr> {
         return Err(MapErr::NotMapped);
     }
 
-    let num_pages = (len + PAGE_4K - 1) / PAGE_4K;
+    let num_pages = len.div_ceil(PAGE_4K);
     let base_ptr = buf.as_ptr() as u64;
 
     for i in 0..num_pages {

@@ -5,11 +5,6 @@
 use bitflags::bitflags;
 use core::fmt::{self, Write};
 
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
-
 unsafe extern "C" {
     fn open(path: *const u8, flags: i32) -> i32;
     fn close(fd: i32) -> i32;
@@ -54,12 +49,17 @@ bitflags! {
     }
 }
 
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    println!("panic occurred: {}", _info);
+    loop {}
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
     // File test
     let path = "/chksum.txt\0";
     let fd = unsafe { open(path.as_ptr(), FileOpenOptions::all().bits() as i32) };
-    println!("{:#?}", fd);
 
     if fd != -1 {
         // Move cursor back to start of file
@@ -112,5 +112,5 @@ pub extern "C" fn _start() -> ! {
     };
     let input = core::str::from_utf8(&buf[..len]).unwrap_or("");
     println!("You typed: {}", input);
-    loop {}
+    panic!();
 }

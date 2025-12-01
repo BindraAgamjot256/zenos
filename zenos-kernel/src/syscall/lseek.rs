@@ -15,7 +15,7 @@ fn lseek(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         fd, offset, whence
     );
 
-    ret = seek_inner(fd, offset, whence).unwrap_or_else(|| u64::MAX);
+    ret = seek_inner(fd, offset, whence).unwrap_or(u64::MAX);
 
     ret
 }

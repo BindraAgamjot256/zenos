@@ -1,6 +1,7 @@
 pub(crate) mod file_handles;
 mod isolation;
 
+use crate::percpu::PerCpuVar;
 use crate::process::file_handles::{
     FileError, FileHandle, FileLike, FileOpenOptions, Stderr, Stdin, Stdout,
 };
@@ -10,7 +11,7 @@ use crate::{
     interrupts::gdt::GDT,
     kprintln,
     memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},
-    percpu::{PerCpuData, PerCpuVar},
+    percpu::PerCpuData,
     testing::Testable,
 };
 use alloc::boxed::Box;
@@ -226,9 +227,9 @@ impl Process {
         self.entry_point = elf.header.pt2.entry_point();
     }
 
-    pub fn prepare_run(&mut self) -> Result<(u64, u64), ()> {
+    pub fn prepare_run(&mut self) -> Option<(u64, u64)> {
         if !self.state.loaded {
-            return Err(());
+            return None;
         }
 
         let new_cr3 = PhysFrame::containing_address(self.cr3);
@@ -265,15 +266,13 @@ impl Process {
         let user_entry = self.state.rip;
 
         info!("Prepared process: {}", self.name);
-        Ok((user_entry, user_stack))
+        Some((user_entry, user_stack))
     }
     pub(crate) fn get_file_handle(&mut self, fd: u64) -> Option<&mut FileHandle> {
-        for handle in self.file_handles.iter_mut() {
-            if handle.id() == fd as u32 {
-                return Some(handle);
-            }
-        }
-        None
+        self.file_handles
+            .iter_mut()
+            .find(|handle| handle.id() == fd as u32)
+            .map(|v| v as _)
     }
 
     pub(crate) fn add_file_handle(

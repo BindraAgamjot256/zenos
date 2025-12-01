@@ -21,8 +21,8 @@ fn write(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         ret = u64::MAX;
         return ret;
     }
-    let mut buf = ptr.unwrap();
-    let val = write_inner(&mut buf, fd);
+    let buf = ptr.unwrap();
+    let val = write_inner(&buf, fd);
     if val.is_some() {
         ret = val.unwrap();
     } else {
@@ -37,9 +37,7 @@ pub(crate) fn write_inner(buf: &[u8], fd: u64) -> Option<u64> {
     let curr_pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
     let process = processes.iter_mut().find(|p| p.pid == curr_pid)?;
     let file_table = process.get_file_handle(fd);
-    if file_table.is_none() {
-        return None;
-    }
+    file_table.as_ref()?;
     let file_table = file_table.unwrap();
     let handle = &mut *file_table.descriptor();
     let write_res = FileLike::write(handle, buf);

@@ -71,8 +71,7 @@ pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Option<u64> {
         let mut processes = crate::process::PROCESSES.lock();
         let curr_pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
         let process = processes.iter_mut().find(|p| p.pid == curr_pid)?;
-        let fd = process.add_file_handle(the_box, foo).ok()?;
-        fd
+        process.add_file_handle(the_box, foo).ok()?
     };
     Some(fd)
 }

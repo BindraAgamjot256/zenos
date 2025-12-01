@@ -4,6 +4,7 @@ use bitflags::bitflags;
 use core::any::Any;
 use core::cmp::Ordering;
 use core::fmt::Debug;
+use core::ops::Deref;
 use fatfs::{Error, IoBase, IoError, Read, Seek, SeekFrom, Write};
 
 #[derive(Clone)]
@@ -124,7 +125,7 @@ impl Debug for FileHandle {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FileHandle")
             .field("id", &self.id)
-            .field("type", &self.descriptor.type_id())
+            .field("type", &self.descriptor.deref().type_id())
             .finish()
     }
 }
@@ -139,7 +140,7 @@ impl PartialEq<Self> for FileHandle {
 
 impl PartialOrd<Self> for FileHandle {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.id.cmp(&other.id))
+        Some(self.cmp(other))
     }
 }
 
@@ -178,7 +179,9 @@ impl From<Error<FileError>> for FileError {
         unsafe {
             match err {
                 Error::Io(e) => e,
-                other => FileError::IoError(core::mem::transmute(other)),
+                other => {
+                    FileError::IoError(core::mem::transmute::<Error<FileError>, Error<()>>(other))
+                }
             }
         }
     }

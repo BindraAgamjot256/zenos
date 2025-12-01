@@ -28,7 +28,10 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt.invalid_opcode.set_handler_fn(undefined_opcode);
     unsafe {
         idt[0x80]
-            .set_handler_fn(core::mem::transmute(
+            .set_handler_fn(core::mem::transmute::<
+                unsafe extern "x86-interrupt" fn(InterruptStackFrame),
+                extern "x86-interrupt" fn(InterruptStackFrame),
+            >(
                 crate::syscall::sys_rt0 as unsafe extern "x86-interrupt" fn(_),
             ))
             .set_privilege_level(Ring3); // syscall entry point

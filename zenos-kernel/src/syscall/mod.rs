@@ -10,6 +10,7 @@ use crate::{
     interrupts::gdt::GDT,
     memory::{PAGE_4K, virt_to_phys},
 };
+use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ptr;
@@ -70,6 +71,9 @@ unsafe extern "x86-interrupt" {
     pub fn sys_rt0(stack_frame: InterruptStackFrame);
 }
 
+///
+/// # Safety
+/// one word: Syscall.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn syscall_main(
     syscall_num: u64,
@@ -90,8 +94,7 @@ pub unsafe extern "C" fn syscall_main(
         rdi, rsi, rdx, r10, r8, r9
     );
     let syscall = table::SYSCALL_TABLE.deref()[syscall_num as usize];
-    if syscall.is_some() {
-        let func = syscall.unwrap();
+    if let Some(func) = syscall {
         ret = func(rdi, rsi, rdx, r10, r8, r9);
     } else {
         info!("invalid syscall number: {}", syscall_num);
@@ -107,7 +110,7 @@ pub fn init() {
     let rt_ptr = sys_rt0 as *const () as u64;
 
     let user_cs = (GDT.user_code_segment.0 | 3) as u64;
-    let kernel_cs = (GDT.code_selector.0 | 0) as u64;
+    let kernel_cs = GDT.code_selector.0 as u64;
 
     // STAR only wants selectors
     let star_val = (user_cs << 48) | (kernel_cs << 32);
@@ -165,13 +168,12 @@ fn copy_from_user(user_ptr: *const u8, len: usize) -> Result<Vec<u8>, ()> {
         return Err(());
     }
 
-    let mut buf = Vec::with_capacity(len);
+    let mut buf = vec![0u8; len];
 
     // SAFETY:
     // - `user_ptr` has been validated as mapped and readable.
     // - buf has enough space for `len` bytes.
     unsafe {
-        buf.set_len(len);
         ptr::copy_nonoverlapping(user_ptr, buf.as_mut_ptr(), len);
     }
 

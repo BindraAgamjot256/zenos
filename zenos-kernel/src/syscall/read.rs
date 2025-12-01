@@ -21,7 +21,7 @@ fn read(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     let mut buf = buf.unwrap();
     let val = read_inner(fd, &mut buf);
     ret = if val.is_ok() {
-        copy_to_user(buf_ptr as *mut u8, &mut buf).unwrap(); // we can unwrap here because we already copied from user, so we know it's valid.
+        copy_to_user(buf_ptr as *mut u8, &buf).unwrap(); // we can unwrap here because we already copied from user, so we know it's valid.
         val.unwrap() as u64
     } else {
         error!("read failed");

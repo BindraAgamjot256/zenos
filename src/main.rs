@@ -161,7 +161,7 @@ fn build_init(_args: Args) {
     // Ensure iso/bin exists and copy the file as init.elf
     let binding = Path::new("iso").join("bin");
     let out_dir = binding.as_path();
-    std::fs::create_dir_all(&out_dir).expect("failed to create iso/bin directory");
+    std::fs::create_dir_all(out_dir).expect("failed to create iso/bin directory");
     let out_path = out_dir.join("init.elf");
     std::fs::copy(&init_bin, &out_path).expect("failed to copy init.elf into iso/bin");
 }
@@ -177,7 +177,7 @@ fn disk_img_builder(kernel_path: &Path) -> PathBuf {
     }
 
     builder
-        .create_uefi_image(&uefi_out_path.as_path())
+        .create_uefi_image(uefi_out_path.as_path())
         .expect("UEFI image could not be created");
     println!("uefi path: {}", uefi_out_path.as_path().display());
     uefi_out_path

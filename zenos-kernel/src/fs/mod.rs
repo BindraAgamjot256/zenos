@@ -272,7 +272,6 @@ impl Port {
 
         let slot = self.allocate_slot().ok_or_else(|| {
             error!("No available command slots");
-            ()
         })?;
 
         let header = &mut *cmd_headers.add(slot as usize);
@@ -600,7 +599,7 @@ impl AhciBlockDevice {
     }
 
     fn sectors_for_bytes(&self, bytes: usize) -> u16 {
-        ((bytes + self.sector_size - 1) / self.sector_size) as u16
+        bytes.div_ceil(self.sector_size) as u16
     }
 }
 
@@ -646,7 +645,7 @@ impl Read for AhciBlockDevice {
         let ports = PORTS.lock();
         let pinfo = match ports
             .as_ref()
-            .and_then(|v| v.iter().filter(|p| p.port_base == self.port_base).next())
+            .and_then(|v| v.iter().find(|p| p.port_base == self.port_base))
         {
             Some(p) => *p,
             None => return Err(Self::Error::ReadError),
@@ -684,9 +683,9 @@ impl Write for AhciBlockDevice {
             .map_err(|_| Self::Error::WriteError)?;
 
         // If we're not writing full sectors, read existing data first
-        if sector_offset != 0 || buf.len() % SECTOR_SIZE != 0 {
+        if sector_offset != 0 || !buf.len().is_multiple_of(SECTOR_SIZE) {
             let ports = PORTS.lock();
-            let pinfo = match ports.as_ref().and_then(|v| v.get(0)) {
+            let pinfo = match ports.as_ref().and_then(|v| v.first()) {
                 Some(p) => *p,
                 None => return Err(Self::Error::WriteError),
             };
@@ -702,7 +701,7 @@ impl Write for AhciBlockDevice {
         ubuf[sector_offset..sector_offset + buf.len()].copy_from_slice(buf);
 
         let ports = PORTS.lock();
-        let pinfo = match ports.as_ref().and_then(|v| v.get(0)) {
+        let pinfo = match ports.as_ref().and_then(|v| v.first()) {
             Some(p) => *p,
             None => return Err(Self::Error::WriteError),
         };

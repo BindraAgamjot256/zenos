@@ -90,22 +90,6 @@ pub unsafe fn get_percpu_data() -> *mut PerCpuData {
     ptr
 }
 
-/// Get current CPU ID.
-///
-/// # Safety
-///
-/// Must be called after GS initialization.
-#[inline(always)]
-pub unsafe fn get_cpu_id() -> u32 {
-    let id: u32;
-    asm!(
-    "mov {:e}, gs:[0x0]",
-    out(reg) id,
-    options(nostack, preserves_flags, readonly)
-    );
-    id
-}
-
 /// A type-safe per-CPU variable wrapper.
 ///
 /// This lets you define per-CPU data fields with compile-time-known offsets
