@@ -83,11 +83,9 @@ pub unsafe extern "C" fn syscall_main(
     r10: u64,
     r8: u64,
     r9: u64,
-    rsp: u64,
 ) -> u64 {
     let mut ret = 0;
 
-    debug!("rsp: {:#x}", rsp);
     debug!("syscall num: {}", syscall_num);
     debug!(
         "args: rdi={:#x}, rsi={:#x}, rdx={:#x}, r10={:#x}, r8={:#x}, r9={:#x}",

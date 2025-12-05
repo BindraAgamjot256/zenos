@@ -29,6 +29,7 @@ macro_rules! test_assert_ne {
     }};
 }
 
+#[allow(clippy::result_unit_err)]
 pub trait Testable {
     fn run(&self) -> Result<(), ()>;
 }
@@ -38,19 +39,9 @@ where
     T: Fn() -> Option<()>,
 {
     fn run(&self) -> Result<(), ()> {
-        const WIDTH: usize = 50; // total width before the result
+        const WIDTH: usize = 70; // total width before the result
         let name = core::any::type_name::<T>();
-        let name_len = name.len();
-        serial_print!("{}", name);
-
-        // Pad with spaces until WIDTH
-        if name_len < WIDTH {
-            for _ in 0..(WIDTH - name_len) {
-                serial_print!(" ");
-            }
-        } else {
-            serial_print!(" ");
-        }
+        serial_print!("{:w$}", name, w = WIDTH);
 
         // Run the test
         let err = self();

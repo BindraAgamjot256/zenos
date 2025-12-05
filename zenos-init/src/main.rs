@@ -99,18 +99,5 @@ pub extern "C" fn _start() -> ! {
     } else {
         println!("file_open failed. reality is pain");
     }
-
-    println!("type something and press enter...");
-
-    // Read input from user
-    let mut buf = [0u8; 64];
-    let bytes_read = unsafe { read(0, buf.as_mut_ptr(), buf.len()) };
-    let len = if bytes_read > 0 {
-        bytes_read as usize
-    } else {
-        0
-    };
-    let input = core::str::from_utf8(&buf[..len]).unwrap_or("");
-    println!("You typed: {}", input);
     panic!();
 }
