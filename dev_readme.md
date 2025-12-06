@@ -25,7 +25,7 @@ literally anything.
 ### Why Rust for an OS?
 
 - Memory safety (allegedly)
-- Zero-cost abstractions (narrator: there Ire costs)
+- Zero-cost abstractions (narrator: there are costs)
 - The masochistic joy of fighting the borrow checker while also fighting the CPU
 
 ## Architecture Deep Dive (aka "How I fucked this up")
@@ -43,6 +43,24 @@ I have a two-tier memory management system because one layer of complexity wasn'
 The slab allocator version is literally `v0.0.sqrt(-1)-don't_you_dare_test_it_on_hardware`. That's not a joke, that's
 the actual version string in the code comments.
 
+### Process Management—Russian Roulette with Registers
+
+We implemented preemptive multitasking because single-threaded execution was too stable.
+
+- **Scheduler**: A round-robin scheduler that switches tasks whenever it feels like it (or when the timer interrupt
+  fires).
+- **Isolation**: We put users in Ring 3 so they can't hurt us. They still find ways.
+- ~~**Context Switching**: We save all the registers, swap the stack, and pray the new process knows what it's doing.~~
+
+### System Calls—The Doorway to Hell
+
+We use the ~~`syscall`~~ `int 0x80` instruction because ~~software interrupts are so 1990s~~ syscalls are hard.
+
+- **The Macro**: We have a `#[syscall]` macro that puts function pointers into a special linker section. It's basically
+  linker magic abuse.
+- **The Handler**: It takes values from registers, casts them to types that might be correct, and calls kernel
+  functions. Security? What's that?
+
 ### Build System - A Beautiful Disaster
 
 Our build process is an unholy marriage of:
@@ -50,7 +68,7 @@ Our build process is an unholy marriage of:
 - Cargo workspaces (because one crate is never enough)
 - Custom build scripts that coordinate between kernel and bootloader
 - QEMU integration that ~~sometimes~~ always works
-- ~~A custom target specification because `x86_64-unknown-none` wasn't good enough~~
+- A custom target specification because `x86_64-unknown-none` wasn't good enough
 
 The build flow goes like this:
 
@@ -146,9 +164,12 @@ duck to the compiler gods.
 The main event. Contains:
 
 - `memory/`: Both allocators and all the pain they bring
+- `process/`: The scheduler that decides who lives and who dies (CPU time-wise)
+- `syscall/`: The gateway drug to kernel mode
+- `fs/`: A file system that barely qualifies as a system ~~cough cough fat only cough cough~~
 - `framebuffer/`: Graphics because serial output is for peasants
 - `interrupts/`: GDT and IDT setup (dragons be here)
-- `hardware/`: ACPI parsing and hardware abstraction
+- `hardware/`: ACPI parsing, PCI enumeration, and hardware abstraction
 - `testing/`: The test framework that keeps us ~~in~~sane
 
 ### zenos-bootloader/
@@ -158,6 +179,15 @@ Our custom bootloader because apparently I hate myself:
 - `api/`: Interface between bootloader and kernel
 - `common/`: Shared code that both sides need
 - `uefi/`: UEFI-specific implementation details
+
+### libc/
+
+A minimal C library because we needed to run C code and didn't want to port glibc. It has `printf` ~~and `malloc`~~,
+what else do you need?
+
+### syscall-macro/
+
+Procedural macros that make the syscall table work. Contains high concentrations of `syn` and `quote` black magic.
 
 ### Root Directory
 
@@ -182,7 +212,8 @@ Our custom bootloader because apparently I hate myself:
 2. **Limited hardware support**: Works in QEMU, good luck on real hardware
 3. **Memory leaks**: The slab allocator sometimes forgets to deallocate
 4. **Race conditions**: Interrupts and memory allocation don't always play nice
-5. **Documentation lies**: Some comments are aspirational rather than factual
+5. ~~**Scheduler bias**: The scheduler might hate your process specifically~~
+6. **Documentation lies**: Some comments are aspirational rather than factual
 
 ## Contributing (aka "Joining the Madness")
 
@@ -216,17 +247,15 @@ This is not a performance-focused OS. It's a learning project. That said:
 
 Things I might implement if I ever finish what I started:
 
-- Process management (currently just runs one kernel thread)
 - Network stack (serial is good enough for now)
 - SMP support (single-core is simpler)
 - Real hardware support (QEMU is our friend)
-- Large allocation support (processes may need more than 4KiB at a time)
 - An actual testing method (lol maybe)...
 
 ## Final Notes
 
 This project exists at the intersection of "educational" and "questionable life choices." If you're here to learn OS
-development, welcome to the pain. If you're here to use this as a real OS, please reconsider your life decisions, and
+development, welcome to the pain. If you're here to use this as a real OS, please reconsider your life decisions and
 switch to the superior operating system(~~Linux~~ TempleOS).
 
 The code quality varies from "not terrible" to "what was I thinking?" Comments like "FIX THE FUCKING TEST WILL YOU?" are

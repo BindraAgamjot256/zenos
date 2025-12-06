@@ -14,8 +14,11 @@ memory management, interrupt handling, and hardware abstraction.
 ## Features
 
 - **Memory Management**: Custom page and slab allocators with O(1) allocation
+- **Process Management**: ~~Preemptive multitasking with~~ process isolation ~~and scheduling~~
+- **File System**: Virtual file system with support for file handles and standard I/O
+- **System Calls**: Standardized syscall interface for user-space interaction
 - **Graphics**: Framebuffer-based graphics output using embedded-graphics
-- **Hardware Support**: ACPI parsing, APIC initialization, and UART serial I/O
+- **Hardware Support**: ACPI parsing, APIC initialization, PCI enumeration, and UART serial I/O
 - **Testing**: Comprehensive test suite that runs in QEMU
 - **Modular Design**: Clean separation between bootloader and kernel components
 
@@ -79,6 +82,9 @@ zenos/
 ├── zenos-kernel/           # Main kernel implementation
 │   └── src/
 │       ├── memory/         # Memory management subsystem
+│       ├── process/        # Process scheduler and isolation
+│       ├── syscall/        # System call handlers
+│       ├── fs/             # Virtual file system
 │       ├── framebuffer/    # Graphics output
 │       ├── interrupts/     # Interrupt handling
 │       └── hardware/       # Hardware abstraction
@@ -86,6 +92,9 @@ zenos/
 │   ├── api/               # Bootloader API
 │   ├── common/            # Shared utilities
 │   └── uefi/              # UEFI implementation
+├── libc/                   # Minimal C standard library
+├── syscall-macro/          # System call definition macros
+├── iso/                    # Bootable disk image assets
 └── build.rs               # Build orchestration
 ```
 
@@ -97,6 +106,7 @@ zenos/
 - **Memory Safety**: Leverages Rust's ownership system for safe~~er~~ low-level programming
 - **Higher-Half Kernel**: Uses virtual memory mapping at high addresses
 - **Interrupt-Safe**: Careful interrupt management throughout the codebase
+- ~~**Preemptive Multitasking**: Round-robin scheduler with context switching~~
 
 ### Memory Management
 
@@ -104,10 +114,17 @@ zenos/
 - **Slab Allocator**: Fixed-size block allocator with 9 size classes (8B to 2KiB)
 - **Virtual Memory**: Recursive page table mapping with ACPI-discovered memory regions
 
+### Process Management
+
+- **Isolation**: Ring 3 user-space execution with separate page tables
+- **Scheduling**: Basic round-robin scheduler for concurrent execution
+- **IPC**: System call interface for kernel services
+
 ### Hardware Support
 
 - **UEFI Bootloader**: Custom bootloader supporting modern UEFI systems
 - **ACPI Integration**: Hardware discovery through ACPI table parsing
+- **PCI Support**: Device enumeration and configuration
 - **Serial Output**: UART-based debugging and logging
 - **Framebuffer Graphics**: Basic graphics output for visual feedback
 
