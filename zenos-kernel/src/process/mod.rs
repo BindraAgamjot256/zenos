@@ -15,6 +15,7 @@ use crate::{
     testing::Testable,
 };
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::{string::String, vec::Vec};
 use core::{
     arch::asm,
@@ -43,7 +44,7 @@ pub struct Process {
     cr3: PhysAddr,
     end: u64,
     entry_point: u64,
-    file_handles: heapless::Vec<FileHandle, 256>,
+    file_handles: BTreeMap<u32, FileHandle>,
     // Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
     load_bias: u64,
 }
@@ -60,17 +61,19 @@ impl Process {
 
         let pid = NEXT_PID.load(Ordering::Acquire);
         let load_bias = 0;
-        let mut file_handles = heapless::Vec::new();
-        file_handles
-            .push(FileHandle::new(0, Box::new(Stdin), FileOpenOptions::all()))
-            .unwrap();
-        file_handles
-            .push(FileHandle::new(1, Box::new(Stdout), FileOpenOptions::all()))
-            .unwrap();
-        file_handles
-            .push(FileHandle::new(2, Box::new(Stderr), FileOpenOptions::all()))
-            .unwrap();
-
+        let mut file_handles = BTreeMap::new();
+        file_handles.insert(
+            0,
+            FileHandle::new(0, Box::new(Stdin), FileOpenOptions::all()),
+        );
+        file_handles.insert(
+            1,
+            FileHandle::new(1, Box::new(Stdout), FileOpenOptions::all()),
+        );
+        file_handles.insert(
+            2,
+            FileHandle::new(2, Box::new(Stderr), FileOpenOptions::all()),
+        );
         let p = Process {
             pid,
             parent_pid: parent.pid,
@@ -271,8 +274,8 @@ impl Process {
     pub(crate) fn get_file_handle(&mut self, fd: u64) -> Option<&mut FileHandle> {
         self.file_handles
             .iter_mut()
-            .find(|handle| handle.id() == fd as u32)
-            .map(|v| v as _)
+            .find(|handle| *handle.0 == fd as u32)
+            .map(|v| v.1 as _)
     }
 
     pub(crate) fn add_file_handle(
@@ -280,11 +283,29 @@ impl Process {
         descriptor: Box<dyn FileLike<Error = FileError>>,
         foo: FileOpenOptions,
     ) -> Result<u64, ()> {
-        let new_fd = self.file_handles.iter_mut().max().ok_or(())?.id() + 1;
+        let fds = self.file_handles.keys();
+        let max = fds.clone().max().cloned().unwrap_or(2);
+        let new_fd = max + 1;
         let file_handle = FileHandle::new(new_fd, descriptor, foo);
-        self.file_handles.push(file_handle).map_err(|_e| ())?;
+        self.file_handles.insert(new_fd, file_handle);
         Ok(new_fd as u64)
     }
+
+    pub(crate) fn close_file_handle(&mut self, fd: u64) -> Result<(), FileError> {
+        // find the key first without holding a mutable borrow into the map
+        let key = self
+            .file_handles
+            .iter()
+            .find(|(k, _)| **k == fd as u32)
+            .map(|(k, _)| *k)
+            .ok_or(FileError::InvalidFileDescriptor)?;
+
+        // now actually mutate the map
+        self.file_handles.remove(&key);
+
+        Ok(())
+    }
+
     pub fn trace(&self) {
         kprintln!("Process {} (pid {})", self.name, self.pid);
         kprintln!("  Parent PID: {}", self.parent_pid);
@@ -429,16 +450,19 @@ pub fn init_process() -> &'static [u8] {
     let cr3 = Cr3::read().0;
     let load_bias = compute_load_bias(&elf);
 
-    let mut file_handles = heapless::Vec::new();
-    file_handles
-        .push(FileHandle::new(0, Box::new(Stdin), FileOpenOptions::all()))
-        .unwrap();
-    file_handles
-        .push(FileHandle::new(1, Box::new(Stdout), FileOpenOptions::all()))
-        .unwrap();
-    file_handles
-        .push(FileHandle::new(2, Box::new(Stderr), FileOpenOptions::all()))
-        .unwrap();
+    let mut file_handles = BTreeMap::new();
+    file_handles.insert(
+        0,
+        FileHandle::new(0, Box::new(Stdin), FileOpenOptions::all()),
+    );
+    file_handles.insert(
+        1,
+        FileHandle::new(1, Box::new(Stdout), FileOpenOptions::all()),
+    );
+    file_handles.insert(
+        2,
+        FileHandle::new(2, Box::new(Stderr), FileOpenOptions::all()),
+    );
     let process = Process {
         pid: 0,
         parent_pid: u64::MAX,

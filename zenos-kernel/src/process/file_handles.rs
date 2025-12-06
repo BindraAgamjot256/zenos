@@ -2,7 +2,6 @@ use crate::kprint;
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::any::Any;
-use core::cmp::Ordering;
 use core::fmt::Debug;
 use core::ops::Deref;
 use fatfs::{Error, IoBase, IoError, Read, Seek, SeekFrom, Write};
@@ -94,26 +93,17 @@ where
 }
 
 pub(crate) struct FileHandle {
-    id: u32,
     descriptor: Box<dyn FileLike<Error = FileError>>,
     _foo: FileOpenOptions,
 }
 
 impl FileHandle {
     pub fn new(
-        id: u32,
+        _id: u32,
         descriptor: Box<dyn FileLike<Error = FileError>>,
         _foo: FileOpenOptions,
     ) -> Self {
-        Self {
-            id,
-            descriptor,
-            _foo,
-        }
-    }
-
-    pub fn id(&self) -> u32 {
-        self.id
+        Self { descriptor, _foo }
     }
 
     pub fn descriptor(&mut self) -> &mut dyn FileLike<Error = FileError> {
@@ -124,29 +114,8 @@ impl FileHandle {
 impl Debug for FileHandle {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FileHandle")
-            .field("id", &self.id)
             .field("type", &self.descriptor.deref().type_id())
             .finish()
-    }
-}
-
-impl Eq for FileHandle {}
-
-impl PartialEq<Self> for FileHandle {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-impl PartialOrd<Self> for FileHandle {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for FileHandle {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.id.cmp(&other.id)
     }
 }
 
@@ -158,6 +127,7 @@ pub enum FileError {
     WriteError,
     SeekError,
     IoError(Error<()>),
+    InvalidFileDescriptor,
 }
 
 impl IoError for FileError {

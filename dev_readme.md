@@ -187,7 +187,7 @@ what else do you need?
 
 ### syscall-macro/
 
-Procedural macros that make the syscall table work. Contains high concentrations of `syn` and `quote` black magic.
+Procedural macros that make the syscall table work. Contains high concentrations of `syn`, `quote` and black magic.
 
 ### Root Directory
 
