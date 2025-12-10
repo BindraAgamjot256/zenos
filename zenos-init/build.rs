@@ -8,6 +8,7 @@ fn main() {
         .debug(false);
 
     add_recursively(&mut build, "../libc/src".as_ref());
+    println!("cargo:rerun-if-changed=../libc/src");
     if std::env::var("TARGET").unwrap().contains("x86_64") {
         build.target("x86_64-unknown-none-elf");
     } else {

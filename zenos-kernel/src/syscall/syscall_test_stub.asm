@@ -7,11 +7,11 @@ _start:
     mov rdi, 1          ; file descriptor: stdout
     lea rsi, [rel message] ; pointer to the message
     mov rdx, 22         ; message length
-    int 0x80             ; invoke kernel
+    syscall             ; invoke kernel
 
     mov rax, 60         ; syscall: sys_exit
     xor rdi, rdi        ; exit status 0
-    int 0x80             ; invoke kernel
+    syscall             ; invoke kernel
 
 section .data
 message db "hello from user stub!", 0x0a

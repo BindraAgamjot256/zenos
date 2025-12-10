@@ -41,8 +41,8 @@ pub static GDT: Lazy<GdtWrapper> = Lazy::new(|| {
     let code_selector = gdt.append(Descriptor::kernel_code_segment());
     let data_segment = gdt.append(Descriptor::kernel_data_segment());
     let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
-    let user_code_segment = gdt.append(Descriptor::user_code_segment());
     let user_data_segment = gdt.append(Descriptor::user_data_segment());
+    let user_code_segment = gdt.append(Descriptor::user_code_segment());
     GdtWrapper::new((
         gdt,
         code_selector,

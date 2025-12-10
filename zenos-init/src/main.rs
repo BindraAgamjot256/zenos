@@ -96,7 +96,11 @@ pub extern "C" fn _start() -> ! {
         } else {
             println!("file_read failed. reality is pain");
         }
-        unsafe { close(fd) };
+        let ret = unsafe { close(fd) };
+        if ret != 0 {
+            panic!("close failed. reality is pain");
+        }
+        println!("File closed.")
     } else {
         println!("file_open failed. reality is pain");
     }

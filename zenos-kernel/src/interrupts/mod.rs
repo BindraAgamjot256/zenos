@@ -26,16 +26,16 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt[IRQ2_CASCADE].set_handler_fn(cascade_handler);
     idt[IRQ4_SERIAL1].set_handler_fn(cascade_handler);
     idt.invalid_opcode.set_handler_fn(undefined_opcode);
-    unsafe {
-        idt[0x80]
-            .set_handler_fn(core::mem::transmute::<
-                unsafe extern "x86-interrupt" fn(InterruptStackFrame),
-                extern "x86-interrupt" fn(InterruptStackFrame),
-            >(
-                crate::syscall::sys_rt0 as unsafe extern "x86-interrupt" fn(_),
-            ))
-            .set_privilege_level(Ring3); // syscall entry point
-    }
+    // unsafe {
+    //     idt[0x80]
+    //         .set_handler_fn(core::mem::transmute::<
+    //             unsafe extern "x86-interrupt" fn(InterruptStackFrame),
+    //             extern "x86-interrupt" fn(InterruptStackFrame),
+    //         >(
+    //             crate::syscall::sys_rt0 as unsafe extern "x86-interrupt" fn(_),
+    //         ))
+    //         .set_privilege_level(Ring3); // syscall entry point
+    // }
     idt
 });
 

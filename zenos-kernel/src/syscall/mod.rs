@@ -22,54 +22,52 @@ use core::arch::global_asm;
 
 global_asm!(
     r#"
-.global sys_rt0
-sys_rt0:
+.global syscall_entry
+syscall_entry:
     swapgs
-    push rax
+    mov gs:[0x18], rsp
+    mov rsp, gs:[0x10]
+
+    push gs:[0x18]
+    push r11
     push rcx
+    push r9
+    push r8
+    push r10
     push rdx
     push rsi
     push rdi
-    push r8
-    push r9
-    push r10
-    push r11
 
-    mov r11, r9
-    mov r9, r8
-    mov r8, r10
-    mov rcx, rdx
-    mov rdx, rsi
-    mov rsi, rdi
     mov rdi, rax
-
-    push rsp
-    push r11
-
-    sub rsp, 8
+    mov rsi, [rsp]
+    mov rdx, [rsp+8]
+    mov rcx, [rsp+16]
+    mov r8,  [rsp+24]
+    mov r9,  [rsp+32]
+    push [rsp+40]
 
     call syscall_main
 
     add rsp, 8
-    add rsp, 16
 
-    pop r11
-    pop r10
-    pop r9
-    pop r8
     pop rdi
     pop rsi
     pop rdx
+    pop r10
+    pop r8
+    pop r9
     pop rcx
-    add rsp, 8
+    pop r11
 
+    cli
     swapgs
-    iretq
+    pop rsp
+    sysretq
 "#
 );
 
-unsafe extern "x86-interrupt" {
-    pub fn sys_rt0(stack_frame: InterruptStackFrame);
+unsafe extern "C" {
+    pub fn syscall_entry();
 }
 
 ///
@@ -104,15 +102,13 @@ pub unsafe extern "C" fn syscall_main(
 
 #[allow(unreachable_code, unused_variables, unused_assignments)]
 pub fn init() {
-    return;
-    //todo use syscall/sysret instead of int 0x80/iret
-    let rt_ptr = sys_rt0 as *const () as u64;
+    let rt_ptr = syscall_entry as *const () as u64;
 
-    let user_cs = (GDT.user_code_segment.0 | 3) as u64;
+    let user_base = (GDT.user_data_segment.0 - 8) | 3;
     let kernel_cs = GDT.code_selector.0 as u64;
 
     // STAR only wants selectors
-    let star_val = (user_cs << 48) | (kernel_cs << 32);
+    let star_val = ((user_base as u64) << 48) | (kernel_cs << 32);
     let mut star = x86_64::registers::model_specific::Msr::new(0xC0000081);
     unsafe { star.write(star_val) }
 
