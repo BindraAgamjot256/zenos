@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ptr;
 use log::{debug, info};
-use x86_64::{VirtAddr, structures::idt::InterruptStackFrame};
+use x86_64::VirtAddr;
 
 use core::arch::global_asm;
 

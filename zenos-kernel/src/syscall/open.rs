@@ -3,25 +3,35 @@ use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;
 use crate::syscall::table::SyscallPtr;
 use alloc::boxed::Box;
+use core::ffi::CStr;
 use fatfs::Error;
 use log::{debug, info};
 
 #[syscall_macro::syscall(2)]
-fn open(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
+fn open(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     // open(buf, len)
     let buf_ptr = rdi;
-    let len = rsi;
-    let foo = FileOpenOptions::from_bits_truncate(rdx);
+    let foo = FileOpenOptions::from_bits_truncate(rsi);
     let mut ret = 0;
 
-    debug!("syscall open: buf={:#x}, len={:#x}", buf_ptr, len);
+    debug!("syscall open: buf={:#x}", buf_ptr,);
 
-    let ptr = copy_from_user(buf_ptr as *const u8, len as usize);
+    let cstr = unsafe { CStr::from_ptr(buf_ptr as *const i8) };
+    let ptr = copy_from_user(
+        cstr.to_bytes_with_nul().as_ptr() as *mut u8,
+        cstr.to_bytes_with_nul().len(),
+    );
     if ptr.is_err() {
         ret = u64::MAX;
+        return ret;
     }
     let ptr = &ptr.unwrap();
-    let file_name_buf = unsafe { str::from_utf8_unchecked(ptr) };
+    let file_name_buf = CStr::from_bytes_with_nul(ptr);
+    if file_name_buf.is_err() {
+        ret = u64::MAX;
+        return ret;
+    }
+    let file_name_buf = file_name_buf.unwrap().to_str().unwrap();
     let val = open_inner(file_name_buf, foo);
     if val.is_some() {
         ret = val.unwrap();

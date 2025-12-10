@@ -6,7 +6,6 @@ use crate::{
 use log::{error, warn};
 use spin::Lazy;
 use x86_64::{
-    PrivilegeLevel::Ring3,
     instructions::port::Port,
     structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode},
 };
