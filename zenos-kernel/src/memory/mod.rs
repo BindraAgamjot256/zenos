@@ -445,10 +445,10 @@ impl PageAllocator {
                 let val = word.load(Ordering::Acquire);
 
                 if val != 0 {
-                    // Find first set bit (1 = free page)
+                    // Find the first set bit (1 = free page)
                     let bit = val.trailing_zeros() as usize;
 
-                    // Safety check — trailing_zeros might point past end of region if last word is partial
+                    // Safety check — trailing_zeros might point past the end of a region if last word is partial
                     let page_index = word_idx * 64 + bit;
                     if page_index < node.region_size / PAGE_4K {
                         let addr = node.base_phys + (page_index * PAGE_4K) as u64;
@@ -505,9 +505,9 @@ pub static MAPPER: Mutex<Option<OffsetPageTable>> = Mutex::new(None);
 
 /// Initialize the allocator
 pub fn init(
-    _kernel_base: VirtAddr, // offset addr where kernel will be remapped
+    _kernel_base: VirtAddr, // offset addr where kernel will be remapped... will remain unused since i decided to fork the bootloader and do it there
     offset: VirtAddr,       // address where bootloader remaps physical memory
-    _last: usize,           // last free memory region
+    _last: usize,           // last free memory region same as above, unused
     memory_regions_iter: impl Iterator<Item = (u64, usize)>, // an iterator of memory regions as (start, size)
 ) {
     let l4_table = unsafe { active_level_4_table(offset) };

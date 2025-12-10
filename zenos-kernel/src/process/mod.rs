@@ -15,7 +15,6 @@ use crate::{
     testing::Testable,
 };
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
 use alloc::{string::String, vec::Vec};
 use core::{
     arch::asm,
@@ -23,6 +22,7 @@ use core::{
     sync::atomic::{AtomicU64, Ordering},
 };
 use fatfs::{Read, Seek, SeekFrom};
+use hashbrown::HashMap;
 use log::{error, info, trace, warn};
 use spin::Mutex;
 use x86_64::instructions::tlb::flush_all;
@@ -44,7 +44,7 @@ pub struct Process {
     cr3: PhysAddr,
     end: u64,
     entry_point: u64,
-    file_handles: BTreeMap<u32, FileHandle>,
+    file_handles: HashMap<u32, FileHandle>,
     // Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
     load_bias: u64,
 }
@@ -61,7 +61,7 @@ impl Process {
 
         let pid = NEXT_PID.load(Ordering::Acquire);
         let load_bias = 0;
-        let mut file_handles = BTreeMap::new();
+        let mut file_handles = HashMap::new();
         file_handles.insert(
             0,
             FileHandle::new(0, Box::new(Stdin), FileOpenOptions::all()),
@@ -450,7 +450,7 @@ pub fn init_process() -> &'static [u8] {
     let cr3 = Cr3::read().0;
     let load_bias = compute_load_bias(&elf);
 
-    let mut file_handles = BTreeMap::new();
+    let mut file_handles = HashMap::new();
     file_handles.insert(
         0,
         FileHandle::new(0, Box::new(Stdin), FileOpenOptions::all()),
