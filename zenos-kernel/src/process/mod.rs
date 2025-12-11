@@ -7,10 +7,10 @@ use crate::process::file_handles::{
 };
 use crate::process::isolation::create_cr3_from_current_page_tables;
 use crate::{
-    fs::FS,
+    disk::FS,
     interrupts::gdt::GDT,
     kprintln,
-    memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},
+    memory::{kalloc_page, ualloc_page, ualloc_page_flags, PageType, KERNEL_BASE, PAGE_4K},
     percpu::PerCpuData,
     testing::Testable,
 };
@@ -28,8 +28,8 @@ use spin::Mutex;
 use x86_64::instructions::tlb::flush_all;
 use x86_64::registers::control::Cr3;
 use x86_64::structures::paging::PhysFrame;
-use x86_64::{PhysAddr, VirtAddr, structures::paging::PageTableFlags};
-use xmas_elf::{ElfFile, header::Type as ElfType, program, program::Type as PhType};
+use x86_64::{structures::paging::PageTableFlags, PhysAddr, VirtAddr};
+use xmas_elf::{header::Type as ElfType, program, program::Type as PhType, ElfFile};
 
 // Choose a default userspace base for PIE/ET_DYN binaries
 const DEFAULT_USER_BASE: u64 = 0x0000_0000_0040_0000; // 4 MiB, away from the null page(0x0)
@@ -272,10 +272,7 @@ impl Process {
         Some((user_entry, user_stack))
     }
     pub(crate) fn get_file_handle(&mut self, fd: u64) -> Option<&mut FileHandle> {
-        self.file_handles
-            .iter_mut()
-            .find(|handle| *handle.0 == fd as u32)
-            .map(|v| v.1 as _)
+        self.file_handles.get_mut(&(fd as u32))
     }
 
     pub(crate) fn add_file_handle(
@@ -292,17 +289,9 @@ impl Process {
     }
 
     pub(crate) fn close_file_handle(&mut self, fd: u64) -> Result<(), FileError> {
-        // find the key first without holding a mutable borrow into the map
-        let key = self
-            .file_handles
-            .iter()
-            .find(|(k, _)| **k == fd as u32)
-            .map(|(k, _)| *k)
+        self.file_handles
+            .remove(&(fd as u32))
             .ok_or(FileError::InvalidFileDescriptor)?;
-
-        // now actually mutate the map
-        self.file_handles.remove(&key);
-
         Ok(())
     }
 
@@ -339,10 +328,6 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
     info!("CS: {user_cs:x}");
     info!("SS: {user_ss:x}");
     info!("RFLAGS: {rflags:x}");
-
-    // Sanity check: verify we can read the entry point
-    let entry_bytes = unsafe { core::slice::from_raw_parts(user_entry as *const u8, 16) };
-    info!("Entry point bytes: {:x?}", entry_bytes);
 
     assert_eq!(user_stack % 16, 0, "stack must be 16-byte aligned");
 

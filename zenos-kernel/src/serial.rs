@@ -99,7 +99,7 @@ impl log::Log for SerialLogger {
         use fatfs::Write;
 
         let args = format!("[{}] {}", record.level(), record.args()); // remove time and color in release cuz both block the op..
-        let fs = crate::fs::FS.lock();
+        let fs = crate::disk::FS.lock();
         let mut logfile = fs.root_dir().open_file("log.log").unwrap_or_else(|e| {
             fs.root_dir()
                 .create_file("log.log")

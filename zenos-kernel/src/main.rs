@@ -12,7 +12,7 @@
 
 extern crate alloc;
 
-use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
+use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
 use core::arch::asm;
 use fatfs::{Read, Write};
 use zenos_kernel::{kinit, kprintln, serial_println};
@@ -93,7 +93,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     // Initialize kernel subsystems
     kinit(boot_info);
 
-    let fs = zenos_kernel::fs::FS.lock();
+    let fs = zenos_kernel::disk::FS.lock();
     let mut binding = [0; 13];
     let buf = binding.as_mut_slice();
     fs.root_dir()

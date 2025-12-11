@@ -25,16 +25,7 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt[IRQ2_CASCADE].set_handler_fn(cascade_handler);
     idt[IRQ4_SERIAL1].set_handler_fn(cascade_handler);
     idt.invalid_opcode.set_handler_fn(undefined_opcode);
-    // unsafe {
-    //     idt[0x80]
-    //         .set_handler_fn(core::mem::transmute::<
-    //             unsafe extern "x86-interrupt" fn(InterruptStackFrame),
-    //             extern "x86-interrupt" fn(InterruptStackFrame),
-    //         >(
-    //             crate::syscall::sys_rt0 as unsafe extern "x86-interrupt" fn(_),
-    //         ))
-    //         .set_privilege_level(Ring3); // syscall entry point
-    // }
+    idt.general_protection_fault.set_handler_fn(gpf_handler);
     idt
 });
 
@@ -49,6 +40,14 @@ extern "x86-interrupt" fn double_fault_handler(ist: InterruptStackFrame, error_c
 extern "x86-interrupt" fn cascade_handler(ist: InterruptStackFrame) {
     error!("interrupt occured");
     error!("ist: {ist:#?}");
+}
+extern "x86-interrupt" fn gpf_handler(ist: InterruptStackFrame, error_code: u64) {
+    error!("General Protection Fault occurred, error code: {error_code}");
+    error!("stack frame: {ist:#?}");
+    panic!(
+        "General Protection Fault occurred, error code: {}",
+        error_code
+    );
 }
 
 extern "x86-interrupt" fn page_fault_handler(

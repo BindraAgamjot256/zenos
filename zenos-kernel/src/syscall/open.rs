@@ -1,4 +1,4 @@
-use crate::fs::{FS, FileWrapper};
+use crate::disk::{FileWrapper, FS};
 use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;
 use crate::syscall::table::SyscallPtr;

@@ -1,6 +1,5 @@
 #![allow(deprecated)]
 
-use crate::concat::*;
 use crate::version_info;
 /// Allows configuring the bootloader behavior.
 ///
@@ -32,7 +31,7 @@ pub struct BootloaderConfig {
     /// on the screen.
     #[deprecated(
         since = "0.11.1",
-        note = "The frame buffer is now configured through the `BootConfig` struct when creating the bootable disk image"
+        note = "The frame buffer is now configured through the `BootConfig` struct when creating the bootable block image"
     )]
     pub frame_buffer: FrameBuffer,
 }
@@ -398,7 +397,7 @@ pub struct Mappings {
     ///
     /// Defaults to `0xffff_ffff_ffff_f000`.
     pub dynamic_range_end: Option<u64>,
-    /// Virtual address to map ramdisk image, if present on disk
+    /// Virtual address to map ramdisk image, if present on block
     /// Defaults to dynamic
     pub ramdisk_memory: Mapping,
 }

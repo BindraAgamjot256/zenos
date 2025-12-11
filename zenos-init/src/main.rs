@@ -3,6 +3,7 @@
 #![feature(format_args_nl)]
 
 use bitflags::bitflags;
+use core::arch::global_asm;
 use core::fmt::{self, Write};
 
 unsafe extern "C" {
@@ -54,9 +55,21 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
     println!("panic occurred: {}", _info);
     loop {}
 }
+unsafe extern "C" {
+    fn _start() -> !;
+}
 
+global_asm!(
+    r#"
+.global _start
+_start:
+    sub rsp, 8      
+    jmp main
+    ud2
+"#
+);
 #[unsafe(no_mangle)]
-pub extern "C" fn _start() -> ! {
+pub extern "C" fn main() -> ! {
     // File test
     let path = "/chksum.txt\0";
     let fd = unsafe { open(path.as_ptr(), FileOpenOptions::all().bits() as i32) };
