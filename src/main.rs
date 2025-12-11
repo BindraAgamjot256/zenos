@@ -145,7 +145,7 @@ fn build_init(_args: Args) {
         panic!("init build failed");
     }
 
-    // Determine profile directory
+    // Determine the profile directory
     let profile = if cfg!(debug_assertions) {
         "debug"
     } else {

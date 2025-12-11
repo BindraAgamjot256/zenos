@@ -36,7 +36,8 @@ extern crate alloc;
 pub use crate::framebuffer::helpers::*;
 use crate::{percpu::get_percpu_data, testing::Testable};
 use ::acpi::InterruptModel;
-use bootloader_api::{BootInfo, info::MemoryRegion, info::MemoryRegionKind};
+use bootloader_api::{info::MemoryRegion, info::MemoryRegionKind, BootInfo};
+use core::arch::asm;
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb888};
 use heapless::Vec;
 use log::{debug, error, info, trace, warn};
@@ -46,9 +47,9 @@ use x86_64::VirtAddr;
 pub mod acpi;
 /// Architecture-specific code (only does inb, outb etc., as os is designed for x86_64)
 mod arch;
+pub mod disk;
 /// Framebuffer module for display output
 pub(crate) mod framebuffer;
-pub mod fs;
 /// Hardware module for handling hardware-related functionality
 pub mod hardware;
 /// Interrupts module for handling interrupts
@@ -212,6 +213,23 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
 
     debug!("Enabling syscalls");
     syscall::init();
+
+    //todo: add support for sse saving/restoring on context switch. we do still enable them for -O2 builds to work
+    unsafe {
+        use x86_64::registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags};
+
+        Cr0::update(|reg| {
+            reg.remove(Cr0Flags::EMULATE_COPROCESSOR); // EM = 0
+            reg.insert(Cr0Flags::MONITOR_COPROCESSOR); // MP = 1
+            reg.remove(Cr0Flags::TASK_SWITCHED); // TS = 0
+        });
+
+        Cr4::update(|reg| {
+            reg.insert(Cr4Flags::OSFXSR); // Enable SSE
+            reg.insert(Cr4Flags::OSXMMEXCPT_ENABLE); // Enable SSE exceptions
+        });
+        asm!("finit");
+    }
 
     debug!("Kernel initialization complete");
     debug!("everything initialized, enabling interrupts now");

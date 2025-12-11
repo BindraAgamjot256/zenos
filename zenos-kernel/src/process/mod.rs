@@ -1,10 +1,9 @@
 pub(crate) mod file_handles;
 mod isolation;
 
+use crate::disk::FileError;
 use crate::percpu::PerCpuVar;
-use crate::process::file_handles::{
-    FileError, FileHandle, FileLike, FileOpenOptions, Stderr, Stdin, Stdout,
-};
+use crate::process::file_handles::{FileHandle, FileLike, FileOpenOptions, Stderr, Stdin, Stdout};
 use crate::process::isolation::create_cr3_from_current_page_tables;
 use crate::{
     disk::FS,

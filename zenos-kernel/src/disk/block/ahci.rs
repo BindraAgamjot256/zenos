@@ -1,26 +1,44 @@
-//mod vfs;
-//todo: docs,vfs , nvme, tests in that order.
+//! AHCI (SATA) block device driver.
+//!
+//! This module provides a minimal AHCI implementation sufficient for sector
+//! reads/writes via DMA, exposing a `BlockDevice` implementation
+//! (`AhciBlockDevice`) that can be consumed by the filesystem layer.
+//!
+//! Design highlights:
+//! - We map the AHCI HBA MMIO BAR and a small set of per-port structures
+//!   (command list, FIS, command tables) at fixed virtual addresses.
+//! - Only a single port is initialized and exposed (first detected with a
+//!   drive). Multi-port/NCQ are not implemented yet.
+//! - I/O is synchronous: we submit a command and busy-wait for completion with
+//!   a timeout.
+//! - Sector size is assumed to be 512 bytes.
+//!
+//! Safety: Many functions here touch MMIO and DMA memory and thus are `unsafe`.
+//! Those are kept internal; the safe surface is `AhciBlockDevice`, which uses
+//! internal unsafe pieces to perform reads/writes.
+//!
+//! Limitations and TODOs:
+//! - Partition handling is stubbed; `partition_offset` is fixed to GPT default
+//!   (LBA 34) and must be replaced by real partition table parsing.
+//! - Error handling is basic; we convert controller errors into `FileError` at
+//!   the outer layer.
+//! - Cache/queueing is not implemented; each read/write maps directly to an
+//!   AHCI command.
+
+use crate::disk::block::BlockDevice;
+use crate::disk::FileError;
 use crate::memory::{
-    KERNEL_BASE, PAGE_4K, PageType, kalloc_dma_pages, kalloc_page, kfree_dma_pages, kfree_page,
+    kalloc_dma_pages, kalloc_page, kfree_dma_pages, kfree_page, PageType, KERNEL_BASE, PAGE_4K,
 };
 use crate::pci::scan_pci_for_ahci;
-use crate::process::file_handles::{FileError, FileOpenOptions};
 use alloc::boxed::Box;
-use alloc::string::String;
-use core::{
-    ptr::{read_volatile, write_volatile},
-    sync::atomic::{Ordering, compiler_fence},
-};
-use fatfs::{
-    DefaultTimeProvider, FileSystem, IoBase, LossyOemCpConverter, Read, Seek, SeekFrom, Write,
-};
+use core::ptr::{read_volatile, write_volatile};
+use core::sync::atomic::{compiler_fence, Ordering};
+use fatfs::{IoBase, Read, Seek, SeekFrom, Write};
 use heapless::Vec;
 use log::{debug, error, trace};
-use spin::{Lazy, Mutex};
+use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr};
-// ============================================================================
-// Constants
-// ============================================================================
 
 const AHCI_VIRT_BASE: u64 = KERNEL_BASE + 0x2000_0000;
 const SECTOR_SIZE: usize = 512;
@@ -433,6 +451,11 @@ static PORTS: Mutex<Option<Vec<PortInfo, 32>>> = Mutex::new(None);
 // Initialization
 // ============================================================================
 
+/// Discover and initialize the AHCI controller and first available port.
+///
+/// Maps required MMIO regions, allocates and zeroes command structures, and
+/// starts the port engine. Stores discovered `PortInfo` in a global for later
+/// use by `AhciBlockDevice` instances.
 pub(crate) unsafe fn init() {
     let pci = scan_pci_for_ahci().expect("No AHCI controller found");
 
@@ -530,49 +553,13 @@ pub(crate) unsafe fn init() {
     *PORTS.lock() = Some(ports);
 }
 
-// ============================================================================
-// Block Device Implementation
-// ============================================================================
-pub trait BlockDevice: Read + Write + Seek + IoBase {
-    fn block_size(&self) -> u64;
-}
 
-pub struct BlockDeviceDriver<E> {
-    device: Box<dyn BlockDevice<Error = E> + Send + Sync>,
-}
-
-impl<E> BlockDeviceDriver<E> {
-    pub fn new(device: Box<dyn BlockDevice<Error = E> + Send + Sync>) -> Self {
-        Self { device }
-    }
-}
-
-impl<E: fatfs::IoError> IoBase for BlockDeviceDriver<E> {
-    type Error = E;
-}
-
-impl<E: fatfs::IoError> Read for BlockDeviceDriver<E> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.device.read(buf)
-    }
-}
-
-impl<E: fatfs::IoError> Write for BlockDeviceDriver<E> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.device.write(buf)
-    }
-
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        self.device.flush()
-    }
-}
-
-impl<E: fatfs::IoError> Seek for BlockDeviceDriver<E> {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        self.device.seek(pos)
-    }
-}
-
+/// AHCI-backed implementation of the `BlockDevice` trait.
+///
+/// This struct translates `Read`/`Write`/`Seek` requests into sector-aligned
+/// DMA commands via the initialized AHCI port. A simple logical cursor is used
+/// to support unaligned reads/writes by performing read-modify-write cycles as
+/// needed.
 pub struct AhciBlockDevice {
     port_base: usize,
     sector_size: usize,
@@ -587,6 +574,9 @@ impl BlockDevice for AhciBlockDevice {
 }
 
 impl AhciBlockDevice {
+    /// Create a device bound to the given initialized AHCI port.
+    ///
+    /// Returns `None` if the port index is out of range or not initialized.
     pub fn new(port_index: usize) -> Option<Self> {
         let ports = PORTS.lock();
         let ports = ports.as_ref()?;
@@ -599,6 +589,7 @@ impl AhciBlockDevice {
         })
     }
 
+    /// Helper to compute how many 512B sectors are needed for `bytes`.
     fn sectors_for_bytes(&self, bytes: usize) -> u16 {
         bytes.div_ceil(self.sector_size) as u16
     }
@@ -609,10 +600,12 @@ impl IoBase for AhciBlockDevice {
 }
 
 impl Seek for AhciBlockDevice {
+    /// Adjust or query the device's logical cursor. `SeekFrom::End` is not
+    /// supported since device length is not tracked here.
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         self.cursor = match pos {
             SeekFrom::Start(offset) => offset,
-            SeekFrom::End(_) => return Err(Self::Error::UnsupportedOperation), // TODO: Need disk size
+            SeekFrom::End(_) => return Err(Self::Error::UnsupportedOperation), // TODO: Need block size
             SeekFrom::Current(offset) => {
                 if offset < 0 {
                     self.cursor
@@ -630,6 +623,8 @@ impl Seek for AhciBlockDevice {
 }
 
 impl Read for AhciBlockDevice {
+    /// Read into `buf` starting at the current cursor, handling unaligned
+    /// offsets by padding to sector boundaries internally.
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         // Calculate sector-aligned buffer size
         let start_lba = (self.cursor / SECTOR_SIZE as u64) + self.partition_offset;
@@ -672,6 +667,8 @@ impl Read for AhciBlockDevice {
 }
 
 impl Write for AhciBlockDevice {
+    /// Write from `buf` starting at the current cursor, performing
+    /// read-modify-write for partial sectors when needed.
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         // For writes, we need to handle partial sectors by reading-modifying-writing
         let start_lba = (self.cursor / SECTOR_SIZE as u64) + self.partition_offset;
@@ -720,120 +717,5 @@ impl Write for AhciBlockDevice {
 
     fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
-    }
-}
-
-pub static FS: Lazy<Mutex<FileSystem<BlockDeviceDriver<FileError>>>> = Lazy::new(|| {
-    unsafe { init() }
-    let fs = FileSystem::new(
-        BlockDeviceDriver::new(Box::new(
-            AhciBlockDevice::new(0).expect("Port 0 unavailable"),
-        )),
-        fatfs::FsOptions::new(),
-    )
-    .expect("Panics");
-
-    Mutex::new(fs)
-});
-
-pub type File<'a> =
-    fatfs::File<'a, BlockDeviceDriver<FileError>, DefaultTimeProvider, LossyOemCpConverter>;
-
-pub struct FileWrapper {
-    path: String,
-    cursor: u64,
-    foo: FileOpenOptions,
-}
-
-impl FileWrapper {
-    pub fn new(path: String, foo: FileOpenOptions) -> Self {
-        Self {
-            path,
-            cursor: 0,
-            foo,
-        }
-    }
-}
-
-impl IoBase for FileWrapper {
-    type Error = FileError;
-}
-
-impl Read for FileWrapper {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        if !self.foo.contains(FileOpenOptions::READ) {
-            return Err(FileError::WriteError);
-        }
-        let fs = FS.lock();
-        let mut file = fs
-            .root_dir()
-            .open_file(&self.path)
-            .map_err(|_| FileError::InvalidDescriptor)?;
-        file.seek(SeekFrom::Start(self.cursor))
-            .map_err(FileError::from)?;
-        let res = file.read(buf).map_err(FileError::from)?;
-        self.cursor += res as u64;
-        Ok(res)
-    }
-}
-
-impl Write for FileWrapper {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        if !self.foo.contains(FileOpenOptions::WRITE) {
-            return Err(FileError::WriteError);
-        }
-        let fs = FS.lock();
-        let mut file = fs
-            .root_dir()
-            .open_file(&self.path)
-            .map_err(|_| FileError::InvalidDescriptor)?;
-        file.seek(SeekFrom::Start(self.cursor))
-            .map_err(FileError::from)?;
-        let res = file.write(buf).map_err(FileError::from)?;
-        self.cursor += res as u64;
-        Ok(res)
-    }
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        let fs = FS.lock();
-        let mut file = fs
-            .root_dir()
-            .open_file(&self.path)
-            .map_err(|_| FileError::InvalidDescriptor)?;
-        file.flush().map_err(FileError::from)
-    }
-}
-
-impl Seek for FileWrapper {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
-        match pos {
-            SeekFrom::Start(o) => {
-                self.cursor = o;
-                Ok(o)
-            }
-            SeekFrom::Current(o) => {
-                let new_cursor = if o >= 0 {
-                    self.cursor.checked_add(o as u64)
-                } else {
-                    self.cursor.checked_sub(o.unsigned_abs())
-                };
-                match new_cursor {
-                    Some(c) => {
-                        self.cursor = c;
-                        Ok(c)
-                    }
-                    None => Err(FileError::SeekError),
-                }
-            }
-            SeekFrom::End(_) => {
-                let fs = FS.lock();
-                let mut file = fs
-                    .root_dir()
-                    .open_file(&self.path)
-                    .map_err(|_| FileError::InvalidDescriptor)?;
-                let res = file.seek(pos).map_err(FileError::from)?;
-                self.cursor = res;
-                Ok(res)
-            }
-        }
     }
 }

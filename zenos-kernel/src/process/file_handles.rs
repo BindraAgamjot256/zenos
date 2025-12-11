@@ -1,10 +1,11 @@
+use crate::disk::FileError;
 use crate::kprint;
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::any::Any;
 use core::fmt::Debug;
 use core::ops::Deref;
-use fatfs::{Error, IoBase, IoError, Read, Seek, SeekFrom, Write};
+use fatfs::{IoBase, Read, Seek, SeekFrom, Write};
 
 #[derive(Clone)]
 pub struct Stdout;
@@ -116,44 +117,6 @@ impl Debug for FileHandle {
         f.debug_struct("FileHandle")
             .field("type", &self.descriptor.deref().type_id())
             .finish()
-    }
-}
-
-#[derive(Debug)]
-pub enum FileError {
-    UnsupportedOperation,
-    InvalidDescriptor,
-    ReadError,
-    WriteError,
-    SeekError,
-    IoError(Error<()>),
-    InvalidFileDescriptor,
-}
-
-impl IoError for FileError {
-    fn is_interrupted(&self) -> bool {
-        false
-    }
-
-    fn new_unexpected_eof_error() -> Self {
-        Self::IoError(Error::UnexpectedEof)
-    }
-
-    fn new_write_zero_error() -> Self {
-        Self::IoError(Error::WriteZero)
-    }
-}
-
-impl From<Error<FileError>> for FileError {
-    fn from(err: Error<FileError>) -> Self {
-        unsafe {
-            match err {
-                Error::Io(e) => e,
-                other => {
-                    FileError::IoError(core::mem::transmute::<Error<FileError>, Error<()>>(other))
-                }
-            }
-        }
     }
 }
 
