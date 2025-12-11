@@ -5,12 +5,12 @@
 #![allow(dead_code)] // the IPI infrastructure is never used... we silence the warnings for now.
 pub(crate) mod keyboard;
 
-use crate::memory::{PageType, kalloc_page};
+use crate::memory::{kalloc_page, PageType};
 use core::arch::x86_64::__cpuid;
 use heapless::Vec;
 use log::{debug, error, info, trace, warn};
 use spin::{Lazy, Mutex};
-use x86_64::{VirtAddr, registers::model_specific::Msr};
+use x86_64::{registers::model_specific::Msr, VirtAddr};
 
 /// Maximum number of IOAPICs supported
 pub(crate) const MAX_IOAPICS: usize = 8;
@@ -551,7 +551,7 @@ impl ApicManager {
             trace!("Allocated page for LAPIC MMIO");
         } else {
             error!("Failed to allocate page for LAPIC MMIO, error: {r:#?}");
-            panic!("F")
+            panic!("Fuc-") // :)
         }
 
         let lapic = LocalApic::new(apic_base);

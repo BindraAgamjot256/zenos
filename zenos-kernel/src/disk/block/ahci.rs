@@ -553,7 +553,6 @@ pub(crate) unsafe fn init() {
     *PORTS.lock() = Some(ports);
 }
 
-
 /// AHCI-backed implementation of the `BlockDevice` trait.
 ///
 /// This struct translates `Read`/`Write`/`Seek` requests into sector-aligned

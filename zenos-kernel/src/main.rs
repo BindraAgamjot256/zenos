@@ -122,14 +122,10 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     drop(fs);
     #[cfg(feature = "test_stub")]
     {
-        let buf = include_bytes!("syscall/syscall_test_stub.bin");
-        let ptr = x86_64::VirtAddr::new(0x2000000u64);
-        zenos_kernel::memory::ualloc_page(ptr, zenos_kernel::memory::PageType::Arbitrary).unwrap();
-
-        unsafe {
-            core::ptr::copy_nonoverlapping(buf.as_ptr(), ptr.as_mut_ptr(), buf.len());
-        }
-        unsafe { asm!("jmp {0}", in(reg) ptr.as_ptr::<u8>()) }
+        kprintln!("stub does not exist anymore. test it through init you idiot.");
+        panic!(
+            "never gonna give you up, never gonna let you down, never gonna run around and desert you"
+        );
     }
 
     kprintln!("loading init process");
