@@ -222,7 +222,8 @@ If you want to contribute to this beautiful disaster:
 1. **Read the code**: It's simultaneously the best and worst documentation
 2. **Test everything**: If it compiles, it might work. If it works, it might be correct.
 3. **Add tests**: Future you will thank past you. ~~PS: Tests can be written by ChatGPT~~
-4. **Document your crimes**: ~~LOL Maybe~~ Leave comments explaining why you did what you did
+4. **Document your crimes**: ~~LOL Maybe~~ Leave comments explaining why you did what you did(or ask chatgpt to do it
+   for you).
 
 ### Code Style
 

@@ -15,7 +15,7 @@ use crate::config::ApiVersion;
 ///
 /// Note that no type checking occurs for the entry point function, so be careful to
 /// use the correct argument types. To ensure that the entry point function has the correct
-/// signature, use the [`entry_point`] macro.
+/// signature, use the [`crate::entry_point`] macro.
 #[derive(Debug)]
 #[repr(C)]
 #[non_exhaustive]

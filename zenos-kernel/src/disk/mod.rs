@@ -1,33 +1,33 @@
-//! Disk subsystem: block devices (AHCI SATA) + a FAT filesystem powered by `fatfs`.
+//! Disk subsystem: block devices (AHCI SATA) + a FAT filesystem powered by [`fatfs`].
 //!
 //! This module wires together three layers:
-//! - Block layer (`disk::block`): low-level access to storage controllers. We currently
+//! - Block layer ([`block`]): low-level access to storage controllers. We currently
 //!   implement an AHCI driver that can read/write SATA drives using DMA.
-//! - Filesystem layer (`disk::fs`): high-level file and directory access. For now we
-//!   integrate the third-party `fatfs` crate to work with FAT12/16/32 volumes.
-//! - Thin kernel adapters on top (`FS`, `File`, and `FileWrapper`) used by the process
+//! - Filesystem layer ([`fs`]): high-level file and directory access. For now we
+//!   integrate the third-party [`fatfs`] crate to work with FAT12/16/32 volumes.
+//! - Thin kernel adapters on top ([`FS`], [`File`], and [`FileWrapper`]) used by the process
 //!   subsystem to open/read/write/seek files.
 //!
-//! Boot-time initialization: on first access, `FS` lazily initializes AHCI (probing ports)
+//! Boot-time initialization: on first access, [`FS`] lazily initializes AHCI (probing ports)
 //! and mounts the first port (`port 0`) as a FAT filesystem. All file operations in this
 //! module go through that global instance.
 //!
 //! Notes and limitations:
 //! - Only a single drive/partition is mounted (AHCI port 0).
-//! - Concurrency: accesses are synchronized with a `spin::Mutex` around the filesystem.
-//! - `FileWrapper` re-opens the underlying FAT file on each operation and tracks a
-//!   per-wrapper cursor. This keeps the wrapper small and avoids keeping `fatfs::File`
+//! - Concurrency: accesses are synchronized with a [`Mutex`] around the filesystem.
+//! - [`FileWrapper`] re-opens the underlying FAT file on each operation and tracks a
+//!   per-wrapper cursor. This keeps the wrapper small and avoids keeping [`fatfs::File`]
 //!   instances across syscalls.
-//! - Error handling follows `fatfs` conventions via the custom `FileError` implementing
-//!   `fatfs::IoError`.
+//! - Error handling follows [`fatfs`] conventions via the custom [`FileError`] implementing
+//!   [`IoError`].
 //!
 //! See also:
-//! - `disk::block::ahci` for controller details
-//! - `disk::block::BlockDevice` for the abstract I/O interface used by `fatfs`
-//! - `process::file_handles` for how user-facing file descriptors map to `FileWrapper`
+//! - [`block::ahci`] for controller details
+//! - [`block::BlockDevice`] for the abstract I/O interface used by [`fatfs`]
+//! - [`crate::process::file_handles`] for how user-facing file descriptors map to [`FileWrapper`]
 
-mod block;
-mod fs;
+pub(crate) mod block;
+pub(crate) mod fs;
 //mod vfs;
 
 use crate::disk::block::ahci::{init, AhciBlockDevice};

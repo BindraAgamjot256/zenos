@@ -5,4 +5,3 @@
 //! path namespace and permission model. Until then, consumers use the `FS`
 //! global from `disk::mod` directly.
 
-compile_error!("//todo: implement vfs");
