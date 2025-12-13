@@ -1,47 +1,88 @@
-//! Disk subsystem: block devices (AHCI SATA) + a FAT filesystem powered by [`fatfs`].
+//! Disk subsystem: block devices (AHCI SATA) + VFS + FAT filesystem.
 //!
 //! This module wires together three layers:
 //! - Block layer ([`block`]): low-level access to storage controllers. We currently
 //!   implement an AHCI driver that can read/write SATA drives using DMA.
-//! - Filesystem layer ([`fs`]): high-level file and directory access. For now we
-//!   integrate the third-party [`fatfs`] crate to work with FAT12/16/32 volumes.
-//! - Thin kernel adapters on top ([`FS`], [`File`], and [`FileWrapper`]) used by the process
-//!   subsystem to open/read/write/seek files.
+//! - VFS layer ([`vfs`]): abstract filesystem traits (FileSystem, Directory, File)
+//!   that can be implemented by multiple filesystem backends.
+//! - Filesystem layer ([`fs`]): high-level file and directory access. Currently
+//!   implements FAT12/16/32 natively.
 //!
-//! Boot-time initialization: on first access, [`FS`] lazily initializes AHCI (probing ports)
-//! and mounts the first port (`port 0`) as a FAT filesystem. All file operations in this
-//! module go through that global instance.
+//! # Architecture
 //!
-//! Notes and limitations:
-//! - Only a single drive/partition is mounted (AHCI port 0).
-//! - Concurrency: accesses are synchronized with a [`Mutex`] around the filesystem.
-//! - [`FileWrapper`] re-opens the underlying FAT file on each operation and tracks a
-//!   per-wrapper cursor. This keeps the wrapper small and avoids keeping [`fatfs::File`]
-//!   instances across syscalls.
-//! - Error handling follows [`fatfs`] conventions via the custom [`FileError`] implementing
-//!   [`IoError`].
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────┐
+//! │                    Kernel / User Code                       │
+//! └─────────────────────────────────────────────────────────────┘
+//!                              │
+//!                              ▼
+//! ┌─────────────────────────────────────────────────────────────┐
+//! │                     VFS Traits (vfs.rs)                     │
+//! │        FileSystem, Directory, File, Metadata, etc.          │
+//! └─────────────────────────────────────────────────────────────┘
+//!                              │
+//!                              ▼
+//! ┌─────────────────────────────────────────────────────────────┐
+//! │                  FAT Filesystem (fs/fat/)                   │
+//! │         FatFileSystem, FatDirectory, FatFile                │
+//! └─────────────────────────────────────────────────────────────┘
+//!                              │
+//!                              ▼
+//! ┌─────────────────────────────────────────────────────────────┐
+//! │                 Block Device (block/mod.rs)                 │
+//! │            BlockDevice trait, BlockDeviceDriver             │
+//! └─────────────────────────────────────────────────────────────┘
+//!                              │
+//!                              ▼
+//! ┌─────────────────────────────────────────────────────────────┐
+//! │                    AHCI Driver (block/ahci.rs)              │
+//! │              AhciBlockDevice, DMA operations                │
+//! └─────────────────────────────────────────────────────────────┘
+//! ```
 //!
-//! See also:
-//! - [`block::ahci`] for controller details
-//! - [`block::BlockDevice`] for the abstract I/O interface used by [`fatfs`]
-//! - [`crate::process::file_handles`] for how user-facing file descriptors map to [`FileWrapper`]
+//! # Usage Example
+//!
+//! ```rust,ignore
+//! use crate::disk::block::ahci::{init, AhciBlockDevice};
+//! use crate::disk::fs::fat::FatFileSystem;
+//! use crate::disk::vfs::{FileSystem, Directory, File, SeekFrom};
+//!
+//! // Initialize AHCI (usually done at boot)
+//! unsafe { init(); }
+//!
+//! // Create block device for port 0
+//! let device = AhciBlockDevice::new(0).expect("No disk");
+//!
+//! // Mount FAT filesystem
+//! let fs = FatFileSystem::mount(device).expect("Mount failed");
+//!
+//! // Access root directory
+//! let mut root = fs.root_dir().expect("No root");
+//!
+//! // Read directory contents
+//! for entry in root.read_dir().expect("Read failed") {
+//!     println!("{}: {} bytes", entry.name, entry.metadata.size);
+//! }
+//!
+//! // Open and read a file
+//! let mut file = root.open_file("README.TXT").expect("Not found");
+//! let mut buf = [0u8; 1024];
+//! let n = file.read(&mut buf).expect("Read failed");
+//! ```
 
 pub(crate) mod block;
-pub(crate) mod fs;
-//mod vfs;
+pub mod fs;
+pub mod vfs;
 
-use crate::disk::block::ahci::{init, AhciBlockDevice};
 use crate::disk::block::BlockDeviceDriver;
-use crate::process::file_handles::FileOpenOptions;
 use alloc::boxed::Box;
 use alloc::string::String;
-use fatfs::{
-    DefaultTimeProvider, Error, FileSystem, IoBase, IoError, LossyOemCpConverter, Read, Seek,
-    SeekFrom, Write,
-};
+use block::ahci::{init, AhciBlockDevice};
+use fs::fat::FatFileSystem;
 use spin::{Lazy, Mutex};
+use vfs::{File, FileSystem, SeekFrom};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FileError {
     /// Operation is not supported for the requested file or handle.
     UnsupportedOperation,
@@ -53,140 +94,92 @@ pub enum FileError {
     WriteError,
     /// Seek position overflow/underflow or other seek failure.
     SeekError,
-    /// Propagated `fatfs` I/O error (erased generic parameter).
-    IoError(Error<()>),
     /// Invalid numeric file descriptor value provided from userland.
     InvalidFileDescriptor,
-}
-
-impl IoError for FileError {
-    fn is_interrupted(&self) -> bool {
-        false
-    }
-
-    fn new_unexpected_eof_error() -> Self {
-        Self::IoError(Error::UnexpectedEof)
-    }
-
-    fn new_write_zero_error() -> Self {
-        Self::IoError(Error::WriteZero)
-    }
-}
-
-impl From<Error<FileError>> for FileError {
-    fn from(err: Error<FileError>) -> Self {
-        unsafe {
-            match err {
-                Error::Io(e) => e,
-                other => {
-                    FileError::IoError(core::mem::transmute::<Error<FileError>, Error<()>>(other))
-                }
-            }
-        }
-    }
+    /// File or directory not found.
+    NotFound,
+    /// File or directory already exists.
+    AlreadyExists,
+    /// Directory is not empty.
+    DirectoryNotEmpty,
+    /// Generic error with a message.
+    Other(String),
 }
 
 /// Global FAT filesystem instance backed by the AHCI block device on port 0.
-///
-/// This is lazily initialized on first use by calling `ahci::init()` and then
-/// constructing a `fatfs::FileSystem` on top of a `BlockDeviceDriver` that wraps
-/// `AhciBlockDevice`.
-pub static FS: Lazy<Mutex<FileSystem<BlockDeviceDriver<FileError>>>> = Lazy::new(|| {
+pub static FS: Lazy<Mutex<FatFileSystem<BlockDeviceDriver>>> = Lazy::new(|| {
     unsafe { init() }
-    let fs = FileSystem::new(
-        BlockDeviceDriver::new(Box::new(
-            AhciBlockDevice::new(0).expect("Port 0 unavailable"),
-        )),
-        fatfs::FsOptions::new(),
-    )
-        .expect("Panics");
-
+    let device = BlockDeviceDriver::new(Box::new(
+        AhciBlockDevice::new(0).expect("Port 0 unavailable"),
+    ));
+    let fs = FatFileSystem::mount(device).expect("Failed to mount FAT filesystem");
     Mutex::new(fs)
 });
 
-/// Convenience alias for a `fatfs::File` using our block device and default providers.
-pub type File<'a> =
-fatfs::File<'a, BlockDeviceDriver<FileError>, DefaultTimeProvider, LossyOemCpConverter>;
-
 /// Thin handle used by the process layer to perform I/O on a path within the
-/// mounted FAT filesystem.
+/// mounted filesystem.
 ///
 /// The wrapper keeps a logical cursor (`seek` position). On each operation it
 /// reopens the file from `FS` and performs the requested read/write/seek.
 pub struct FileWrapper {
     path: String,
     cursor: u64,
-    foo: FileOpenOptions,
+    options: crate::process::file_handles::FileOpenOptions,
 }
 
 impl FileWrapper {
     /// Create a new file wrapper for a path with the specified open options.
-    pub fn new(path: String, foo: FileOpenOptions) -> Self {
+    pub fn new(path: String, options: crate::process::file_handles::FileOpenOptions) -> Self {
         Self {
             path,
             cursor: 0,
-            foo,
+            options,
         }
+    }
+
+    fn with_file<F, T>(&mut self, f: F) -> Result<T, FileError>
+    where
+        F: FnOnce(&mut Box<dyn File>, u64) -> Result<T, FileError>,
+    {
+        let fs = FS.lock();
+        let mut root = fs.root_dir()?;
+        let mut file = root.open_file(&self.path)?;
+        f(&mut file, self.cursor)
     }
 }
 
-impl IoBase for FileWrapper {
-    type Error = FileError;
-}
-
-impl Read for FileWrapper {
-    /// Read bytes into `buf` at the current cursor.
-    ///
-    /// Fails with `WriteError` if the file wasn't opened with read permissions.
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        if !self.foo.contains(FileOpenOptions::READ) {
-            return Err(FileError::WriteError);
+impl crate::process::file_handles::FileLike for FileWrapper {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, FileError> {
+        use crate::process::file_handles::FileOpenOptions;
+        if !self.options.contains(FileOpenOptions::READ) {
+            return Err(FileError::UnsupportedOperation);
         }
-        let fs = FS.lock();
-        let mut file = fs
-            .root_dir()
-            .open_file(&self.path)
-            .map_err(|_| FileError::InvalidDescriptor)?;
-        file.seek(SeekFrom::Start(self.cursor))
-            .map_err(FileError::from)?;
-        let res = file.read(buf).map_err(FileError::from)?;
+
+        let cursor = self.cursor;
+        let res = self.with_file(|file, _| {
+            file.seek(SeekFrom::Start(cursor))?;
+            file.read(buf)
+        })?;
         self.cursor += res as u64;
         Ok(res)
     }
-}
 
-impl Write for FileWrapper {
-    /// Write bytes from `buf` at the current cursor.
-    ///
-    /// Fails with `WriteError` if the file wasn't opened with write permissions.
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        if !self.foo.contains(FileOpenOptions::WRITE) {
-            return Err(FileError::WriteError);
+    fn write(&mut self, buf: &[u8]) -> Result<usize, FileError> {
+        use crate::process::file_handles::FileOpenOptions;
+        if !self.options.contains(FileOpenOptions::WRITE) {
+            return Err(FileError::UnsupportedOperation);
         }
-        let fs = FS.lock();
-        let mut file = fs
-            .root_dir()
-            .open_file(&self.path)
-            .map_err(|_| FileError::InvalidDescriptor)?;
-        file.seek(SeekFrom::Start(self.cursor))
-            .map_err(FileError::from)?;
-        let res = file.write(buf).map_err(FileError::from)?;
+
+        let cursor = self.cursor;
+        let res = self.with_file(|file, _| {
+            file.seek(SeekFrom::Start(cursor))?;
+            file.write(buf)
+        })?;
         self.cursor += res as u64;
         Ok(res)
     }
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        let fs = FS.lock();
-        let mut file = fs
-            .root_dir()
-            .open_file(&self.path)
-            .map_err(|_| FileError::InvalidDescriptor)?;
-        file.flush().map_err(FileError::from)
-    }
-}
 
-impl Seek for FileWrapper {
-    /// Update or query the logical cursor using `SeekFrom` semantics.
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, FileError> {
         match pos {
             SeekFrom::Start(o) => {
                 self.cursor = o;
@@ -206,13 +199,8 @@ impl Seek for FileWrapper {
                     None => Err(FileError::SeekError),
                 }
             }
-            SeekFrom::End(_) => {
-                let fs = FS.lock();
-                let mut file = fs
-                    .root_dir()
-                    .open_file(&self.path)
-                    .map_err(|_| FileError::InvalidDescriptor)?;
-                let res = file.seek(pos).map_err(FileError::from)?;
+            SeekFrom::End(o) => {
+                let res = self.with_file(|file, _| file.seek(SeekFrom::End(o)))?;
                 self.cursor = res;
                 Ok(res)
             }

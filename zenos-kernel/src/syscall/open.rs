@@ -1,10 +1,10 @@
-use crate::disk::{FileWrapper, FS};
+use crate::disk::vfs::FileSystem;
+use crate::disk::{FileError, FileWrapper, FS};
 use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;
 use crate::syscall::table::SyscallPtr;
 use alloc::boxed::Box;
 use core::ffi::CStr;
-use fatfs::Error;
 use log::{debug, info};
 
 #[syscall_macro::syscall(2)]
@@ -45,16 +45,23 @@ fn open(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Option<u64> {
     {
         let fs = FS.lock();
-        let res = fs.root_dir().open_file(file_name);
+        let mut root = match fs.root_dir() {
+            Ok(r) => r,
+            Err(e) => {
+                info!("Failed to get root dir: {:?}", e);
+                return None;
+            }
+        };
+        let res = root.open_file(file_name);
         match res {
             Ok(_) => {}
             Err(e) => {
                 info!("Failed to open file '{}': {:?}", file_name, e);
                 match e {
-                    Error::NotFound => {
+                    FileError::NotFound => {
                         if foo.contains(FileOpenOptions::CREATE) {
                             info!("Creating file '{}'", file_name);
-                            let res = fs.root_dir().create_file(file_name);
+                            let res = root.create_file(file_name);
                             match res {
                                 Ok(_) => {}
                                 Err(e) => {
@@ -68,7 +75,7 @@ pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Option<u64> {
                     }
                     _ => {
                         return None;
-                    } // Other errors
+                    }
                 }
             }
         }

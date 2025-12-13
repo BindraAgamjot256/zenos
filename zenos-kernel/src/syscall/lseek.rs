@@ -1,3 +1,4 @@
+use crate::disk::vfs::SeekFrom;
 use crate::syscall::table::SyscallPtr;
 use log::debug;
 use syscall_macro::syscall;
@@ -26,9 +27,9 @@ fn seek_inner(fd: u64, offset: i64, whence: u64) -> Option<u64> {
     let process = processes.iter_mut().find(|p| p.pid == pid)?;
     let file_handle = process.get_file_handle(fd)?;
     let seek_from = match whence {
-        0 => fatfs::SeekFrom::Start(offset as u64),
-        1 => fatfs::SeekFrom::Current(offset),
-        2 => fatfs::SeekFrom::End(offset),
+        0 => SeekFrom::Start(offset as u64),
+        1 => SeekFrom::Current(offset),
+        2 => SeekFrom::End(offset),
         _ => return None,
     };
     let new_pos = file_handle.descriptor().seek(seek_from).ok()?;

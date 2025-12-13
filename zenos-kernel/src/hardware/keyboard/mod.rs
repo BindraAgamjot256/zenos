@@ -1,7 +1,7 @@
 use crate::kprint;
 use heapless::Deque;
 use log::trace;
-use pc_keyboard::{DecodedKey, HandleControl, KeyCode, Keyboard, ScancodeSet1, layouts};
+use pc_keyboard::{layouts, DecodedKey, HandleControl, KeyCode, Keyboard, ScancodeSet1};
 use spin::{Lazy, Mutex};
 
 static KEYBOARD: Lazy<Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>>> = Lazy::new(|| {
@@ -21,32 +21,41 @@ pub fn joint_keyboard_handler(scancode: u8) {
     {
         match key {
             DecodedKey::Unicode(character) => {
-                // kprint!("{}", character);
-                let mut buf = KEYBUF.lock();
-                let _ = buf.push_back(character as u8);
+                // Echo the character so stdin reads appear responsive while blocking
+                kprint!("{}", character);
+                unsafe { KEYBUF.force_unlock() }
+                if character == '\x08' {
+                    // Backspace handling
+                    let mut kb = KEYBUF.lock();
+                    kb.pop_back();
+                } else {
+                    let mut kb = KEYBUF.lock();
+                    if kb.push_back(character as u8).is_err() {
+                        trace!("Keyboard buffer full, dropping input");
+                    }
+                }
             }
             DecodedKey::RawKey(key) => raw_key_handler(key),
         }
     }
 }
 
-/// Reads up to `buf.len()` bytes from the keyboard buffer into `buf`.
+/// Reads exactly `buf.len()` bytes from the keyboard buffer into `buf`.
 /// Returns the number of bytes read.
-pub fn read_into(buf: &mut [u8]) -> usize {
+pub fn read_exact(buf: &mut [u8]) -> usize {
     let mut kb = KEYBUF.lock();
     let mut count = 0;
-    while kb.is_empty() {
-        core::hint::spin_loop() /* fixme: preempt here...*/
-    } // actually I should preempt every call of spin_loop.
     while count < buf.len() {
+        while kb.is_empty() {
+            core::hint::spin_loop() /* fixme: preempt here...*/
+        }
         if let Some(b) = kb.pop_front() {
-            buf[count] = b;
-            count += 1;
             if b == b'\n' {
                 break;
+            } else {
+                buf[count] = b;
+                count += 1;
             }
-        } else {
-            break;
         }
     }
     count
@@ -62,6 +71,7 @@ fn raw_key_handler(key: KeyCode) {
         KeyCode::ArrowLeft | KeyCode::ArrowRight => {
             trace!("Arrow Left/Right pressed... ignoring again...")
         }
-        _ => kprint!("{:#?}", key),
+        // Silence raw key debug output to avoid cluttering echoed input
+        _ => {}
     }
 }

@@ -44,16 +44,14 @@
 //!
 //! The safe interface is provided via [`AhciBlockDevice`].
 
-use crate::disk::block::BlockDevice;
-use crate::disk::FileError;
+use crate::disk::block::{BlockDevice, BlockError};
+use crate::disk::vfs::SeekFrom;
 use crate::memory::{
     kalloc_dma_pages, kalloc_page, kfree_dma_pages, kfree_page, PageType, KERNEL_BASE, PAGE_4K,
 };
 use crate::pci::scan_pci_for_ahci;
-use alloc::boxed::Box;
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{compiler_fence, Ordering};
-use fatfs::{IoBase, Read, Seek, SeekFrom, Write};
 use heapless::Vec;
 use log::{debug, error, trace};
 use spin::Mutex;
@@ -441,7 +439,7 @@ impl Port {
             core::ptr::copy_nonoverlapping(dma_page_virt.as_ptr::<u8>(), buf, total_bytes);
         }
 
-        // 12. Check for Transaction Errors (Double check TFD)
+        // 12. Check for Transaction Errors (Double-check TFD)
         let tfd = self.read_reg(reg::TFD);
         if tfd & flags::TFD_ERR != 0 {
             let is = self.read_reg(reg::IS);
@@ -644,12 +642,6 @@ pub struct AhciBlockDevice {
     partition_offset: u64, // LBA where partition starts
 }
 
-impl BlockDevice for AhciBlockDevice {
-    fn block_size(&self) -> u64 {
-        self.sector_size as u64
-    }
-}
-
 impl AhciBlockDevice {
     /// Create a device bound to the given initialized AHCI port.
     pub fn new(port_index: usize) -> Option<Self> {
@@ -670,127 +662,164 @@ impl AhciBlockDevice {
     }
 }
 
-impl IoBase for AhciBlockDevice {
-    type Error = FileError;
-}
+impl BlockDevice for AhciBlockDevice {
+    fn block_size(&self) -> u64 {
+        self.sector_size as u64
+    }
 
-impl Seek for AhciBlockDevice {
-    /// Adjust the logical cursor.
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, BlockError> {
+        let mut total_read = 0;
+
+        // Loop until the entire buffer is filled
+        while total_read < buf.len() {
+            let current_cursor = self.cursor + total_read as u64;
+
+            // 1. Calculate alignment for this chunk
+            let start_lba = (current_cursor / self.sector_size as u64) + self.partition_offset;
+            let sector_offset = (current_cursor % self.sector_size as u64) as usize;
+
+            // 2. Determine chunk size
+            // The hardware command cannot exceed PAGE_4K (4096 bytes).
+            // We must ensure (sector_offset + chunk_len) <= PAGE_4K.
+            let bytes_left = buf.len() - total_read;
+            let max_capacity = PAGE_4K.saturating_sub(sector_offset);
+            let chunk_len = bytes_left.min(max_capacity);
+
+            if chunk_len == 0 {
+                break; // Should not happen given logic
+            }
+
+            // 3. Allocate DMA buffer (Bounce buffer) for this chunk
+            let total_bytes_needed = sector_offset + chunk_len;
+            let sectors = self.sectors_for_bytes(total_bytes_needed);
+            let sector_aligned_size = sectors as usize * self.sector_size;
+
+            let ubuf = kalloc_dma_pages(sector_aligned_size).map_err(|_| BlockError::ReadError)?;
+
+            // 4. Reconstruct Port wrapper
+            // Note: We scope the lock to release it before the heavy IO operation
+            let pinfo = {
+                let ports = PORTS.lock();
+                match ports
+                    .as_ref()
+                    .and_then(|v| v.iter().find(|p| p.port_base == self.port_base))
+                {
+                    Some(p) => *p,
+                    None => {
+                        kfree_dma_pages(ubuf).ok();
+                        return Err(BlockError::DeviceNotFound);
+                    }
+                }
+            };
+
+            let port = unsafe { Port::new(pinfo) };
+
+            // 5. Perform Hardware Read
+            let res = unsafe { port.read_sectors(start_lba, ubuf.as_mut_ptr(), sectors) };
+            if res.is_err() {
+                kfree_dma_pages(ubuf).map_err(|_| BlockError::ReadError)?;
+                return Err(BlockError::ReadError);
+            }
+
+            // 6. Copy relevant data to User Buffer
+            let dest_slice = &mut buf[total_read..total_read + chunk_len];
+            dest_slice.copy_from_slice(&ubuf[sector_offset..sector_offset + chunk_len]);
+
+            // 7. Cleanup chunk
+            kfree_dma_pages(ubuf).map_err(|_| BlockError::ReadError)?;
+
+            total_read += chunk_len;
+        }
+
+        // Update global cursor only after success
+        self.cursor += total_read as u64;
+        Ok(total_read)
+    }
+
+    fn write(&mut self, buf: &[u8]) -> Result<usize, BlockError> {
+        let mut total_written = 0;
+
+        while total_written < buf.len() {
+            let current_cursor = self.cursor + total_written as u64;
+
+            let start_lba = (current_cursor / self.sector_size as u64) + self.partition_offset;
+            let sector_offset = (current_cursor % self.sector_size as u64) as usize;
+
+            let bytes_left = buf.len() - total_written;
+            let max_capacity = PAGE_4K.saturating_sub(sector_offset);
+            let chunk_len = bytes_left.min(max_capacity);
+
+            let total_bytes_needed = sector_offset + chunk_len;
+            let sectors = self.sectors_for_bytes(total_bytes_needed);
+            let sector_aligned_size = sectors as usize * self.sector_size;
+
+            // 1. Allocate DMA buffer
+            let ubuf = kalloc_dma_pages(sector_aligned_size).map_err(|_| BlockError::WriteError)?;
+
+            let pinfo = {
+                let ports = PORTS.lock();
+                match ports
+                    .as_ref()
+                    .and_then(|v| v.iter().find(|p| p.port_base == self.port_base))
+                {
+                    Some(p) => *p,
+                    None => {
+                        kfree_dma_pages(ubuf).ok();
+                        return Err(BlockError::DeviceNotFound);
+                    }
+                }
+            };
+            let port = unsafe { Port::new(pinfo) };
+
+            // 2. RMW: If not overwriting the whole block, read existing data first.
+            let need_read = sector_offset != 0 || chunk_len != sector_aligned_size;
+            if need_read {
+                let res = unsafe { port.read_sectors(start_lba, ubuf.as_mut_ptr(), sectors) };
+                if res.is_err() {
+                    kfree_dma_pages(ubuf).map_err(|_| BlockError::WriteError)?;
+                    return Err(BlockError::WriteError);
+                }
+            }
+
+            // 3. Overlay new data onto the buffer
+            let src_slice = &buf[total_written..total_written + chunk_len];
+            ubuf[sector_offset..sector_offset + chunk_len].copy_from_slice(src_slice);
+
+            // 4. Perform Hardware Write
+            let res = unsafe { port.write_sectors(start_lba, ubuf.as_mut_ptr(), sectors) };
+            if res.is_err() {
+                kfree_dma_pages(ubuf).map_err(|_| BlockError::WriteError)?;
+                return Err(BlockError::WriteError);
+            }
+
+            kfree_dma_pages(ubuf).map_err(|_| BlockError::WriteError)?;
+            total_written += chunk_len;
+        }
+
+        self.cursor += total_written as u64;
+        Ok(total_written)
+    }
+
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, BlockError> {
         self.cursor = match pos {
             SeekFrom::Start(offset) => offset,
-            SeekFrom::End(_) => return Err(Self::Error::UnsupportedOperation),
+            SeekFrom::End(_) => return Err(BlockError::UnsupportedOperation),
             SeekFrom::Current(offset) => {
                 if offset < 0 {
                     self.cursor
                         .checked_sub(offset.unsigned_abs())
-                        .ok_or(Self::Error::UnsupportedOperation)?
+                        .ok_or(BlockError::SeekError)?
                 } else {
                     self.cursor
                         .checked_add(offset as u64)
-                        .ok_or(Self::Error::UnsupportedOperation)?
+                        .ok_or(BlockError::SeekError)?
                 }
             }
         };
         Ok(self.cursor)
     }
-}
 
-impl Read for AhciBlockDevice {
-    /// Read into `buf` starting at the current cursor.
-    /// Handles unaligned offsets by reading full sectors and copying relevant slices.
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        // 1. Calculate alignment
-        let start_lba = (self.cursor / SECTOR_SIZE as u64) + self.partition_offset;
-        let sector_offset = (self.cursor % SECTOR_SIZE as u64) as usize;
-
-        // 2. Determine size
-        let total_bytes_needed = sector_offset + buf.len();
-        let sectors = self.sectors_for_bytes(total_bytes_needed);
-        let sector_aligned_size = sectors as usize * SECTOR_SIZE;
-
-        // 3. Allocate DMA buffer (Bounce buffer)
-        let ubuf = kalloc_dma_pages(sector_aligned_size).map_err(|_| Self::Error::ReadError)?;
-        if ubuf.is_empty() {
-            return Ok(0);
-        }
-
-        // 4. Reconstruct Port wrapper
-        let ports = PORTS.lock();
-        let pinfo = match ports
-            .as_ref()
-            .and_then(|v| v.iter().find(|p| p.port_base == self.port_base))
-        {
-            Some(p) => *p,
-            None => return Err(Self::Error::ReadError),
-        };
-        let port = unsafe { Port::new(pinfo) };
-
-        // 5. Perform Hardware Read
-        unsafe {
-            port.read_sectors(start_lba, ubuf.as_mut_ptr(), sectors)
-                .map_err(|_| Self::Error::ReadError)?;
-        }
-
-        // 6. Copy relevant data to User Buffer
-        let available_bytes = ubuf.len().saturating_sub(sector_offset);
-        let bytes_to_copy = buf.len().min(available_bytes);
-
-        buf[..bytes_to_copy].copy_from_slice(&ubuf[sector_offset..sector_offset + bytes_to_copy]);
-
-        // 7. Update cursor and cleanup
-        self.cursor += bytes_to_copy as u64;
-        kfree_dma_pages(ubuf).map_err(|_| Self::Error::ReadError)?;
-        Ok(bytes_to_copy)
-    }
-}
-
-impl Write for AhciBlockDevice {
-    /// Write `buf` at current cursor.
-    /// Performs Read-Modify-Write (RMW) if start/end are not sector-aligned.
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let start_lba = (self.cursor / SECTOR_SIZE as u64) + self.partition_offset;
-        let sector_offset = (self.cursor % SECTOR_SIZE as u64) as usize;
-
-        let total_bytes_needed = sector_offset + buf.len();
-        let sectors = self.sectors_for_bytes(total_bytes_needed);
-
-        // 1. Allocate DMA buffer
-        let ubuf = kalloc_dma_pages(sectors as usize * SECTOR_SIZE)
-            .map_err(|_| Self::Error::WriteError)?;
-
-        let ports = PORTS.lock();
-        let pinfo = match ports.as_ref().and_then(|v| v.first()) {
-            Some(p) => *p,
-            None => return Err(Self::Error::WriteError),
-        };
-        let port = unsafe { Port::new(pinfo) };
-
-        // 2. RMW: If not overwriting the whole block, read existing data first.
-        //    (i.e., we are writing to the middle of a sector, or the end of the buffer doesn't align)
-        if sector_offset != 0 || !buf.len().is_multiple_of(SECTOR_SIZE) {
-            unsafe {
-                port.read_sectors(start_lba, ubuf.as_mut_ptr(), sectors)
-                    .map_err(|_| Self::Error::WriteError)?;
-            }
-        }
-
-        // 3. Overlay new data onto the buffer
-        ubuf[sector_offset..sector_offset + buf.len()].copy_from_slice(buf);
-
-        // 4. Perform Hardware Write
-        unsafe {
-            port.write_sectors(start_lba, ubuf.as_mut_ptr(), sectors)
-                .map_err(|_| Self::Error::WriteError)?;
-        }
-
-        self.cursor += buf.len() as u64;
-        kfree_dma_pages(ubuf).map_err(|_| Self::Error::WriteError)?;
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        // For now, we are synchronous, so flush is a no-op.
+    fn flush(&mut self) -> Result<(), BlockError> {
         Ok(())
     }
 }

@@ -1,68 +1,92 @@
 //! Block device abstraction and drivers.
 //!
-//! This module defines a minimal [`BlockDevice`] trait and a thin [`BlockDeviceDriver`]
-//! wrapper that adapts concrete drivers to the [`fatfs`] I/O traits. Concrete
-//! implementations live in submodules (e.g., [`ahci`]).
-//!
-//! The trait is deliberately small and mirrors the needs of [`fatfs`] (read, write,
-//! seek, error type via `IoBase`) with an extra `block_size()` query used by the
-//! kernel in a few places.
-//!
-//! Typical usage:
-//! - Instantiate a concrete device (e.g., [`ahci::AhciBlockDevice`]), wrap it in
-//!   [`BlockDeviceDriver`], then hand it to the filesystem layer.
-//! - End users should not depend on `ahci` specifics; work against the trait.
+//! This module defines a minimal [`BlockDevice`] trait and concrete drivers.
+//! Concrete implementations live in submodules (e.g., [`ahci`]).
 
+use crate::disk::vfs::SeekFrom;
 use alloc::boxed::Box;
-use fatfs::{IoBase, Read, Seek, SeekFrom, Write};
 
 pub mod ahci;
 
-// ============================================================================
-// Block Device Implementation
-// ============================================================================
+/// Block device errors.
+#[derive(Debug, Clone)]
+pub enum BlockError {
+    /// Read operation failed.
+    ReadError,
+    /// Write operation failed.
+    WriteError,
+    /// Seek operation failed or invalid position.
+    SeekError,
+    /// Operation not supported.
+    UnsupportedOperation,
+    /// Device not found or not available.
+    DeviceNotFound,
+}
+
 /// Minimal abstraction for sector-addressable storage.
-pub trait BlockDevice: Read + Write + Seek + IoBase {
+pub trait BlockDevice: Send + Sync {
     /// Logical block size in bytes (e.g., 512).
     fn block_size(&self) -> u64;
+    /// Read bytes into `buf` starting at the current cursor.
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, BlockError>;
+    /// Write bytes from `buf` starting at the current cursor.
+    fn write(&mut self, buf: &[u8]) -> Result<usize, BlockError>;
+    /// Adjust the logical cursor position.
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, BlockError>;
+    /// Flush any buffered writes.
+    fn flush(&mut self) -> Result<(), BlockError>;
 }
 
-/// Thin adapter that implements the [`fatfs`] traits by delegating to an inner
-/// [`BlockDevice`] object. This indirection allows using trait objects behind a
-/// [`Box`] while satisfying [`fatfs`]'s concrete type requirements.
-pub struct BlockDeviceDriver<E> {
-    device: Box<dyn BlockDevice<Error=E> + Send + Sync>,
+/// Thin adapter that wraps a concrete [`BlockDevice`] behind a trait object.
+pub struct BlockDeviceDriver {
+    device: Box<dyn BlockDevice>,
 }
 
-impl<E> BlockDeviceDriver<E> {
-    /// Create a new driver wrapper around a concrete [`BlockDevice`].
-    pub fn new(device: Box<dyn BlockDevice<Error=E> + Send + Sync>) -> Self {
-        Self { device }
+impl BlockDevice for BlockDeviceDriver {
+    fn block_size(&self) -> u64 {
+        self.device.block_size()
     }
-}
 
-impl<E: fatfs::IoError> IoBase for BlockDeviceDriver<E> {
-    type Error = E;
-}
-
-impl<E: fatfs::IoError> Read for BlockDeviceDriver<E> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, BlockError> {
         self.device.read(buf)
     }
-}
 
-impl<E: fatfs::IoError> Write for BlockDeviceDriver<E> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, BlockError> {
         self.device.write(buf)
     }
 
-    fn flush(&mut self) -> Result<(), Self::Error> {
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, BlockError> {
+        self.device.seek(pos)
+    }
+
+    fn flush(&mut self) -> Result<(), BlockError> {
         self.device.flush()
     }
 }
 
-impl<E: fatfs::IoError> Seek for BlockDeviceDriver<E> {
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+impl BlockDeviceDriver {
+    /// Create a new driver wrapper around a concrete [`BlockDevice`].
+    pub fn new(device: Box<dyn BlockDevice>) -> Self {
+        Self { device }
+    }
+
+    pub fn block_size(&self) -> u64 {
+        self.device.block_size()
+    }
+
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, BlockError> {
+        self.device.read(buf)
+    }
+
+    pub fn write(&mut self, buf: &[u8]) -> Result<usize, BlockError> {
+        self.device.write(buf)
+    }
+
+    pub fn seek(&mut self, pos: SeekFrom) -> Result<u64, BlockError> {
         self.device.seek(pos)
+    }
+
+    pub fn flush(&mut self) -> Result<(), BlockError> {
+        self.device.flush()
     }
 }

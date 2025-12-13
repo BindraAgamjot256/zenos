@@ -14,7 +14,7 @@ extern crate alloc;
 
 use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
 use core::arch::asm;
-use fatfs::{Read, Write};
+use zenos_kernel::disk::vfs::FileSystem;
 use zenos_kernel::{kinit, kprintln, serial_println};
 
 static CONFIG: BootloaderConfig = {
@@ -97,6 +97,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     let mut binding = [0; 13];
     let buf = binding.as_mut_slice();
     fs.root_dir()
+        .unwrap()
         .open_file("chksum.txt")
         .expect("chksum.txt exists")
         .read(buf)
@@ -106,6 +107,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
 
     kprintln!("writing \"chksum.txt\" to chksum.txt");
     fs.root_dir()
+        .unwrap()
         .open_file("chksum.txt")
         .expect("chksum.txt exists")
         .write(b"chksum.txt")
@@ -113,6 +115,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     let mut binding = [0; 13];
     let buf = binding.as_mut_slice();
     fs.root_dir()
+        .unwrap()
         .open_file("chksum.txt")
         .expect("chksum.txt exists")
         .read(buf)

@@ -327,15 +327,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fatfs"
-version = "0.4.0"
-source = "git+https://github.com/rafalh/rust-fatfs/#4eccb50d011146fbed20e133d33b22f3c27292e7"
-dependencies = [
- "bitflags 2.10.0",
- "log",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1217,7 +1208,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "bootloader-boot-config",
- "fatfs 0.3.6",
+    "fatfs",
  "gpt",
  "llvm-tools",
  "serde_json",
@@ -1240,7 +1231,6 @@ dependencies = [
  "bitflags 2.10.0",
  "bootloader_api",
  "embedded-graphics",
- "fatfs 0.4.0",
  "hashbrown",
  "heapless 0.9.1",
  "linked_list_allocator",

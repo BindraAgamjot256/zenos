@@ -1,12 +1,13 @@
 pub(crate) mod file_handles;
 mod isolation;
 
+use crate::disk::vfs::{File, FileSystem, SeekFrom};
 use crate::disk::FileError;
+use crate::disk::FS;
 use crate::percpu::PerCpuVar;
 use crate::process::file_handles::{FileHandle, FileLike, FileOpenOptions, Stderr, Stdin, Stdout};
 use crate::process::isolation::create_cr3_from_current_page_tables;
 use crate::{
-    disk::FS,
     interrupts::gdt::GDT,
     kprintln,
     memory::{kalloc_page, ualloc_page, ualloc_page_flags, PageType, KERNEL_BASE, PAGE_4K},
@@ -20,7 +21,6 @@ use core::{
     mem::offset_of,
     sync::atomic::{AtomicU64, Ordering},
 };
-use fatfs::{Read, Seek, SeekFrom};
 use hashbrown::HashMap;
 use log::{error, info, trace, warn};
 use spin::Mutex;
@@ -276,7 +276,7 @@ impl Process {
 
     pub(crate) fn add_file_handle(
         &mut self,
-        descriptor: Box<dyn FileLike<Error = FileError>>,
+        descriptor: Box<dyn FileLike>,
         foo: FileOpenOptions,
     ) -> Result<u64, ()> {
         let fds = self.file_handles.keys();
@@ -389,11 +389,9 @@ static NEXT_PID: AtomicU64 = AtomicU64::new(1);
 
 pub fn init_process() -> &'static [u8] {
     let fs = FS.lock();
-    let mut file = match fs
-        .root_dir()
-        .open_dir("bin")
-        .and_then(|b| b.open_file("init.elf"))
-    {
+    let mut root = fs.root_dir().expect("Failed to get root dir");
+    let mut bin_dir = root.open_dir("bin").expect("Failed to open bin dir");
+    let mut file = match bin_dir.open_file("init.elf") {
         Ok(f) => f,
         Err(e) => {
             error!("Failed to open init: {:?}", e);
@@ -401,7 +399,7 @@ pub fn init_process() -> &'static [u8] {
             panic!("Failed to open init");
         }
     };
-    let len = get_len(&mut file).unwrap_or(0);
+    let len = get_len(file.as_mut()).unwrap_or(0);
     let pages = (len + PAGE_4K as u64) / PAGE_4K as u64;
     for page in 0..pages {
         kalloc_page(
@@ -415,7 +413,7 @@ pub fn init_process() -> &'static [u8] {
 
     let mut offset = 0;
     loop {
-        match Read::read(&mut file, &mut buf[offset..]) {
+        match file.read(&mut buf[offset..]) {
             Ok(0) => break,
             Ok(n) => offset += n,
             Err(e) => {
@@ -462,14 +460,14 @@ pub fn init_process() -> &'static [u8] {
     buf
 }
 
-fn get_len<T: Seek>(obj: &mut T) -> Result<u64, ()> {
-    let current_pos = obj.seek(SeekFrom::Current(0)).map_err(|e| {
+fn get_len(file: &mut dyn File) -> Result<u64, ()> {
+    let current_pos = file.seek(SeekFrom::Current(0)).map_err(|e| {
         error!("Failed to get stream position: {:?}", e);
     })?;
-    let end = obj
+    let end = file
         .seek(SeekFrom::End(0))
         .map_err(|e| error!("Seek failed: {:?}", e))?;
-    obj.seek(SeekFrom::Start(current_pos))
+    file.seek(SeekFrom::Start(current_pos))
         .map_err(|e| error!("Seek restore failed: {:?}", e))?;
     Ok(end)
 }
@@ -501,8 +499,8 @@ fn compute_load_bias(elf: &ElfFile) -> u64 {
 
 mod tests {
     use super::*;
+    use crate::disk::vfs::Metadata;
     use crate::test_assert_eq as assert_eq;
-    use fatfs::IoBase;
 
     pub fn test_process_state_new() -> Option<()> {
         let state = ProcessState::new();
@@ -545,12 +543,19 @@ mod tests {
         }
     }
 
-    impl IoBase for MockSeekable {
-        type Error = ();
-    }
+    unsafe impl Send for MockSeekable {}
+    unsafe impl Sync for MockSeekable {}
 
-    impl Seek for MockSeekable {
-        fn seek(&mut self, pos: SeekFrom) -> Result<u64, ()> {
+    impl File for MockSeekable {
+        fn read(&mut self, _buf: &mut [u8]) -> Result<usize, FileError> {
+            Ok(0)
+        }
+
+        fn write(&mut self, _buf: &[u8]) -> Result<usize, FileError> {
+            Ok(0)
+        }
+
+        fn seek(&mut self, pos: SeekFrom) -> Result<u64, FileError> {
             match pos {
                 SeekFrom::Start(n) => {
                     self.pos = n;
@@ -565,6 +570,21 @@ mod tests {
                     Ok(self.pos)
                 }
             }
+        }
+
+        fn flush(&mut self) -> Result<(), FileError> {
+            Ok(())
+        }
+
+        fn metadata(&self) -> Result<Metadata, FileError> {
+            Ok(Metadata {
+                size: self.len,
+                is_dir: false,
+                is_file: true,
+                created: 0,
+                modified: 0,
+                accessed: 0,
+            })
         }
     }
 
