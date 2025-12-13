@@ -91,7 +91,7 @@ pub extern "C" fn main() -> ! {
                 core::str::from_utf8(&buffer[..read_len as usize]).unwrap_or("?")
             );
         } else {
-            println!("file_read failed. reality is pain");
+            panic!("file_read failed. reality is pain");
         }
 
         // Move cursor back to start of file
@@ -107,7 +107,7 @@ pub extern "C" fn main() -> ! {
                 core::str::from_utf8(&buffer[..read_len as usize]).unwrap_or("?")
             );
         } else {
-            println!("file_read failed. reality is pain");
+            panic!("file_read failed. reality is pain");
         }
         let ret = unsafe { close(fd) };
         if ret != 0 {
@@ -116,6 +116,17 @@ pub extern "C" fn main() -> ! {
         println!("File closed.")
     } else {
         println!("file_open failed. reality is pain");
+    }
+    let mut stdin_buf = [0u8; 64];
+    let ret = unsafe { read(0, stdin_buf.as_ptr() as *mut u8, stdin_buf.len()) };
+    if ret > 0 {
+        println!(
+            "Read {} bytes from stdin: {}",
+            ret,
+            core::str::from_utf8(&stdin_buf[..ret as usize]).unwrap_or("?")
+        );
+    } else {
+        println!("stdin read failed. reality is pain");
     }
     panic!();
 }

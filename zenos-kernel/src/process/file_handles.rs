@@ -1,11 +1,12 @@
+use crate::disk::vfs::SeekFrom;
 use crate::disk::FileError;
+use crate::hardware::keyboard;
 use crate::kprint;
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::any::Any;
 use core::fmt::Debug;
 use core::ops::Deref;
-use fatfs::{IoBase, Read, Seek, SeekFrom, Write};
 
 #[derive(Clone)]
 pub struct Stdout;
@@ -14,100 +15,68 @@ pub struct Stderr;
 #[derive(Clone)]
 pub struct Stdin;
 
-impl IoBase for Stdout {
-    type Error = FileError;
+pub(crate) trait FileLike: Send + Sync {
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, FileError>;
+    fn write(&mut self, buffer: &[u8]) -> Result<usize, FileError>;
+    fn seek(&mut self, position: SeekFrom) -> Result<u64, FileError>;
 }
 
 impl FileLike for Stdout {
-    fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, Self::Error> {
+    fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, FileError> {
         Err(FileError::UnsupportedOperation)
     }
 
-    fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
+    fn write(&mut self, buffer: &[u8]) -> Result<usize, FileError> {
         unsafe { kprint!("{}", core::str::from_utf8_unchecked(buffer)) };
         Ok(buffer.len())
     }
 
-    fn seek(&mut self, _position: SeekFrom) -> Result<u64, <Self as IoBase>::Error> {
+    fn seek(&mut self, _position: SeekFrom) -> Result<u64, FileError> {
         Err(FileError::UnsupportedOperation)
     }
-}
-
-impl IoBase for Stderr {
-    type Error = FileError;
 }
 
 impl FileLike for Stderr {
-    fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, Self::Error> {
+    fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, FileError> {
         Err(FileError::UnsupportedOperation)
     }
 
-    fn write(&mut self, buffer: &[u8]) -> Result<usize, Self::Error> {
+    fn write(&mut self, buffer: &[u8]) -> Result<usize, FileError> {
         unsafe { kprint!("{}", core::str::from_utf8_unchecked(buffer)) };
         Ok(buffer.len())
     }
 
-    fn seek(&mut self, _position: SeekFrom) -> Result<u64, <Self as IoBase>::Error> {
+    fn seek(&mut self, _position: SeekFrom) -> Result<u64, FileError> {
         Err(FileError::UnsupportedOperation)
     }
-}
-
-impl IoBase for Stdin {
-    type Error = FileError;
 }
 
 impl FileLike for Stdin {
-    fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, Self::Error> {
-        todo!("Stdin read not implemented")
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, FileError> {
+        let n = keyboard::read_exact(buffer);
+        Ok(n)
     }
 
-    fn write(&mut self, _buffer: &[u8]) -> Result<usize, Self::Error> {
+    fn write(&mut self, _buffer: &[u8]) -> Result<usize, FileError> {
         Err(FileError::UnsupportedOperation)
     }
 
-    fn seek(&mut self, _position: SeekFrom) -> Result<u64, <Self as IoBase>::Error> {
+    fn seek(&mut self, _position: SeekFrom) -> Result<u64, FileError> {
         Err(FileError::UnsupportedOperation)
-    }
-}
-
-pub(crate) trait FileLike: IoBase {
-    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, <Self as IoBase>::Error>;
-    fn write(&mut self, buffer: &[u8]) -> Result<usize, <Self as IoBase>::Error>;
-    fn seek(&mut self, position: SeekFrom) -> Result<u64, <Self as IoBase>::Error>;
-}
-
-impl<T> FileLike for T
-where
-    T: Read + Write + Seek,
-{
-    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, <Self as IoBase>::Error> {
-        Read::read(self, buffer)
-    }
-
-    fn write(&mut self, buffer: &[u8]) -> Result<usize, <Self as IoBase>::Error> {
-        Write::write(self, buffer)
-    }
-
-    fn seek(&mut self, position: SeekFrom) -> Result<u64, <Self as IoBase>::Error> {
-        Seek::seek(self, position)
     }
 }
 
 pub(crate) struct FileHandle {
-    descriptor: Box<dyn FileLike<Error = FileError>>,
+    descriptor: Box<dyn FileLike>,
     _foo: FileOpenOptions,
 }
 
 impl FileHandle {
-    pub fn new(
-        _id: u32,
-        descriptor: Box<dyn FileLike<Error = FileError>>,
-        _foo: FileOpenOptions,
-    ) -> Self {
+    pub fn new(_id: u32, descriptor: Box<dyn FileLike>, _foo: FileOpenOptions) -> Self {
         Self { descriptor, _foo }
     }
 
-    pub fn descriptor(&mut self) -> &mut dyn FileLike<Error = FileError> {
+    pub fn descriptor(&mut self) -> &mut dyn FileLike {
         self.descriptor.as_mut()
     }
 }
@@ -127,6 +96,5 @@ bitflags! {
         const WRITE = 0b0010;
         const CREATE = 0b0100;
         const TRUNCATE = 0b1000;
-        //todo: more options
     }
 }

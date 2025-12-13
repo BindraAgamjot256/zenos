@@ -1,10 +1,8 @@
 //! Filesystem integration layer.
 //!
-//! This module contains the filesystem adapters used by the kernel. At the
-//! moment we rely on the external [`fatfs`] crate for FAT12/16/32 support and
-//! provide only thin glue at the disk root ([`super::FS`], [`super::File`], [`super::FileWrapper`]).
+//! This module contains the filesystem implementations used by the kernel.
+//! The primary filesystem is FAT (FAT12/16/32) implemented natively.
 //!
-//! Future work will move toward native filesystem implementations in
-//! [`self`] (see [`fat`]).
+//! All filesystems implement the VFS traits defined in [`crate::disk::vfs`].
 
-mod fat;
+pub mod fat;

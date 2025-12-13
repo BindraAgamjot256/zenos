@@ -9,7 +9,7 @@ mod write;
 
 use crate::{
     interrupts::gdt::GDT,
-    memory::{PAGE_4K, virt_to_phys},
+    memory::{virt_to_phys, PAGE_4K},
 };
 use alloc::vec;
 use alloc::vec::Vec;
@@ -115,10 +115,6 @@ pub fn init() {
     // LSTAR = entry point
     let mut lstar = x86_64::registers::model_specific::Msr::new(0xC0000082);
     unsafe { lstar.write(rt_ptr) }
-
-    // FMASK (disable interrupts during syscall)
-    let mut fmask = x86_64::registers::model_specific::Msr::new(0xC0000084);
-    unsafe { fmask.write(1 << 9) } // Clear IF
 
     let mut efer = x86_64::registers::model_specific::Msr::new(0xC0000080);
     let val = unsafe { efer.read() };

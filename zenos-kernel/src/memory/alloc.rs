@@ -1,9 +1,6 @@
 //! Zenos slab slab_allocator v0.0.sqrt(-1)-don't_you_dare_test_it_on_hardware. Yes... That's its full version. Don't judge
 
-use crate::{
-    memory::{PageType, kalloc_page},
-    serial_println,
-};
+use crate::memory::{kalloc_page, PageType};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::{
@@ -263,38 +260,9 @@ impl Slab {
     }
 
     #[cfg(debug_assertions)]
-    /// Dump detailed metadata about this slab using serial printing
-    pub fn dump_metadata(&self) {
-        let slab_meta = unsafe { &*(self.base_addr as *const SlabMeta) };
-
-        serial_println!("=== Slab Metadata Dump ===");
-        serial_println!("Base Address: 0x{:x}", self.base_addr);
-        serial_println!("Block Size: {} bytes", self.slab_size);
-        serial_println!("Magic Number: 0x{:x}", slab_meta.magic_number);
-        serial_println!("Used Blocks: {}/{}", slab_meta.used, slab_meta.total);
-        serial_println!("Free Blocks: {}", slab_meta.total - slab_meta.used);
-        serial_println!("Free List Head: {:?}", self.head);
-
-        // Count free list length
-        let mut count = 0;
-        let mut current = self.head;
-        while let Some(ptr) = current {
-            count += 1;
-            current = unsafe { ptr.as_ref().next };
-        }
-        serial_println!("Free List Length: {}", count);
-
-        // Verify consistency
-        if count != (slab_meta.total - slab_meta.used) {
-            serial_println!(
-                "WARNING: Free list used count ({}) doesn't match metadata used count ({})",
-                count,
-                slab_meta.used
-            );
-        }
-
-        serial_println!("=== End Slab Metadata Dump ===");
-    }
+    /// Dump detailed metadata about this slab using serial printing.
+    /// Reduced to a no-op to avoid excessive logging.
+    pub fn dump_metadata(&self) {}
 }
 
 // ====== Allocator ======
