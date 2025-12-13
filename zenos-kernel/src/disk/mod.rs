@@ -75,12 +75,14 @@ pub mod fs;
 pub mod vfs;
 
 use crate::disk::block::BlockDeviceDriver;
+use crate::disk::vfs::VFS;
 use alloc::boxed::Box;
 use alloc::string::String;
+use alloc::sync::Arc;
 use block::ahci::{init, AhciBlockDevice};
 use fs::fat::FatFileSystem;
 use spin::{Lazy, Mutex};
-use vfs::{File, FileSystem, SeekFrom};
+use vfs::{File, SeekFrom};
 
 #[derive(Debug, Clone)]
 pub enum FileError {
@@ -107,13 +109,16 @@ pub enum FileError {
 }
 
 /// Global FAT filesystem instance backed by the AHCI block device on port 0.
-pub static FS: Lazy<Mutex<FatFileSystem<BlockDeviceDriver>>> = Lazy::new(|| {
+pub static FS: Lazy<Mutex<VFS>> = Lazy::new(|| {
     unsafe { init() }
     let device = BlockDeviceDriver::new(Box::new(
         AhciBlockDevice::new(0).expect("Port 0 unavailable"),
     ));
-    let fs = FatFileSystem::mount(device).expect("Failed to mount FAT filesystem");
-    Mutex::new(fs)
+    let fatfs = FatFileSystem::mount(device).expect("Failed to mount FAT filesystem");
+    let mut vfs = VFS::new();
+    vfs.mount("/", Arc::new(fatfs))
+        .expect("Failed to mount FAT filesystem at /");
+    Mutex::new(vfs)
 });
 
 /// Thin handle used by the process layer to perform I/O on a path within the

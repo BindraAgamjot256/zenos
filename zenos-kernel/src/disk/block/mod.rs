@@ -2,7 +2,7 @@
 //!
 //! This module defines a minimal [`BlockDevice`] trait and concrete drivers.
 //! Concrete implementations live in submodules (e.g., [`ahci`]).
-
+#![allow(dead_code)]
 use crate::disk::vfs::SeekFrom;
 use alloc::boxed::Box;
 

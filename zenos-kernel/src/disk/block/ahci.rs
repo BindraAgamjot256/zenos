@@ -142,7 +142,7 @@ impl HbaCmdHeader {
     }
 
     /// Debug helper to retrieve the address.
-    fn command_table_addr(&self) -> u64 {
+    fn _command_table_addr(&self) -> u64 {
         (self.ctba as u64) | ((self.ctbau as u64) << 32)
     }
 }

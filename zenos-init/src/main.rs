@@ -118,7 +118,7 @@ pub extern "C" fn main() -> ! {
         println!("file_open failed. reality is pain");
     }
     let mut stdin_buf = [0u8; 64];
-    let ret = unsafe { read(0, stdin_buf.as_ptr() as *mut u8, stdin_buf.len()) };
+    let ret = unsafe { read(0, stdin_buf.as_mut_ptr(), stdin_buf.len()) };
     if ret > 0 {
         println!(
             "Read {} bytes from stdin: {}",

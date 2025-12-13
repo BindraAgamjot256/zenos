@@ -1,7 +1,9 @@
 use super::FileError;
 use alloc::boxed::Box;
-use alloc::string::String;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use hashbrown::HashMap;
 
 #[derive(Debug, Clone, Copy)]
 pub enum SeekFrom {
@@ -45,4 +47,44 @@ pub trait File: Send + Sync {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, FileError>;
     fn flush(&mut self) -> Result<(), FileError>;
     fn metadata(&self) -> Result<Metadata, FileError>;
+}
+
+/// Mapping of filesystem mount points to their drivers.
+type FSMap = HashMap<String, Arc<dyn FileSystem + Send + Sync>>;
+
+pub struct VFS {
+    fs: FSMap,
+}
+
+impl VFS {
+    pub fn new() -> Self {
+        VFS { fs: HashMap::new() }
+    }
+
+    pub fn mount(
+        &mut self,
+        path: &str,
+        fs: Arc<dyn FileSystem + Sync + Send>,
+    ) -> Result<(), FileError> {
+        if self.fs.contains_key(path) {
+            return Err(FileError::AlreadyExists);
+        }
+        self.fs.insert(path.to_string(), fs);
+        Ok(())
+    }
+
+    pub fn unmount(&mut self, path: &str) -> Result<(), FileError> {
+        if self.fs.remove(path).is_none() {
+            return Err(FileError::NotFound);
+        }
+        Ok(())
+    }
+
+    pub fn get_fs(&self, path: &str) -> Option<Arc<dyn FileSystem + Sync + Send>> {
+        self.fs.get(path).cloned()
+    }
+    pub fn root_dir(&self) -> Result<Box<dyn Directory>, FileError> {
+        let fs = self.get_fs("/").ok_or(FileError::NotFound)?;
+        fs.root_dir()
+    }
 }

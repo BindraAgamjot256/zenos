@@ -1,4 +1,3 @@
-use crate::disk::vfs::FileSystem;
 use crate::disk::{FileError, FileWrapper, FS};
 use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;

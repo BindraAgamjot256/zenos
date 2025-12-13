@@ -14,7 +14,6 @@ extern crate alloc;
 
 use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
 use core::arch::asm;
-use zenos_kernel::disk::vfs::FileSystem;
 use zenos_kernel::{kinit, kprintln, serial_println};
 
 static CONFIG: BootloaderConfig = {

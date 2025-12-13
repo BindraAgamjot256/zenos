@@ -1,7 +1,7 @@
 pub(crate) mod file_handles;
 mod isolation;
 
-use crate::disk::vfs::{File, FileSystem, SeekFrom};
+use crate::disk::vfs::{File, SeekFrom};
 use crate::disk::FileError;
 use crate::disk::FS;
 use crate::percpu::PerCpuVar;

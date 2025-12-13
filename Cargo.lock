@@ -1208,7 +1208,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "bootloader-boot-config",
-    "fatfs",
+ "fatfs",
  "gpt",
  "llvm-tools",
  "serde_json",
