@@ -5,7 +5,7 @@
 //!   implement an AHCI driver that can read/write SATA drives using DMA.
 //! - VFS layer ([`vfs`]): abstract filesystem traits (FileSystem, Directory, File)
 //!   that can be implemented by multiple filesystem backends.
-//! - Filesystem layer ([`fs`]): high-level file and directory access. Currently
+//! - Filesystem layer ([`fs`]): high-level file and directory access. Currently, only
 //!   implements FAT12/16/32 natively.
 //!
 //! # Architecture
