@@ -1,4 +1,4 @@
-use crate::process::file_handles::FileLike;
+use crate::disk::vfs::File;
 use crate::syscall::copy_from_user;
 use crate::syscall::table::SyscallPtr;
 use log::debug;
@@ -40,7 +40,7 @@ pub(crate) fn write_inner(buf: &[u8], fd: u64) -> Option<u64> {
     file_table.as_ref()?;
     let file_table = file_table.unwrap();
     let handle = &mut *file_table.descriptor();
-    let write_res = FileLike::write(handle, buf);
+    let write_res = File::write(handle, buf);
     if write_res.is_err() {
         return None;
     }

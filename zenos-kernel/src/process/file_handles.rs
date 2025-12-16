@@ -1,4 +1,4 @@
-use crate::disk::vfs::SeekFrom;
+use crate::disk::vfs::{File, Metadata, SeekFrom};
 use crate::disk::FileError;
 use crate::hardware::keyboard;
 use crate::kprint;
@@ -15,13 +15,7 @@ pub struct Stderr;
 #[derive(Clone)]
 pub struct Stdin;
 
-pub(crate) trait FileLike: Send + Sync {
-    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, FileError>;
-    fn write(&mut self, buffer: &[u8]) -> Result<usize, FileError>;
-    fn seek(&mut self, position: SeekFrom) -> Result<u64, FileError>;
-}
-
-impl FileLike for Stdout {
+impl File for Stdout {
     fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, FileError> {
         Err(FileError::UnsupportedOperation)
     }
@@ -34,9 +28,22 @@ impl FileLike for Stdout {
     fn seek(&mut self, _position: SeekFrom) -> Result<u64, FileError> {
         Err(FileError::UnsupportedOperation)
     }
+    fn flush(&mut self) -> Result<(), FileError> {
+        Ok(())
+    }
+    fn metadata(&self) -> Result<Metadata, FileError> {
+        Ok(Metadata {
+            size: 0,
+            is_dir: false,
+            is_file: true,
+            created: 0,
+            modified: 0,
+            accessed: 0,
+        })
+    }
 }
 
-impl FileLike for Stderr {
+impl File for Stderr {
     fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, FileError> {
         Err(FileError::UnsupportedOperation)
     }
@@ -49,9 +56,22 @@ impl FileLike for Stderr {
     fn seek(&mut self, _position: SeekFrom) -> Result<u64, FileError> {
         Err(FileError::UnsupportedOperation)
     }
+    fn flush(&mut self) -> Result<(), FileError> {
+        Ok(())
+    }
+    fn metadata(&self) -> Result<Metadata, FileError> {
+        Ok(Metadata {
+            size: 0,
+            is_dir: false,
+            is_file: true,
+            created: 0,
+            modified: 0,
+            accessed: 0,
+        })
+    }
 }
 
-impl FileLike for Stdin {
+impl File for Stdin {
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, FileError> {
         let n = keyboard::read_exact(buffer);
         Ok(n)
@@ -64,19 +84,32 @@ impl FileLike for Stdin {
     fn seek(&mut self, _position: SeekFrom) -> Result<u64, FileError> {
         Err(FileError::UnsupportedOperation)
     }
+    fn flush(&mut self) -> Result<(), FileError> {
+        Ok(())
+    }
+    fn metadata(&self) -> Result<Metadata, FileError> {
+        Ok(Metadata {
+            size: 0,
+            is_dir: false,
+            is_file: true,
+            created: 0,
+            modified: 0,
+            accessed: 0,
+        })
+    }
 }
 
 pub(crate) struct FileHandle {
-    descriptor: Box<dyn FileLike>,
+    descriptor: Box<dyn File>,
     _foo: FileOpenOptions,
 }
 
 impl FileHandle {
-    pub fn new(_id: u32, descriptor: Box<dyn FileLike>, _foo: FileOpenOptions) -> Self {
+    pub fn new(_id: u32, descriptor: Box<dyn File>, _foo: FileOpenOptions) -> Self {
         Self { descriptor, _foo }
     }
 
-    pub fn descriptor(&mut self) -> &mut dyn FileLike {
+    pub fn descriptor(&mut self) -> &mut dyn File {
         self.descriptor.as_mut()
     }
 }

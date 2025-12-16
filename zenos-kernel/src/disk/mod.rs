@@ -82,7 +82,6 @@ use alloc::sync::Arc;
 use block::ahci::{init, AhciBlockDevice};
 use fs::fat::FatFileSystem;
 use spin::{Lazy, Mutex};
-use vfs::{File, SeekFrom};
 
 #[derive(Debug, Clone)]
 pub enum FileError {
@@ -120,95 +119,3 @@ pub static FS: Lazy<Mutex<VFS>> = Lazy::new(|| {
         .expect("Failed to mount FAT filesystem at /");
     Mutex::new(vfs)
 });
-
-/// Thin handle used by the process layer to perform I/O on a path within the
-/// mounted filesystem.
-///
-/// The wrapper keeps a logical cursor (`seek` position). On each operation it
-/// reopens the file from `FS` and performs the requested read/write/seek.
-pub struct FileWrapper {
-    path: String,
-    cursor: u64,
-    options: crate::process::file_handles::FileOpenOptions,
-}
-
-impl FileWrapper {
-    /// Create a new file wrapper for a path with the specified open options.
-    pub fn new(path: String, options: crate::process::file_handles::FileOpenOptions) -> Self {
-        Self {
-            path,
-            cursor: 0,
-            options,
-        }
-    }
-
-    fn with_file<F, T>(&mut self, f: F) -> Result<T, FileError>
-    where
-        F: FnOnce(&mut Box<dyn File>, u64) -> Result<T, FileError>,
-    {
-        let fs = FS.lock();
-        let mut root = fs.root_dir()?;
-        let mut file = root.open_file(&self.path)?;
-        f(&mut file, self.cursor)
-    }
-}
-
-impl crate::process::file_handles::FileLike for FileWrapper {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, FileError> {
-        use crate::process::file_handles::FileOpenOptions;
-        if !self.options.contains(FileOpenOptions::READ) {
-            return Err(FileError::UnsupportedOperation);
-        }
-
-        let cursor = self.cursor;
-        let res = self.with_file(|file, _| {
-            file.seek(SeekFrom::Start(cursor))?;
-            file.read(buf)
-        })?;
-        self.cursor += res as u64;
-        Ok(res)
-    }
-
-    fn write(&mut self, buf: &[u8]) -> Result<usize, FileError> {
-        use crate::process::file_handles::FileOpenOptions;
-        if !self.options.contains(FileOpenOptions::WRITE) {
-            return Err(FileError::UnsupportedOperation);
-        }
-
-        let cursor = self.cursor;
-        let res = self.with_file(|file, _| {
-            file.seek(SeekFrom::Start(cursor))?;
-            file.write(buf)
-        })?;
-        self.cursor += res as u64;
-        Ok(res)
-    }
-
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, FileError> {
-        match pos {
-            SeekFrom::Start(o) => {
-                self.cursor = o;
-                Ok(o)
-            }
-            SeekFrom::Current(o) => {
-                let new_cursor = if o >= 0 {
-                    self.cursor.checked_add(o as u64)
-                } else {
-                    self.cursor.checked_sub(o.unsigned_abs())
-                };
-                match new_cursor {
-                    Some(c) => {
-                        self.cursor = c;
-                        Ok(c)
-                    }
-                    None => Err(FileError::SeekError),
-                }
-            }
-            SeekFrom::End(o) => {
-                let res = self.with_file(|file, _| file.seek(SeekFrom::End(o)))?;
-                self.cursor = res;
-                Ok(res)
-            }
-        }
-    }
-}

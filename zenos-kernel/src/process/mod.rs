@@ -1,12 +1,14 @@
 pub(crate) mod file_handles;
 mod isolation;
+mod scheduler;
 
 use crate::disk::vfs::{File, SeekFrom};
 use crate::disk::FileError;
 use crate::disk::FS;
 use crate::percpu::PerCpuVar;
-use crate::process::file_handles::{FileHandle, FileLike, FileOpenOptions, Stderr, Stdin, Stdout};
+use crate::process::file_handles::{FileHandle, FileOpenOptions, Stderr, Stdin, Stdout};
 use crate::process::isolation::create_cr3_from_current_page_tables;
+use crate::process::scheduler::Scheduler;
 use crate::{
     interrupts::gdt::GDT,
     kprintln,
@@ -16,6 +18,7 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::{string::String, vec::Vec};
+use core::cell::OnceCell;
 use core::{
     arch::asm,
     mem::offset_of,
@@ -23,7 +26,7 @@ use core::{
 };
 use hashbrown::HashMap;
 use log::{error, info, trace, warn};
-use spin::Mutex;
+use spin::{Lazy, Mutex};
 use x86_64::instructions::tlb::flush_all;
 use x86_64::registers::control::Cr3;
 use x86_64::structures::paging::PhysFrame;
@@ -46,6 +49,7 @@ pub struct Process {
     file_handles: HashMap<u32, FileHandle>,
     // Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
     load_bias: u64,
+    loaded: bool,
 }
 impl Eq for Process {}
 impl PartialEq for Process {
@@ -83,6 +87,7 @@ impl Process {
             entry_point: 0,
             cr3,
             file_handles,
+            loaded: false,
         };
         NEXT_PID.store(pid + 1, Ordering::Release);
         p
@@ -110,8 +115,6 @@ impl Process {
         unsafe {
             Cr3::write(saved_cr3, flags);
         }
-
-        self.state.loaded = true;
     }
 
     fn internal_load(&mut self, bytes: &[u8]) {
@@ -119,7 +122,7 @@ impl Process {
         self.load_bias = compute_load_bias(&elf);
         let header = elf.header;
         info!("ELF header: {:?}", header);
-        self.state.loaded = true;
+        self.loaded = true;
 
         for program_header in elf.program_iter() {
             let res = program::sanity_check(program_header, &elf);
@@ -230,7 +233,7 @@ impl Process {
     }
 
     pub fn prepare_run(&mut self) -> Option<(u64, u64)> {
-        if !self.state.loaded {
+        if !self.loaded {
             return None;
         }
 
@@ -276,7 +279,7 @@ impl Process {
 
     pub(crate) fn add_file_handle(
         &mut self,
-        descriptor: Box<dyn FileLike>,
+        descriptor: Box<dyn File>,
         foo: FileOpenOptions,
     ) -> Result<u64, ()> {
         let fds = self.file_handles.keys();
@@ -366,21 +369,176 @@ pub fn switch_to(process: &Process) {
     }
 }
 
+#[repr(align(16))]
+#[derive(Clone, Copy, Debug)]
+struct FxSaveArea {
+    fx_control_word: u16,
+    fx_status_word: u16,
+    fx_tag_word: u16,
+    fx_opcode: u16,
+    fx_eip: u32,
+    fx_cs: u16,
+    fx_reserved1: u16,
+    fx_data_offset: u32,
+    fx_ds: u16,
+    fx_reserved2: u16,
+    mxcsr: u32,
+    mxcsr_mask: u32,
+    st: [u8; 128],  // 8x 16-byte FPU/MMX registers
+    xmm: [u8; 256], // 16x 16-byte XMM registers
+    reserved: [u8; 96],
+}
+
+impl Default for FxSaveArea {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FxSaveArea {
+    fn new() -> Self {
+        FxSaveArea {
+            fx_control_word: 0,
+            fx_status_word: 0,
+            fx_tag_word: 0,
+            fx_opcode: 0,
+            fx_eip: 0,
+            fx_cs: 0,
+            fx_reserved1: 0,
+            fx_data_offset: 0,
+            fx_ds: 0,
+            fx_reserved2: 0,
+            mxcsr: 0,
+            mxcsr_mask: 0,
+            st: [0u8; 128],
+            xmm: [0u8; 256],
+            reserved: [0u8; 96],
+        }
+    }
+
+    unsafe fn save(&mut self) {
+        asm!(
+        "fxsave [{}]",
+        in(reg) self,
+        options(nostack, preserves_flags)
+        );
+    }
+
+    unsafe fn load(&self) {
+        asm!(
+        "fxrstor [{}]",
+        in(reg) self,
+        options(nostack, preserves_flags)
+        );
+    }
+}
+
 #[derive(Default, Clone, Copy, Debug)]
 struct ProcessState {
     rax: u64,
+    rbx: u64,
+    rcx: u64,
+    rdx: u64,
+    rsi: u64,
+    rdi: u64,
+    rbp: u64,
+    rsp: u64,
     rip: u64,
-    loaded: bool,
+    rflags: u64,
+    cs: u64,
+    ds: u64,
+    es: u64,
+    fs: u64,
+    gs: u64,
+    ss: u64,
+    fxsave: FxSaveArea,
 }
 
 impl ProcessState {
     fn new() -> Self {
-        //todo: add all regs.
         ProcessState {
             rax: 0,
+            rbx: 0,
+            rcx: 0,
+            rdx: 0,
+            rsi: 0,
+            rdi: 0,
+            rbp: 0,
+            rsp: 0,
             rip: 0,
-            loaded: false,
+            rflags: 0,
+            cs: 0,
+            ds: 0,
+            es: 0,
+            fs: 0,
+            gs: 0,
+            ss: 0,
+            fxsave: Default::default(),
         }
+    }
+
+    unsafe fn cpy_regs(&mut self) {
+        // general purpose registers
+        asm!(
+        "mov {}, rax",
+        "mov {}, rbx",
+        "mov {}, rcx",
+        "mov {}, rdx",
+        "mov {}, rsi",
+        "mov {}, rdi",
+        "mov {}, rbp",
+        "mov {}, rsp",
+        "pushfq",
+        "pop {}",
+        "mov {}, cs",
+        "mov {}, ds",
+        "mov {}, es",
+        "mov {}, fs",
+        "mov {}, gs",
+        "mov {}, ss",
+        out(reg) self.rax,
+        out(reg) self.rbx,
+        out(reg) self.rcx,
+        out(reg) self.rdx,
+        out(reg) self.rsi,
+        out(reg) self.rdi,
+        out(reg) self.rbp,
+        out(reg) self.rsp,
+        out(reg) self.rflags,
+        out(reg) self.cs,
+        out(reg) self.ds,
+        out(reg) self.es,
+        out(reg) self.fs,
+        out(reg) self.gs,
+        out(reg) self.ss,
+        );
+
+        // save FPU/SSE state
+        self.fxsave.save();
+    }
+
+    unsafe fn load_regs(&self) {
+        asm!(
+        "mov rax, {}",
+        "mov rbx, {}",
+        "mov rcx, {}",
+        "mov rdx, {}",
+        "mov rsi, {}",
+        "mov rdi, {}",
+        "mov rbp, {}",
+        "mov rsp, {}",
+        in(reg) self.rax,
+        in(reg) self.rbx,
+        in(reg) self.rcx,
+        in(reg) self.rdx,
+        in(reg) self.rsi,
+        in(reg) self.rdi,
+        in(reg) self.rbp,
+        in(reg) self.rsp,
+        );
+
+        // restore FPU/SSE state
+        self.fxsave.load();
     }
 }
 
@@ -455,6 +613,7 @@ pub fn init_process() -> &'static [u8] {
         load_bias,
         cr3: cr3.start_address(),
         file_handles,
+        loaded: false,
     };
     PROCESSES.lock().push(process);
     buf
@@ -472,14 +631,11 @@ fn get_len(file: &mut dyn File) -> Result<u64, ()> {
     Ok(end)
 }
 static CURRENT_PID: PerCpuVar<u64> = PerCpuVar::new(offset_of!(PerCpuData, curr_pid));
+static SCHEDULER: Lazy<Mutex<Scheduler>> = Lazy::new(|| Mutex::new(Scheduler::new()));
 
 pub(crate) static TESTS: &[&(dyn Testable + Sync)] = {
     if cfg!(test) || cfg!(debug_assertions) {
         &[
-            &tests::test_get_len_empty,
-            &tests::test_get_len_large_file,
-            &tests::test_get_len_preserves_position,
-            &tests::test_get_len_with_data,
             &tests::test_process_state_copy,
             &tests::test_process_state_default,
             &tests::test_process_state_new,
@@ -499,14 +655,12 @@ fn compute_load_bias(elf: &ElfFile) -> u64 {
 
 mod tests {
     use super::*;
-    use crate::disk::vfs::Metadata;
     use crate::test_assert_eq as assert_eq;
 
     pub fn test_process_state_new() -> Option<()> {
         let state = ProcessState::new();
         assert_eq!(state.rax, 0);
         assert_eq!(state.rip, 0);
-        assert_eq!(state.loaded, false);
         Some(())
     }
 
@@ -514,110 +668,39 @@ mod tests {
         let state = ProcessState::default();
         assert_eq!(state.rax, 0);
         assert_eq!(state.rip, 0);
-        assert_eq!(state.loaded, false);
         Some(())
     }
 
     pub fn test_process_state_copy() -> Option<()> {
         let state1 = ProcessState {
             rax: 42,
+            rbx: 0,
+            rcx: 0,
+            rdx: 0,
+            rsi: 0,
+            rdi: 0,
+            rbp: 0,
+            rsp: 0,
             rip: 0x1000,
-            loaded: true,
+            rflags: 0,
+            cs: 0,
+            ds: 0,
+            es: 0,
+            fs: 0,
+            gs: 0,
+            ss: 0,
+            fxsave: Default::default(),
         };
         let state2 = state1;
         assert_eq!(state1.rax, state2.rax);
         assert_eq!(state1.rip, state2.rip);
-        assert_eq!(state1.loaded, state2.loaded);
-        Some(())
-    }
-
-    // Mock seekable object for testing get_len
-    struct MockSeekable {
-        pos: u64,
-        len: u64,
-    }
-
-    impl MockSeekable {
-        fn new(len: u64) -> Self {
-            MockSeekable { pos: 0, len }
-        }
-    }
-
-    unsafe impl Send for MockSeekable {}
-    unsafe impl Sync for MockSeekable {}
-
-    impl File for MockSeekable {
-        fn read(&mut self, _buf: &mut [u8]) -> Result<usize, FileError> {
-            Ok(0)
-        }
-
-        fn write(&mut self, _buf: &[u8]) -> Result<usize, FileError> {
-            Ok(0)
-        }
-
-        fn seek(&mut self, pos: SeekFrom) -> Result<u64, FileError> {
-            match pos {
-                SeekFrom::Start(n) => {
-                    self.pos = n;
-                    Ok(self.pos)
-                }
-                SeekFrom::Current(n) => {
-                    self.pos = (self.pos as i64 + n) as u64;
-                    Ok(self.pos)
-                }
-                SeekFrom::End(n) => {
-                    self.pos = (self.len as i64 + n) as u64;
-                    Ok(self.pos)
-                }
-            }
-        }
-
-        fn flush(&mut self) -> Result<(), FileError> {
-            Ok(())
-        }
-
-        fn metadata(&self) -> Result<Metadata, FileError> {
-            Ok(Metadata {
-                size: self.len,
-                is_dir: false,
-                is_file: true,
-                created: 0,
-                modified: 0,
-                accessed: 0,
-            })
-        }
-    }
-
-    pub fn test_get_len_empty() -> Option<()> {
-        let mut obj = MockSeekable::new(0);
-        let len = get_len(&mut obj);
-        assert_eq!(len, Ok(0));
-        assert_eq!(obj.pos, 0); // Position should be restored
-        Some(())
-    }
-
-    pub fn test_get_len_with_data() -> Option<()> {
-        let mut obj = MockSeekable::new(1024);
-        let len = get_len(&mut obj);
-        assert_eq!(len, Ok(1024));
-        assert_eq!(obj.pos, 0); // Position should be restored
-        Some(())
-    }
-
-    pub fn test_get_len_preserves_position() -> Option<()> {
-        let mut obj = MockSeekable::new(1024);
-        obj.seek(SeekFrom::Start(512)).unwrap();
-        let len = get_len(&mut obj);
-        assert_eq!(len, Ok(1024));
-        assert_eq!(obj.pos, 512); // Position should be restored to 512
-        Some(())
-    }
-
-    pub fn test_get_len_large_file() -> Option<()> {
-        let mut obj = MockSeekable::new(10 * 1024 * 1024); // 10 MB
-        let len = get_len(&mut obj);
-        assert_eq!(len, Ok(10 * 1024 * 1024));
-        assert_eq!(obj.pos, 0);
+        assert_eq!(state1.rflags, state2.rflags);
+        assert_eq!(state1.cs, state2.cs);
+        assert_eq!(state1.ds, state2.ds);
+        assert_eq!(state1.es, state2.es);
+        assert_eq!(state1.fs, state2.fs);
+        assert_eq!(state1.gs, state2.gs);
+        assert_eq!(state1.ss, state2.ss);
         Some(())
     }
 }

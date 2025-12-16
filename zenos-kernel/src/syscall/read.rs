@@ -1,3 +1,4 @@
+use crate::disk::vfs::File;
 use crate::syscall::table::SyscallPtr;
 use crate::syscall::{copy_from_user, copy_to_user};
 use log::{debug, error, info};
@@ -40,7 +41,7 @@ fn read_inner(fd: u64, buf: &mut [u8]) -> Result<usize, u64> {
         .ok_or(u64::MAX)?;
     let file_table = process.get_file_handle(fd).ok_or(u64::MAX)?;
     let handle = &mut *file_table.descriptor();
-    let read_res = crate::process::file_handles::FileLike::read(handle, buf).map_err(|e| {
+    let read_res = File::read(handle, buf).map_err(|e| {
         info!("err:{:#?}", e);
         u64::MAX
     })?;

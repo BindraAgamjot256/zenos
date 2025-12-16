@@ -24,15 +24,9 @@ pub fn joint_keyboard_handler(scancode: u8) {
                 // Echo the character so stdin reads appear responsive while blocking
                 kprint!("{}", character);
                 unsafe { KEYBUF.force_unlock() }
-                if character == '\x08' {
-                    // Backspace handling
-                    let mut kb = KEYBUF.lock();
-                    kb.pop_back();
-                } else {
-                    let mut kb = KEYBUF.lock();
-                    if kb.push_back(character as u8).is_err() {
-                        trace!("Keyboard buffer full, dropping input");
-                    }
+                let mut kb = KEYBUF.lock();
+                if kb.push_back(character as u8).is_err() {
+                    trace!("Keyboard buffer full, dropping input");
                 }
             }
             DecodedKey::RawKey(key) => raw_key_handler(key),
