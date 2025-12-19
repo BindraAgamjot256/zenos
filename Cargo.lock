@@ -814,14 +814,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "syscall_macro"
-version = "0.1.0"
-dependencies = [
- "quote",
- "syn 2.0.111",
-]
-
-[[package]]
 name = "tempfile"
 version = "3.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1237,10 +1229,18 @@ dependencies = [
  "log",
  "pc-keyboard",
  "spin 0.10.0",
- "syscall_macro",
  "uart_16550 0.4.0",
  "x86_64",
  "xmas-elf 0.10.0",
+    "zenos-macros",
+]
+
+[[package]]
+name = "zenos-macros"
+version = "0.1.0"
+dependencies = [
+    "quote",
+    "syn 2.0.111",
 ]
 
 [[package]]

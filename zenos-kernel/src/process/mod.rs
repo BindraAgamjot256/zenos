@@ -14,11 +14,9 @@ use crate::{
     kprintln,
     memory::{kalloc_page, ualloc_page, ualloc_page_flags, PageType, KERNEL_BASE, PAGE_4K},
     percpu::PerCpuData,
-    testing::Testable,
 };
 use alloc::boxed::Box;
 use alloc::{string::String, vec::Vec};
-use core::cell::OnceCell;
 use core::{
     arch::asm,
     mem::offset_of,
@@ -633,18 +631,6 @@ fn get_len(file: &mut dyn File) -> Result<u64, ()> {
 static CURRENT_PID: PerCpuVar<u64> = PerCpuVar::new(offset_of!(PerCpuData, curr_pid));
 static SCHEDULER: Lazy<Mutex<Scheduler>> = Lazy::new(|| Mutex::new(Scheduler::new()));
 
-pub(crate) static TESTS: &[&(dyn Testable + Sync)] = {
-    if cfg!(test) || cfg!(debug_assertions) {
-        &[
-            &tests::test_process_state_copy,
-            &tests::test_process_state_default,
-            &tests::test_process_state_new,
-        ]
-    } else {
-        &[]
-    }
-};
-
 // Helper to choose a per-process load bias for PIC/PIE binaries
 fn compute_load_bias(elf: &ElfFile) -> u64 {
     match elf.header.pt2.type_().as_type() {
@@ -656,7 +642,9 @@ fn compute_load_bias(elf: &ElfFile) -> u64 {
 mod tests {
     use super::*;
     use crate::test_assert_eq as assert_eq;
+    use crate::Test;
 
+    #[zenos_macros::test]
     pub fn test_process_state_new() -> Option<()> {
         let state = ProcessState::new();
         assert_eq!(state.rax, 0);
@@ -664,6 +652,7 @@ mod tests {
         Some(())
     }
 
+    #[zenos_macros::test]
     pub fn test_process_state_default() -> Option<()> {
         let state = ProcessState::default();
         assert_eq!(state.rax, 0);
@@ -671,6 +660,7 @@ mod tests {
         Some(())
     }
 
+    #[zenos_macros::test]
     pub fn test_process_state_copy() -> Option<()> {
         let state1 = ProcessState {
             rax: 42,

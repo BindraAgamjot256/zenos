@@ -3,7 +3,6 @@
 //! This version uses the `x86_64` crate for MSR access
 //! and provides safe (well, as safe as kernel code gets) abstractions.
 
-use crate::testing::Testable;
 use core::{arch::asm, marker::PhantomData, ptr};
 use x86_64::registers::model_specific::Msr;
 
@@ -156,7 +155,8 @@ const MAX_CPUS: usize = 4; //todo: get from cpuid
 mod tests {
     use super::*;
     use crate::test_assert_eq as assert_eq;
-
+    use crate::Test;
+    #[zenos_macros::test]
     pub fn test_layout() -> Option<()> {
         let data = PerCpuData::new(42);
         let base = &data as *const _ as usize;
@@ -165,11 +165,3 @@ mod tests {
         Some(())
     }
 }
-
-pub(crate) static TESTS: &[&(dyn Testable + Sync)] = {
-    if cfg!(test) || cfg!(debug_assertions) {
-        &[&tests::test_layout]
-    } else {
-        &[]
-    }
-};

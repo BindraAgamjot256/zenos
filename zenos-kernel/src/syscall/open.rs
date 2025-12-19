@@ -1,13 +1,12 @@
-use crate::disk::vfs::File;
 use crate::disk::{FileError, FS};
 use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;
 use crate::syscall::table::SyscallPtr;
-use alloc::boxed::Box;
 use core::ffi::CStr;
 use log::{debug, info};
+use zenos_macros::syscall;
 
-#[syscall_macro::syscall(2)]
+#[syscall(2)]
 fn open(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     // open(buf, len)
     let buf_ptr = rdi;

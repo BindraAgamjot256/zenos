@@ -35,16 +35,16 @@
 
 mod plumbing;
 
+use crate::disk::FileError;
 use crate::disk::block::BlockDevice;
 use crate::disk::vfs::{self, DirEntry, Metadata, SeekFrom};
-use crate::disk::FileError;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use plumbing::{
-    name_to_8_3, read_cluster, write_cluster, BiosParameterBlock, FatDirEntry, FatTable, FatType,
+    BiosParameterBlock, FatDirEntry, FatTable, FatType, name_to_8_3, read_cluster, write_cluster,
 };
 use spin::Mutex;
 

@@ -3,7 +3,9 @@ use alloc::format;
 use clap::Parser;
 use core::cfg;
 use core::convert::From;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::exit;
 
 #[derive(Parser, Clone, Copy)]
 struct Args {
@@ -12,12 +14,14 @@ struct Args {
     color: bool,
 
     /// cCheck the build
-    #[arg(long, short = 'C', default_value = "false")]
+    #[arg(long, short = 'C', default_value = "false", group = "mode")]
     check: bool,
-    #[arg(long, short = 's', default_value = "false")]
+    #[arg(long, short = 's', default_value = "false", group = "mode")]
     test_stub: bool,
-    #[arg(long, short = 'd', default_value = "false")]
+    #[arg(long, short = 'd', default_value = "false", group = "mode")]
     debugger: bool,
+    #[arg(long, short = 't', default_value = "false", group = "mode")]
+    test: bool,
 }
 
 fn main() {
@@ -43,7 +47,6 @@ fn main() {
     cmd.arg("-bios").arg(ovmf_prebuilt::ovmf_pure_efi());
     cmd.arg("-m").arg("2048M");
     cmd.arg("-smp").arg("2");
-    cmd.arg("-serial").arg("stdio");
     cmd.arg("-no-reboot")
         .arg("-no-shutdown")
         .arg("-d")
@@ -64,8 +67,16 @@ fn main() {
         cmd.arg("-S");
         println!("remember to attach the debugger.")
     }
+    if args.test {
+        cmd.arg("-nographic");
+        cmd.arg("-device")
+            .arg("isa-debug-exit,iobase=0xf4,iosize=0x04");
+    } else {
+        cmd.arg("-serial").arg("stdio");
+    }
 
     print!("running command: {cmd:#?}");
+    std::io::stdout().flush().unwrap();
     let mut child = cmd.spawn().unwrap();
     child.wait().expect("failed to wait on child");
 }
@@ -92,20 +103,16 @@ fn build_kernel(args: Args) -> PathBuf {
 
     if args.test_stub {
         cmd.arg("-F").arg("test_stub");
-        /*let mut nasm = std::process::Command::new("nasm");
-        nasm.arg("-f")
-            .arg("bin")
-            .arg("-o")
-            .arg("zenos-kernel/src/syscall/syscall_test_stub.bin")
-            .arg("zenos-kernel/src/syscall/syscall_test_stub.asm")
-            .spawn()
-            .expect("failed to run nasm");*/ // fixme: this is a hack to get the test stub compiled
+    }
+    if args.test {
+        cmd.arg("-F").arg("run-kunittest");
     }
     #[cfg(debug_assertions)]
     cmd.env("RUSTFLAGS", "-Cforce-frame-pointers=yes");
     let status = cmd.status().expect("failed to build kernel");
     if !status.success() {
-        panic!("kernel build failed");
+        eprintln!("kernel exited with status: {}", status);
+        exit(0);
     }
 
     // Construct the path to the compiled kernel binary
@@ -140,9 +147,11 @@ fn build_init(_args: Args) {
 
     #[cfg(debug_assertions)]
     cmd.env("RUSTFLAGS", "-Cforce-frame-pointers=yes");
+
     let status = cmd.status().expect("failed to build init");
     if !status.success() {
-        panic!("init build failed");
+        eprintln!("kernel exited with status: {}", status);
+        exit(0);
     }
 
     // Determine the profile directory

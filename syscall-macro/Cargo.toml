@@ -1,5 +1,5 @@
 [package]
-name = "syscall_macro"
+name = "zenos-macros"
 edition = "2024"
 version.workspace = true
 repository.workspace = true
