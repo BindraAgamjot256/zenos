@@ -12,9 +12,10 @@
 
 extern crate alloc;
 
-use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
+use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
-use zenos_kernel::{kinit, kprintln, serial_println};
+use zenos_kernel::testing::Testable;
+use zenos_kernel::{kinit, kprintln};
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -42,7 +43,7 @@ static CONFIG: BootloaderConfig = {
 /// # Returns
 ///
 /// This function never returns (marked by `!` return type)
-#[cfg_attr(not(test), panic_handler)]
+#[cfg_attr(not(any(test, feature = "run-kunittest")), panic_handler)]
 fn _panic(info: &core::panic::PanicInfo) -> ! {
     use log::error;
     zenos_kernel::print_stack_trace();
@@ -60,7 +61,10 @@ fn _panic(info: &core::panic::PanicInfo) -> ! {
 }
 
 // Defines the kernel main function as the entry point and adds metadata for the bootloader.
+#[cfg(not(feature = "run-kunittest"))]
 entry_point!(kmain, config = &CONFIG);
+#[cfg(feature = "run-kunittest")]
+entry_point!(ktest_main, config = &CONFIG);
 
 /// Kernel main function - the entry point for the OS.
 ///
@@ -75,20 +79,6 @@ entry_point!(kmain, config = &CONFIG);
 ///
 /// This function never returns (marked by `!` return type)
 fn kmain(boot_info: &'static mut BootInfo) -> ! {
-    #[cfg(debug_assertions)]
-    if RUN_TESTSUITE {
-        serial_println!("running {} test suites", zenos_kernel::TESTS.len());
-        for i in zenos_kernel::TESTS.iter() {
-            serial_println!("running {} tests", i.len());
-            for j in i.iter() {
-                j.run()
-                    .expect("Test failed... FIX THE FUCKING TEST WILL YOU?"); // unnecessary to print here, since printing alr handled in the run impl
-            }
-        }
-    } else {
-        serial_println!("running tests disabled");
-    }
-
     // Initialize kernel subsystems
     kinit(boot_info);
 
@@ -145,15 +135,55 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     zenos_kernel::process::enter_user_mode(entry, stack);
 }
 
-/// A constant that determines whether to run the test suite based on the current build configuration.
-///
-/// This constant evaluates to `true` when:
-/// - The code is being compiled in a test context (`cfg!(test)`).
-/// - OR the code is being compiled with debug assertions enabled (`cfg!(debug_assertions)`).
-/// - AND the target architecture is `x86_64` (`cfg!(target_arch = "x86_64")`).
-///
-/// Otherwise, it evaluates to `false`.
-///
-/// This can be useful for conditionally enabling test-related functionality
-/// or debugging logic only in compatible environments.
-static RUN_TESTSUITE: bool = (cfg!(test) || cfg!(debug_assertions)) && cfg!(target_arch = "x86_64");
+#[cfg(feature = "run-kunittest")]
+fn ktest_main(_: &'static mut BootInfo) -> ! {
+    use crate::testing_stuff::{QemuExitCode, exit_qemu};
+    use zenos_kernel::serial_println;
+
+    serial_println!(
+        "running {} tests",
+        zenos_kernel::TESTS.iter().filter(|t| t.is_some()).count()
+    );
+    let mut failed = false;
+    for i in zenos_kernel::TESTS.iter() {
+        if i.is_some() {
+            if let Err(()) = i.unwrap().run() {
+                failed = true;
+            }
+        }
+    }
+    if failed {
+        exit_qemu(QemuExitCode::Failed);
+    }
+    exit_qemu(QemuExitCode::Success);
+    loop {}
+}
+
+#[cfg(feature = "run-kunittest")]
+mod testing_stuff {
+    use zenos_kernel::serial_println;
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(u32)]
+    pub enum QemuExitCode {
+        Success = 0x10,
+        Failed = 0x11,
+    }
+
+    pub fn exit_qemu(exit_code: QemuExitCode) {
+        use x86_64::instructions::port::Port;
+
+        unsafe {
+            let mut port = Port::new(0xf4);
+            port.write(exit_code as u32);
+        }
+    }
+
+    #[panic_handler]
+    fn panic(info: &core::panic::PanicInfo) -> ! {
+        use crate::testing_stuff::{QemuExitCode, exit_qemu};
+        serial_println!("KERNEL PANIC DURING UNIT TESTS: {}", info);
+        exit_qemu(QemuExitCode::Failed);
+        loop {}
+    }
+}

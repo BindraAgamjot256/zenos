@@ -1,7 +1,7 @@
 use crate::disk::vfs::SeekFrom;
 use crate::syscall::table::SyscallPtr;
 use log::debug;
-use syscall_macro::syscall;
+use zenos_macros::syscall;
 
 #[syscall(8)]
 fn lseek(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {

@@ -876,9 +876,10 @@ impl<'fb> OriginDimensions for FrameBufferWriter<'fb> {
 /// preventing race conditions during text output and graphics operations.
 pub(crate) static FRAMEBUFFER: Mutex<Option<FrameBufferWriter>> = Mutex::new(None);
 
+#[cfg(feature = "run-kunittest")]
 mod tests {
     use super::*;
-    use crate::{test_assert, test_assert_eq};
+    use crate::{test_assert, test_assert_eq, Test};
 
     const WIDTH: usize = 100;
     const HEIGHT: usize = 50;
@@ -900,6 +901,7 @@ mod tests {
         [0u8; FB_SIZE]
     }
 
+    #[zenos_macros::test]
     pub fn test_write_character_basic() -> Option<()> {
         let mut fb = make_fb();
         let info = make_info();
@@ -919,7 +921,7 @@ mod tests {
         );
         Some(())
     }
-
+    #[zenos_macros::test]
     pub fn test_ansi_escape_bold_and_color() -> Option<()> {
         let mut fb = make_fb();
         let info = make_info();
@@ -949,7 +951,7 @@ mod tests {
         test_assert_eq!(writer.fg_color, Rgb888::new(255, 255, 255));
         Some(())
     }
-
+    #[zenos_macros::test]
     pub fn test_scroll_up() -> Option<()> {
         let mut fb = make_fb();
         let info = make_info();
@@ -966,6 +968,7 @@ mod tests {
         Some(())
     }
 
+    #[zenos_macros::test]
     pub fn test_reset_attributes() -> Option<()> {
         let mut fb = make_fb();
         let info = make_info();
@@ -989,16 +992,3 @@ mod tests {
         Some(())
     }
 }
-
-pub(crate) static TESTS: &[&(dyn Testable + Sync)] = {
-    if cfg!(test) || cfg!(debug_assertions) {
-        &[
-            &tests::test_write_character_basic,
-            &tests::test_ansi_escape_bold_and_color,
-            &tests::test_scroll_up,
-            &tests::test_reset_attributes,
-        ]
-    } else {
-        &[]
-    }
-};

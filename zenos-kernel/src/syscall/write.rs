@@ -2,8 +2,9 @@ use crate::disk::vfs::File;
 use crate::syscall::copy_from_user;
 use crate::syscall::table::SyscallPtr;
 use log::debug;
+use zenos_macros::syscall;
 
-#[syscall_macro::syscall(1)]
+#[syscall(1)]
 fn write(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     // write(fd, buf, len)
     let fd = rdi;

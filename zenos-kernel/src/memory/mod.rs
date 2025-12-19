@@ -8,7 +8,6 @@
 
 pub mod alloc;
 
-use crate::testing::Testable;
 pub use constants::*;
 use core::cmp::PartialEq;
 use core::{
@@ -19,14 +18,14 @@ use core::{
 use log::{error, trace, warn};
 use spin::Mutex;
 use x86_64::{
-    PhysAddr, VirtAddr,
-    registers::control::Cr3,
+    registers::control::Cr3, structures::paging::mapper::UnmapError,
     structures::paging::Translate,
-    structures::paging::mapper::UnmapError,
     structures::paging::{
         FrameAllocator, FrameDeallocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags,
         PhysFrame, Size2MiB, Size4KiB,
     },
+    PhysAddr,
+    VirtAddr,
 };
 
 /// Page sizes supported
@@ -933,10 +932,10 @@ pub fn get_stats() -> Result<(usize, usize), MapErr> {
     Ok((free_pages, total_pages))
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "run-kunittest")]
 pub(crate) mod tests {
     use super::*;
-    use crate::{test_assert, test_assert_eq};
+    use crate::{test_assert, test_assert_eq, Test};
 
     fn mock_regions() -> [(u64, usize); 2] {
         // Mock two memory regions: 16 KiB and 8 KiB
@@ -950,12 +949,14 @@ pub(crate) mod tests {
         unsafe { PageAllocator::initialize(mock_regions().into_iter()) }
     }
 
+    #[zenos_macros::test]
     pub fn test_allocator_initializes() -> Option<()> {
         let alloc = make_allocator();
         test_assert!(alloc.head.is_some());
         Some(())
     }
 
+    #[zenos_macros::test]
     pub fn test_allocate_and_free_4kib() -> Option<()> {
         let alloc = make_allocator();
         let phys = alloc.alloc(PageSize::Size4KiB, None);
@@ -967,6 +968,7 @@ pub(crate) mod tests {
         Some(())
     }
 
+    #[zenos_macros::test]
     pub fn test_allocate_specific_address() -> Option<()> {
         let alloc = make_allocator();
         let specific = PhysAddr::new(0x20000); // aligned address
@@ -975,6 +977,7 @@ pub(crate) mod tests {
         Some(())
     }
 
+    #[zenos_macros::test]
     pub fn test_allocate_2mib_alignment_fail() -> Option<()> {
         let alloc = make_allocator();
         let misaligned = PhysAddr::new(0x21000); // not 2 MiB aligned
@@ -983,6 +986,7 @@ pub(crate) mod tests {
         Some(())
     }
 
+    #[zenos_macros::test]
     pub fn test_out_of_memory() -> Option<()> {
         let alloc = make_allocator();
 
@@ -1000,6 +1004,7 @@ pub(crate) mod tests {
         Some(())
     }
 
+    #[zenos_macros::test]
     pub fn test_get_first_free_phys() -> Option<()> {
         let alloc = make_allocator();
         let first = alloc.get_first_free_phys();
@@ -1007,18 +1012,3 @@ pub(crate) mod tests {
         Some(())
     }
 }
-
-pub(crate) static TESTS: &[&(dyn Testable + Sync)] = {
-    if cfg!(test) || cfg!(debug_assertions) {
-        &[
-            &tests::test_allocator_initializes,
-            &tests::test_allocate_and_free_4kib,
-            &tests::test_allocate_specific_address,
-            &tests::test_allocate_2mib_alignment_fail,
-            &tests::test_out_of_memory,
-            &tests::test_get_first_free_phys,
-        ]
-    } else {
-        &[]
-    }
-};

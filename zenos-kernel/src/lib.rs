@@ -34,9 +34,9 @@
 extern crate alloc;
 
 pub use crate::framebuffer::helpers::*;
-use crate::{percpu::get_percpu_data, testing::Testable};
+use crate::percpu::get_percpu_data;
 use ::acpi::InterruptModel;
-use bootloader_api::{info::MemoryRegion, info::MemoryRegionKind, BootInfo};
+use bootloader_api::{BootInfo, info::MemoryRegion, info::MemoryRegionKind};
 use core::arch::asm;
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb888};
 use heapless::Vec;
@@ -71,19 +71,7 @@ pub mod time;
 #[cfg(not(target_arch = "x86_64"))]
 compile_error!("zenos only supports x86_64");
 
-pub static TESTS: &[&[&(dyn Testable + Sync)]] = {
-    if cfg!(test) || cfg!(debug_assertions) {
-        &[
-            framebuffer::TESTS,
-            memory::TESTS,
-            testing::TESTS,
-            process::TESTS,
-            percpu::TESTS,
-        ]
-    } else {
-        &[]
-    }
-};
+pub use testing::{TESTS, Test};
 
 /// Initializes the kernel with essential parts.
 ///

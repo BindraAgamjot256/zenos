@@ -2,8 +2,9 @@ use crate::disk::vfs::File;
 use crate::syscall::table::SyscallPtr;
 use crate::syscall::{copy_from_user, copy_to_user};
 use log::{debug, error, info};
+use zenos_macros::syscall;
 
-#[syscall_macro::syscall(0)]
+#[syscall(0)]
 fn read(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     // read(fd, buf, len)
     let mut ret = 0;

@@ -33,3 +33,26 @@ pub fn syscall(args: TokenStream, input: TokenStream) -> TokenStream {
 
     TokenStream::from(expanded)
 }
+#[proc_macro_attribute]
+pub fn test(_args: TokenStream, input: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(input as ItemFn);
+    let fn_name = &input_fn.sig.ident;
+
+    let static_name = format_ident!("__SYSCALL_{}", fn_name);
+    let name = fn_name.to_string();
+    let name = name.as_str();
+    let expanded = quote! {
+        #input_fn
+
+        // 2. Emit the struct into the special section
+        #[used]
+        #[allow(non_upper_case_globals)]
+        #[unsafe(link_section = "tests")] // Section name
+        static #static_name: Test = Test {
+                handler:    #fn_name,
+            name:       #name,
+        };
+    };
+
+    TokenStream::from(expanded)
+}

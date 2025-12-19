@@ -79,7 +79,7 @@ use crate::disk::vfs::VFS;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
-use block::ahci::{init, AhciBlockDevice};
+use block::ahci::{AhciBlockDevice, init};
 use fs::fat::FatFileSystem;
 use spin::{Lazy, Mutex};
 
