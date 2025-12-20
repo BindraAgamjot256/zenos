@@ -18,14 +18,14 @@ use core::{
 use log::{error, trace, warn};
 use spin::Mutex;
 use x86_64::{
-    registers::control::Cr3, structures::paging::mapper::UnmapError,
+    PhysAddr, VirtAddr,
+    registers::control::Cr3,
     structures::paging::Translate,
+    structures::paging::mapper::UnmapError,
     structures::paging::{
         FrameAllocator, FrameDeallocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags,
         PhysFrame, Size2MiB, Size4KiB,
     },
-    PhysAddr,
-    VirtAddr,
 };
 
 /// Page sizes supported
@@ -935,7 +935,7 @@ pub fn get_stats() -> Result<(usize, usize), MapErr> {
 #[cfg(feature = "run-kunittest")]
 pub(crate) mod tests {
     use super::*;
-    use crate::{test_assert, test_assert_eq, Test};
+    use crate::{Test, test_assert, test_assert_eq};
 
     fn mock_regions() -> [(u64, usize); 2] {
         // Mock two memory regions: 16 KiB and 8 KiB
@@ -1009,6 +1009,79 @@ pub(crate) mod tests {
         let alloc = make_allocator();
         let first = alloc.get_first_free_phys();
         test_assert!(first.is_ok());
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_page_size_values() -> Option<()> {
+        test_assert_eq!(PageSize::Size4KiB as usize, 4096);
+        test_assert_eq!(PageSize::Size2MiB as usize, 2 * 1024 * 1024);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_page_size_ordering() -> Option<()> {
+        test_assert!(PageSize::Size4KiB < PageSize::Size2MiB);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_constants_higher_half() -> Option<()> {
+        // Verify higher half address is in canonical high space
+        test_assert!(HIGHER_HALF_BASE >= 0xFFFF_8000_0000_0000);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_constants_kernel_base_in_higher_half() -> Option<()> {
+        test_assert!(KERNEL_BASE >= HIGHER_HALF_BASE);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_allocate_multiple_pages() -> Option<()> {
+        let alloc = make_allocator();
+        let p1 = alloc.alloc(PageSize::Size4KiB, None);
+        let p2 = alloc.alloc(PageSize::Size4KiB, None);
+        test_assert!(p1.is_some());
+        test_assert!(p2.is_some());
+        // Pages should be different
+        test_assert!(p1.unwrap() != p2.unwrap());
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_allocate_and_free_multiple() -> Option<()> {
+        let alloc = make_allocator();
+        let p1 = alloc.alloc(PageSize::Size4KiB, None).unwrap();
+        let p2 = alloc.alloc(PageSize::Size4KiB, None).unwrap();
+
+        // Free first page
+        test_assert!(alloc.dealloc(p1, PageSize::Size4KiB).is_ok());
+
+        // Allocate again - should get a page (possibly the freed one)
+        let p3 = alloc.alloc(PageSize::Size4KiB, None);
+        test_assert!(p3.is_some());
+
+        // Free remaining
+        test_assert!(alloc.dealloc(p2, PageSize::Size4KiB).is_ok());
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_page_4k_alignment() -> Option<()> {
+        test_assert_eq!(PAGE_4K % 4096, 0);
+        test_assert_eq!(PAGE_2M % (2 * 1024 * 1024), 0);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_allocate_specific_unaligned_4k_fails() -> Option<()> {
+        let alloc = make_allocator();
+        // Address not aligned to 4KiB
+        let misaligned = PhysAddr::new(0x20001);
+        let phys = alloc.alloc(PageSize::Size4KiB, Some(misaligned));
+        test_assert!(phys.is_none());
         Some(())
     }
 }

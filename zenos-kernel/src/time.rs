@@ -142,3 +142,31 @@ impl Display for RtcTime {
 const fn bcd_to_bin(val: u8) -> u8 {
     (val & 0x0F) + ((val >> 4) * 10)
 }
+
+#[cfg(feature = "run-kunittest")]
+mod tests {
+    use super::*;
+    use crate::Test;
+    use crate::test_assert_eq as assert_eq;
+
+    #[zenos_macros::test]
+    pub fn test_bcd_to_bin_zero() -> Option<()> {
+        assert_eq!(bcd_to_bin(0x00), 0);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_bcd_to_bin_single_digit() -> Option<()> {
+        assert_eq!(bcd_to_bin(0x05), 5);
+        assert_eq!(bcd_to_bin(0x09), 9);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_bcd_to_bin_double_digit() -> Option<()> {
+        assert_eq!(bcd_to_bin(0x12), 12);
+        assert_eq!(bcd_to_bin(0x59), 59);
+        assert_eq!(bcd_to_bin(0x99), 99);
+        Some(())
+    }
+}

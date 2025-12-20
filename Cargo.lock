@@ -1232,15 +1232,15 @@ dependencies = [
  "uart_16550 0.4.0",
  "x86_64",
  "xmas-elf 0.10.0",
-    "zenos-macros",
+ "zenos-macros",
 ]
 
 [[package]]
 name = "zenos-macros"
 version = "0.1.0"
 dependencies = [
-    "quote",
-    "syn 2.0.111",
+ "quote",
+ "syn 2.0.111",
 ]
 
 [[package]]

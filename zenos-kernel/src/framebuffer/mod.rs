@@ -16,14 +16,14 @@ use crate::{
 use bootloader_api::info::{FrameBufferInfo, PixelFormat};
 use core::{convert::Infallible, fmt};
 use embedded_graphics::{
-    geometry::Size, mono_font::iso_8859_1::FONT_10X20,
+    Drawable, Pixel,
+    geometry::Size,
+    mono_font::iso_8859_1::FONT_10X20,
     mono_font::{MonoFont, MonoTextStyle},
     pixelcolor::{Rgb888, RgbColor},
     prelude::{DrawTarget, OriginDimensions, Point, Primitive},
     primitives::{PrimitiveStyle, Rectangle},
     text::Text,
-    Drawable,
-    Pixel,
 };
 use heapless::Vec;
 use spin::Mutex;
@@ -426,8 +426,8 @@ impl<'fb> FrameBufferWriter<'fb> {
             ),
             style,
         )
-            .draw(self)
-            .ok();
+        .draw(self)
+        .ok();
 
         // Apply text formatting effects
         if self.ansi_bold {
@@ -440,8 +440,8 @@ impl<'fb> FrameBufferWriter<'fb> {
                 ),
                 style,
             )
-                .draw(self)
-                .ok();
+            .draw(self)
+            .ok();
         }
 
         if self.ansi_underline {
@@ -452,9 +452,9 @@ impl<'fb> FrameBufferWriter<'fb> {
                 Point::new(self.cursor.get_x() as i32, underline_y),
                 Size::new(self.font.character_size.width, 1),
             )
-                .into_styled(PrimitiveStyle::with_fill(self.fg_color))
-                .draw(self)
-                .ok();
+            .into_styled(PrimitiveStyle::with_fill(self.fg_color))
+            .draw(self)
+            .ok();
         }
 
         if self.ansi_strikethrough {
@@ -465,9 +465,9 @@ impl<'fb> FrameBufferWriter<'fb> {
                 Point::new(self.cursor.get_x() as i32, strike_y),
                 Size::new(self.font.character_size.width, 1),
             )
-                .into_styled(PrimitiveStyle::with_fill(self.fg_color))
-                .draw(self)
-                .ok();
+            .into_styled(PrimitiveStyle::with_fill(self.fg_color))
+            .draw(self)
+            .ok();
         }
 
         if self.ansi_italic {
@@ -698,9 +698,9 @@ impl<'fb> FrameBufferWriter<'fb> {
             Point::new(cursor_x, cursor_y),
             Size::new(Self::CURSOR_HEIGHT, Self::CURSOR_WIDTH),
         )
-            .into_styled(PrimitiveStyle::with_fill(self.fg_color))
-            .draw(self)
-            .ok();
+        .into_styled(PrimitiveStyle::with_fill(self.fg_color))
+        .draw(self)
+        .ok();
         self.cursor_visible = !self.cursor_visible;
     }
 
@@ -715,9 +715,9 @@ impl<'fb> FrameBufferWriter<'fb> {
             Point::new(cursor_x, cursor_y),
             Size::new(Self::CURSOR_HEIGHT, Self::CURSOR_WIDTH),
         )
-            .into_styled(PrimitiveStyle::with_fill(self.bg_color))
-            .draw(self)
-            .ok();
+        .into_styled(PrimitiveStyle::with_fill(self.bg_color))
+        .draw(self)
+        .ok();
         self.cursor_visible = !self.cursor_visible;
     }
 
@@ -879,7 +879,7 @@ pub(crate) static FRAMEBUFFER: Mutex<Option<FrameBufferWriter>> = Mutex::new(Non
 #[cfg(feature = "run-kunittest")]
 mod tests {
     use super::*;
-    use crate::{test_assert, test_assert_eq, Test};
+    use crate::{Test, test_assert, test_assert_eq};
 
     const WIDTH: usize = 100;
     const HEIGHT: usize = 50;

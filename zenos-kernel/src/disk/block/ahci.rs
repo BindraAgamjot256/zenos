@@ -47,11 +47,11 @@
 use crate::disk::block::{BlockDevice, BlockError};
 use crate::disk::vfs::SeekFrom;
 use crate::memory::{
-    kalloc_dma_pages, kalloc_page, kfree_dma_pages, kfree_page, PageType, KERNEL_BASE, PAGE_4K,
+    KERNEL_BASE, PAGE_4K, PageType, kalloc_dma_pages, kalloc_page, kfree_dma_pages, kfree_page,
 };
 use crate::pci::scan_pci_for_ahci;
 use core::ptr::{read_volatile, write_volatile};
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use heapless::Vec;
 use log::{debug, error, trace};
 use spin::Mutex;

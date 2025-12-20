@@ -36,7 +36,6 @@ pub trait Testable {
     fn run(&self) -> Result<(), ()>;
 }
 
-
 #[cfg(feature = "run-kunittest")]
 mod tests {
     use zenos_macros::test;

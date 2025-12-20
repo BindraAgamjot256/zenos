@@ -88,3 +88,92 @@ impl VFS {
         fs.root_dir()
     }
 }
+
+#[cfg(feature = "run-kunittest")]
+mod tests {
+    use super::*;
+    use crate::Test;
+    use crate::test_assert_eq as assert_eq;
+
+    #[zenos_macros::test]
+    pub fn test_seek_from_start() -> Option<()> {
+        let seek = SeekFrom::Start(100);
+        match seek {
+            SeekFrom::Start(pos) => assert_eq!(pos, 100),
+            _ => return None,
+        }
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_seek_from_end() -> Option<()> {
+        let seek = SeekFrom::End(-50);
+        match seek {
+            SeekFrom::End(offset) => assert_eq!(offset, -50),
+            _ => return None,
+        }
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_seek_from_current() -> Option<()> {
+        let seek = SeekFrom::Current(25);
+        match seek {
+            SeekFrom::Current(offset) => assert_eq!(offset, 25),
+            _ => return None,
+        }
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_metadata_file() -> Option<()> {
+        let meta = Metadata {
+            size: 1024,
+            is_dir: false,
+            is_file: true,
+            created: 0,
+            modified: 0,
+            accessed: 0,
+        };
+        assert_eq!(meta.size, 1024);
+        crate::test_assert!(meta.is_file);
+        crate::test_assert!(!meta.is_dir);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_metadata_directory() -> Option<()> {
+        let meta = Metadata {
+            size: 0,
+            is_dir: true,
+            is_file: false,
+            created: 100,
+            modified: 200,
+            accessed: 300,
+        };
+        crate::test_assert!(meta.is_dir);
+        crate::test_assert!(!meta.is_file);
+        assert_eq!(meta.created, 100);
+        assert_eq!(meta.modified, 200);
+        assert_eq!(meta.accessed, 300);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_vfs_new() -> Option<()> {
+        let vfs = VFS::new();
+        crate::test_assert!(vfs.get_fs("/").is_none());
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_vfs_unmount_not_found() -> Option<()> {
+        let mut vfs = VFS::new();
+        let result = vfs.unmount("/nonexistent");
+        match result {
+            Err(FileError::NotFound) => {}
+            _ => return None,
+        }
+        Some(())
+    }
+}

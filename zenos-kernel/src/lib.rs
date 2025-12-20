@@ -71,7 +71,8 @@ pub mod time;
 #[cfg(not(target_arch = "x86_64"))]
 compile_error!("zenos only supports x86_64");
 
-pub use testing::{TESTS, Test};
+#[cfg(feature = "run-kunittest")]
+pub use crate::testing::{TESTS, Test};
 
 /// Initializes the kernel with essential parts.
 ///

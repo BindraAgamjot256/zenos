@@ -3,6 +3,8 @@
 //! This version uses the `x86_64` crate for MSR access
 //! and provides safe (well, as safe as kernel code gets) abstractions.
 
+#![allow(static_mut_refs)]
+
 use core::{arch::asm, marker::PhantomData, ptr};
 use x86_64::registers::model_specific::Msr;
 
@@ -155,14 +157,67 @@ const MAX_CPUS: usize = 4; //todo: get from cpuid
 #[cfg(feature = "run-kunittest")]
 mod tests {
     use super::*;
-    use crate::test_assert_eq as assert_eq;
     use crate::Test;
+    use crate::test_assert_eq as assert_eq;
+    use core::mem::align_of;
+
     #[zenos_macros::test]
     pub fn test_layout() -> Option<()> {
         let data = PerCpuData::new(42);
         let base = &data as *const _ as usize;
         assert_eq!((&data.cpu_id as *const _ as usize) - base, 0);
         assert_eq!((&data.self_ptr as *const _ as usize) - base, 8);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_percpu_data_new() -> Option<()> {
+        let data = PerCpuData::new(5);
+        assert_eq!(data.cpu_id, 5);
+        crate::test_assert!(data.self_ptr.is_null());
+        assert_eq!(data.kernel_stack_ptr, 0);
+        assert_eq!(data.curr_pid, 0);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_percpu_data_scratch_initialized() -> Option<()> {
+        let data = PerCpuData::new(0);
+        assert_eq!(data.scratch[0], 0);
+        assert_eq!(data.scratch[1], 0);
+        assert_eq!(data.scratch[2], 0);
+        assert_eq!(data.scratch[3], 0);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_percpu_data_alignment() -> Option<()> {
+        // PerCpuData should be 8-byte aligned for efficient access
+        crate::test_assert!(align_of::<PerCpuData>() >= 8);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_percpu_data_kernel_stack_offset() -> Option<()> {
+        let data = PerCpuData::new(0);
+        let base = &data as *const _ as usize;
+        // kernel_stack_ptr should be at offset 0x10 (after cpu_id at 0 and self_ptr at 8)
+        assert_eq!((&data.kernel_stack_ptr as *const _ as usize) - base, 0x10);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_percpu_var_offset() -> Option<()> {
+        let var: PerCpuVar<u64> = PerCpuVar::new(0x18);
+        assert_eq!(var.offset, 0x18);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_max_cpus_array_size() -> Option<()> {
+        // Verify the PER_CPU_AREAS array has the expected size
+        assert_eq!(unsafe { PER_CPU_AREAS.len() }, MAX_CPUS);
+        assert_eq!(MAX_CPUS, 4);
         Some(())
     }
 }

@@ -9,7 +9,7 @@ mod write;
 
 use crate::{
     interrupts::gdt::GDT,
-    memory::{virt_to_phys, PAGE_4K},
+    memory::{PAGE_4K, virt_to_phys},
 };
 use alloc::vec;
 use alloc::vec::Vec;
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn syscall_main(
         ret = func(rdi, rsi, rdx, r10, r8, r9);
     } else {
         info!("invalid syscall number: {}", syscall_num);
-        ret = errors::ENOSYS as u64;
+        ret = (-errors::ENOSYS) as u64;
     }
     ret
 }

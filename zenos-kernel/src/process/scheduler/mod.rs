@@ -1,4 +1,4 @@
-use crate::process::{Process, PROCESSES};
+use crate::process::{PROCESSES, Process};
 
 // Scheduler
 pub struct Scheduler {

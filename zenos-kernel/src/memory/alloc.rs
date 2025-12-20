@@ -1,6 +1,6 @@
 //! Zenos slab slab_allocator v0.0.sqrt(-1)-don't_you_dare_test_it_on_hardware. Yes... That's its full version. Don't judge
 
-use crate::memory::{kalloc_page, PageType};
+use crate::memory::{PageType, kalloc_page};
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use core::{

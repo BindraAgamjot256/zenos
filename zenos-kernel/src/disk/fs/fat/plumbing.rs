@@ -4,9 +4,9 @@
 //! External code should use the public API in `mod.rs`.
 #![allow(dead_code)]
 
+use crate::disk::FileError;
 use crate::disk::block::BlockDevice;
 use crate::disk::vfs::SeekFrom;
-use crate::disk::FileError;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -125,8 +125,8 @@ impl BiosParameterBlock {
 
         let data_sectors = total_sectors
             - (self.reserved_sector_count as u32
-            + (self.num_fats as u32 * fat_size)
-            + root_dir_sectors);
+                + (self.num_fats as u32 * fat_size)
+                + root_dir_sectors);
 
         let cluster_count = data_sectors / self.sectors_per_cluster as u32;
 

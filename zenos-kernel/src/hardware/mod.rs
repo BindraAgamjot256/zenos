@@ -5,12 +5,12 @@
 #![allow(dead_code)] // the IPI infrastructure is never used... we silence the warnings for now.
 pub(crate) mod keyboard;
 
-use crate::memory::{kalloc_page, PageType};
+use crate::memory::{PageType, kalloc_page};
 use core::arch::x86_64::__cpuid;
 use heapless::Vec;
 use log::{debug, error, info, trace, warn};
 use spin::{Lazy, Mutex};
-use x86_64::{registers::model_specific::Msr, VirtAddr};
+use x86_64::{VirtAddr, registers::model_specific::Msr};
 
 /// Maximum number of IOAPICs supported
 pub(crate) const MAX_IOAPICS: usize = 8;

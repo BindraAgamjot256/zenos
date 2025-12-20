@@ -2,9 +2,9 @@ pub(crate) mod file_handles;
 mod isolation;
 mod scheduler;
 
-use crate::disk::vfs::{File, SeekFrom};
-use crate::disk::FileError;
 use crate::disk::FS;
+use crate::disk::FileError;
+use crate::disk::vfs::{File, SeekFrom};
 use crate::percpu::PerCpuVar;
 use crate::process::file_handles::{FileHandle, FileOpenOptions, Stderr, Stdin, Stdout};
 use crate::process::isolation::create_cr3_from_current_page_tables;
@@ -12,7 +12,7 @@ use crate::process::scheduler::Scheduler;
 use crate::{
     interrupts::gdt::GDT,
     kprintln,
-    memory::{kalloc_page, ualloc_page, ualloc_page_flags, PageType, KERNEL_BASE, PAGE_4K},
+    memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},
     percpu::PerCpuData,
 };
 use alloc::boxed::Box;
@@ -28,8 +28,8 @@ use spin::{Lazy, Mutex};
 use x86_64::instructions::tlb::flush_all;
 use x86_64::registers::control::Cr3;
 use x86_64::structures::paging::PhysFrame;
-use x86_64::{structures::paging::PageTableFlags, PhysAddr, VirtAddr};
-use xmas_elf::{header::Type as ElfType, program, program::Type as PhType, ElfFile};
+use x86_64::{PhysAddr, VirtAddr, structures::paging::PageTableFlags};
+use xmas_elf::{ElfFile, header::Type as ElfType, program, program::Type as PhType};
 
 // Choose a default userspace base for PIE/ET_DYN binaries
 const DEFAULT_USER_BASE: u64 = 0x0000_0000_0040_0000; // 4 MiB, away from the null page(0x0)
@@ -370,21 +370,7 @@ pub fn switch_to(process: &Process) {
 #[repr(align(16))]
 #[derive(Clone, Copy, Debug)]
 struct FxSaveArea {
-    fx_control_word: u16,
-    fx_status_word: u16,
-    fx_tag_word: u16,
-    fx_opcode: u16,
-    fx_eip: u32,
-    fx_cs: u16,
-    fx_reserved1: u16,
-    fx_data_offset: u32,
-    fx_ds: u16,
-    fx_reserved2: u16,
-    mxcsr: u32,
-    mxcsr_mask: u32,
-    st: [u8; 128],  // 8x 16-byte FPU/MMX registers
-    xmm: [u8; 256], // 16x 16-byte XMM registers
-    reserved: [u8; 96],
+    data: [u8; 512],
 }
 
 impl Default for FxSaveArea {
@@ -395,23 +381,7 @@ impl Default for FxSaveArea {
 
 impl FxSaveArea {
     fn new() -> Self {
-        FxSaveArea {
-            fx_control_word: 0,
-            fx_status_word: 0,
-            fx_tag_word: 0,
-            fx_opcode: 0,
-            fx_eip: 0,
-            fx_cs: 0,
-            fx_reserved1: 0,
-            fx_data_offset: 0,
-            fx_ds: 0,
-            fx_reserved2: 0,
-            mxcsr: 0,
-            mxcsr_mask: 0,
-            st: [0u8; 128],
-            xmm: [0u8; 256],
-            reserved: [0u8; 96],
-        }
+        FxSaveArea { data: [0; 512] }
     }
 
     unsafe fn save(&mut self) {
@@ -642,8 +612,8 @@ fn compute_load_bias(elf: &ElfFile) -> u64 {
 #[cfg(feature = "run-kunittest")]
 mod tests {
     use super::*;
-    use crate::test_assert_eq as assert_eq;
     use crate::Test;
+    use crate::test_assert_eq as assert_eq;
 
     #[zenos_macros::test]
     pub fn test_process_state_new() -> Option<()> {
@@ -692,6 +662,72 @@ mod tests {
         assert_eq!(state1.fs, state2.fs);
         assert_eq!(state1.gs, state2.gs);
         assert_eq!(state1.ss, state2.ss);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_process_state_all_registers_zero() -> Option<()> {
+        let state = ProcessState::new();
+        assert_eq!(state.rax, 0);
+        assert_eq!(state.rbx, 0);
+        assert_eq!(state.rcx, 0);
+        assert_eq!(state.rdx, 0);
+        assert_eq!(state.rsi, 0);
+        assert_eq!(state.rdi, 0);
+        assert_eq!(state.rbp, 0);
+        assert_eq!(state.rsp, 0);
+        assert_eq!(state.rip, 0);
+        assert_eq!(state.rflags, 0);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_process_state_segment_registers_zero() -> Option<()> {
+        let state = ProcessState::new();
+        assert_eq!(state.cs, 0);
+        assert_eq!(state.ds, 0);
+        assert_eq!(state.es, 0);
+        assert_eq!(state.fs, 0);
+        assert_eq!(state.gs, 0);
+        assert_eq!(state.ss, 0);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_fxsave_area_default() -> Option<()> {
+        let fx = FxSaveArea::default();
+        // FxSave area should be zero-initialized
+        for byte in fx.data.iter() {
+            assert_eq!(*byte, 0);
+        }
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_fxsave_area_alignment() -> Option<()> {
+        // FxSave requires 16-byte alignment
+        crate::test_assert!(core::mem::align_of::<FxSaveArea>() >= 16);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_fxsave_area_size() -> Option<()> {
+        // FxSave area should be 512 bytes
+        assert_eq!(core::mem::size_of::<FxSaveArea>(), 512);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_default_user_base_not_zero() -> Option<()> {
+        // User base should not be at NULL to catch null pointer dereferences
+        crate::test_assert!(DEFAULT_USER_BASE > 0);
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_default_user_base_page_aligned() -> Option<()> {
+        // User base should be page-aligned
+        assert_eq!(DEFAULT_USER_BASE % 4096, 0);
         Some(())
     }
 }

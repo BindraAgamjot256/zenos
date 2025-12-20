@@ -14,7 +14,6 @@ extern crate alloc;
 
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
-use zenos_kernel::testing::Testable;
 use zenos_kernel::{kinit, kprintln};
 
 static CONFIG: BootloaderConfig = {
@@ -139,6 +138,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
 fn ktest_main(_: &'static mut BootInfo) -> ! {
     use crate::testing_stuff::{QemuExitCode, exit_qemu};
     use zenos_kernel::serial_println;
+    use zenos_kernel::testing::Testable;
 
     serial_println!(
         "running {} tests",
