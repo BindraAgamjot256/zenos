@@ -53,6 +53,14 @@ pub fn read_exact(buf: &mut [u8]) -> usize {
         if let Some(b) = byte {
             if b == b'\n' {
                 break;
+            } else if b == b'\r' {
+                // Ignore carriage return
+                continue;
+            } else if b == b'\x08' {
+                // Backspace handling
+                if count > 0 {
+                    count -= 1;
+                }
             } else {
                 buf[count] = b;
                 count += 1;
