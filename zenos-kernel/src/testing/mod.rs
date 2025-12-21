@@ -1,5 +1,6 @@
 use crate::serial_print;
 use core::fmt::Debug;
+#[cfg(feature = "run-kunittest")]
 use spin::Lazy;
 
 #[macro_export]

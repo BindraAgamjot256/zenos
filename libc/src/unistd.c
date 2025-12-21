@@ -1,5 +1,5 @@
-#include <unistd.h>
-#include <sys/syscall.h>
+#include "unistd.h"
+#include "sys/syscall.h"
 
 
 ssize_t read(const int fd, void *buf, const size_t count) {
@@ -16,4 +16,12 @@ int close(int fd) {
 
 off_t lseek(const int fd, const off_t offset, const int whence) {
     return syscall3(SYS_lseek, fd, offset, whence);
+}
+
+int fork(void) {
+    return (int) syscall0(SYS_fork);
+}
+
+int pause(void) {
+    return (int) syscall0(SYS_pause);
 }

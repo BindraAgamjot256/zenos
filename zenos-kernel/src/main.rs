@@ -26,6 +26,8 @@ static CONFIG: BootloaderConfig = {
         Mapping::FixedAddress(zenos_kernel::memory::constants::KERNEL_BASE); // higher-half base + 0x5000_0000
     config.mappings.kernel_stack =
         Mapping::FixedAddress(zenos_kernel::memory::constants::KERNEL_STACK_BASE); // higher-half base + 0x1_0000_0000
+    config.mappings.framebuffer =
+        Mapping::FixedAddress(zenos_kernel::memory::constants::KERNEL_FB_MAPPINGS);
     config
 };
 
@@ -130,6 +132,13 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         let (e, s) = pinit.prepare_run().unwrap();
         (e, s, pinit.pid)
     };
+
+    // Tell the scheduler which process is currently running
+    {
+        let mut sched = zenos_kernel::process::SCHEDULER.lock();
+        sched.set_current(pid);
+    }
+
     kprintln!("process loaded, pid: {}", pid);
     zenos_kernel::process::enter_user_mode(entry, stack);
 }

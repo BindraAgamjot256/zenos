@@ -1,22 +1,20 @@
 pub(crate) mod file_handles;
-mod isolation;
-mod scheduler;
+pub(crate) mod isolation;
+pub(crate) mod scheduler;
 
-use crate::disk::FS;
-use crate::disk::FileError;
-use crate::disk::vfs::{File, SeekFrom};
-use crate::percpu::PerCpuVar;
-use crate::process::file_handles::{FileHandle, FileOpenOptions, Stderr, Stdin, Stdout};
-use crate::process::isolation::create_cr3_from_current_page_tables;
-use crate::process::scheduler::Scheduler;
+pub use crate::process::scheduler::Scheduler;
 use crate::{
+    disk::FS,
+    disk::FileError,
+    disk::vfs::{File, SeekFrom},
     interrupts::gdt::GDT,
     kprintln,
     memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},
     percpu::PerCpuData,
+    percpu::PerCpuVar,
+    process::file_handles::{FileHandle, FileOpenOptions, Stderr, Stdin, Stdout},
 };
-use alloc::boxed::Box;
-use alloc::{string::String, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use core::{
     arch::asm,
     mem::offset_of,
@@ -25,29 +23,50 @@ use core::{
 use hashbrown::HashMap;
 use log::{error, info, trace, warn};
 use spin::{Lazy, Mutex};
-use x86_64::instructions::tlb::flush_all;
-use x86_64::registers::control::Cr3;
-use x86_64::structures::paging::PhysFrame;
-use x86_64::{PhysAddr, VirtAddr, structures::paging::PageTableFlags};
+use x86_64::{
+    PhysAddr, VirtAddr, instructions::tlb::flush_all, registers::control::Cr3,
+    structures::paging::PageTableFlags, structures::paging::PhysFrame,
+};
 use xmas_elf::{ElfFile, header::Type as ElfType, program, program::Type as PhType};
 
 // Choose a default userspace base for PIE/ET_DYN binaries
 const DEFAULT_USER_BASE: u64 = 0x0000_0000_0040_0000; // 4 MiB, away from the null page(0x0)
 const ELF_ADDR: u64 = 0x1000000 + KERNEL_BASE;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessStatus {
+    /// Process is currently running on a CPU
+    Running,
+    /// Process is ready to run
+    Ready,
+    /// Process has not been prepared yet
+    Created,
+    /// Process has exited
+    Exited,
+}
+
+impl Default for ProcessStatus {
+    fn default() -> Self {
+        ProcessStatus::Created
+    }
+}
+
 #[derive(Debug)]
 pub struct Process {
     pub pid: u64,
-    parent_pid: u64,
-    name: String,
-    state: ProcessState,
-    cr3: PhysAddr,
-    end: u64,
-    entry_point: u64,
-    file_handles: HashMap<u32, FileHandle>,
-    // Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
-    load_bias: u64,
-    loaded: bool,
+    pub parent_pid: u64,
+    pub name: String,
+    pub state: ProcessState,
+    pub status: ProcessStatus,
+    pub cr3: PhysAddr,
+    pub end: u64,
+    pub entry_point: u64,
+    pub file_handles: HashMap<u32, FileHandle>,
+    /// Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
+    pub load_bias: u64,
+    pub loaded: bool,
+    /// User stack top (saved for context switches)
+    pub user_stack_top: u64,
 }
 impl Eq for Process {}
 impl PartialEq for Process {
@@ -58,8 +77,6 @@ impl PartialEq for Process {
 
 impl Process {
     fn new(parent: &Process, name: String) -> Self {
-        let cr3 = unsafe { create_cr3_from_current_page_tables() };
-
         let pid = NEXT_PID.load(Ordering::Acquire);
         let load_bias = 0;
         let mut file_handles = HashMap::new();
@@ -78,17 +95,41 @@ impl Process {
         let p = Process {
             pid,
             parent_pid: parent.pid,
-            state: ProcessState::new(),
+            state: ProcessState::default(),
+            status: ProcessStatus::Created,
             name,
             load_bias,
             end: 0,
             entry_point: 0,
-            cr3,
+            cr3: Cr3::read().0.start_address(),
             file_handles,
             loaded: false,
+            user_stack_top: 0,
         };
         NEXT_PID.store(pid + 1, Ordering::Release);
         p
+    }
+
+    /// Create a child process by forking from a parent
+    /// Returns the child process with cloned address space and state
+    pub fn fork_from(parent: &Process, child_state: ProcessState) -> Result<Self, ()> {
+        use crate::process::isolation::clone_address_space;
+
+        // Deep copy the parent's address space (all user pages are copied)
+        let child_cr3 =
+            unsafe { clone_address_space() }.map_err(|_| error!("Failed to clone child cr3"))?;
+
+        // Create child process and copy parent's metadata
+        let mut p = Process::new(parent, parent.name.clone());
+        p.cr3 = child_cr3;
+        p.state = child_state;
+        p.load_bias = parent.load_bias;
+        p.end = parent.end;
+        p.entry_point = parent.entry_point;
+        p.user_stack_top = parent.user_stack_top;
+        p.loaded = true; // Already loaded via cloned address space
+        p.status = ProcessStatus::Ready;
+        Ok(p)
     }
 
     pub fn load(&mut self, bytes: &[u8]) {
@@ -244,32 +285,56 @@ impl Process {
             CURRENT_PID.write(self.pid);
         }
 
-        let max_end = self.end;
+        // Only allocate stack if not already allocated
+        if self.user_stack_top == 0 {
+            let max_end = self.end;
 
-        let stack_gap = 0x20_000; // 128 KiB gap above image
-        let stack_size = 0x4000; // 16 KiB user stack
-        let user_stack_top =
-            (self.load_bias + max_end + stack_gap + (PAGE_4K as u64 - 1)) & !((PAGE_4K as u64) - 1);
+            let stack_gap = 0x20_000; // 128 KiB gap above image
+            let stack_size = 0x4000; // 16 KiB user stack
+            let user_stack_top = (self.load_bias + max_end + stack_gap + (PAGE_4K as u64 - 1))
+                & !((PAGE_4K as u64) - 1);
 
-        info!(
-            "Allocating user stack: max_end={:#x}, stack_top={:#x}, stack_size={:#x}",
-            max_end, user_stack_top, stack_size
-        );
+            info!(
+                "Allocating user stack: max_end={:#x}, stack_top={:#x}, stack_size={:#x}",
+                max_end, user_stack_top, stack_size
+            );
 
-        let stack_start = user_stack_top - stack_size;
-        let mut addr = stack_start;
-        while addr < user_stack_top {
-            info!("Allocating stack page at {:#x}", addr);
-            ualloc_page(VirtAddr::new(addr), PageType::Arbitrary).unwrap();
-            addr += PAGE_4K as u64;
+            let stack_start = user_stack_top - stack_size;
+            let mut addr = stack_start;
+            while addr < user_stack_top {
+                info!("Allocating stack page at {:#x}", addr);
+                ualloc_page(VirtAddr::new(addr), PageType::Arbitrary).unwrap();
+                addr += PAGE_4K as u64;
+            }
+
+            self.user_stack_top = user_stack_top;
+            self.state.rip = self.entry_point + self.load_bias;
+            self.state.rsp = user_stack_top;
         }
 
-        self.state.rip = self.entry_point + self.load_bias;
-        let user_stack = user_stack_top;
+        let user_stack = self.state.rsp;
         let user_entry = self.state.rip;
+
+        self.status = ProcessStatus::Running;
 
         info!("Prepared process: {}", self.name);
         Some((user_entry, user_stack))
+    }
+
+    /// Save CPU context into this process (called from timer interrupt)
+    pub fn save_context(&mut self, ctx: &ProcessState) {
+        self.state = *ctx;
+        self.status = ProcessStatus::Ready;
+    }
+
+    /// Get the saved context for resuming
+    pub fn get_context(&self) -> &ProcessState {
+        &self.state
+    }
+
+    /// Get CR3 for this process
+    pub fn get_cr3(&self) -> PhysAddr {
+        self.cr3
     }
     pub(crate) fn get_file_handle(&mut self, fd: u64) -> Option<&mut FileHandle> {
         self.file_handles.get_mut(&(fd as u32))
@@ -366,147 +431,51 @@ pub fn switch_to(process: &Process) {
         enter_user_mode(entry, stack);
     }
 }
+/// CPU context saved during interrupt/context switch
+/// Must match the layout expected by the assembly timer handler
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Default)]
+pub struct ProcessState {
+    // General purpose registers (saved by assembly handler)
+    pub rax: u64,
+    pub rbx: u64,
+    pub rcx: u64,
+    pub rdx: u64,
+    pub rsi: u64,
+    pub rdi: u64,
+    pub rbp: u64,
+    pub rsp: u64,
+    pub r8: u64,
+    pub r9: u64,
+    pub r10: u64,
+    pub r11: u64,
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
+    // Instruction pointer and flags (from interrupt frame)
+    pub rip: u64,
+    pub rflags: u64,
+    pub cs: u64,
+    pub ss: u64,
+    // FPU/SSE state
+    pub fxsave: FxSaveArea,
+}
 
 #[repr(align(16))]
 #[derive(Clone, Copy, Debug)]
-struct FxSaveArea {
-    data: [u8; 512],
+pub struct FxSaveArea {
+    _data: [u8; 512],
 }
-
 impl Default for FxSaveArea {
     fn default() -> Self {
-        Self::new()
+        FxSaveArea::new()
     }
 }
 
 impl FxSaveArea {
-    fn new() -> Self {
-        FxSaveArea { data: [0; 512] }
-    }
-
-    unsafe fn save(&mut self) {
-        asm!(
-        "fxsave [{}]",
-        in(reg) self,
-        options(nostack, preserves_flags)
-        );
-    }
-
-    unsafe fn load(&self) {
-        asm!(
-        "fxrstor [{}]",
-        in(reg) self,
-        options(nostack, preserves_flags)
-        );
-    }
-}
-
-#[derive(Default, Clone, Copy, Debug)]
-struct ProcessState {
-    rax: u64,
-    rbx: u64,
-    rcx: u64,
-    rdx: u64,
-    rsi: u64,
-    rdi: u64,
-    rbp: u64,
-    rsp: u64,
-    rip: u64,
-    rflags: u64,
-    cs: u64,
-    ds: u64,
-    es: u64,
-    fs: u64,
-    gs: u64,
-    ss: u64,
-    fxsave: FxSaveArea,
-}
-
-impl ProcessState {
-    fn new() -> Self {
-        ProcessState {
-            rax: 0,
-            rbx: 0,
-            rcx: 0,
-            rdx: 0,
-            rsi: 0,
-            rdi: 0,
-            rbp: 0,
-            rsp: 0,
-            rip: 0,
-            rflags: 0,
-            cs: 0,
-            ds: 0,
-            es: 0,
-            fs: 0,
-            gs: 0,
-            ss: 0,
-            fxsave: Default::default(),
-        }
-    }
-
-    unsafe fn cpy_regs(&mut self) {
-        // general purpose registers
-        asm!(
-        "mov {}, rax",
-        "mov {}, rbx",
-        "mov {}, rcx",
-        "mov {}, rdx",
-        "mov {}, rsi",
-        "mov {}, rdi",
-        "mov {}, rbp",
-        "mov {}, rsp",
-        "pushfq",
-        "pop {}",
-        "mov {}, cs",
-        "mov {}, ds",
-        "mov {}, es",
-        "mov {}, fs",
-        "mov {}, gs",
-        "mov {}, ss",
-        out(reg) self.rax,
-        out(reg) self.rbx,
-        out(reg) self.rcx,
-        out(reg) self.rdx,
-        out(reg) self.rsi,
-        out(reg) self.rdi,
-        out(reg) self.rbp,
-        out(reg) self.rsp,
-        out(reg) self.rflags,
-        out(reg) self.cs,
-        out(reg) self.ds,
-        out(reg) self.es,
-        out(reg) self.fs,
-        out(reg) self.gs,
-        out(reg) self.ss,
-        );
-
-        // save FPU/SSE state
-        self.fxsave.save();
-    }
-
-    unsafe fn load_regs(&self) {
-        asm!(
-        "mov rax, {}",
-        "mov rbx, {}",
-        "mov rcx, {}",
-        "mov rdx, {}",
-        "mov rsi, {}",
-        "mov rdi, {}",
-        "mov rbp, {}",
-        "mov rsp, {}",
-        in(reg) self.rax,
-        in(reg) self.rbx,
-        in(reg) self.rcx,
-        in(reg) self.rdx,
-        in(reg) self.rsi,
-        in(reg) self.rdi,
-        in(reg) self.rbp,
-        in(reg) self.rsp,
-        );
-
-        // restore FPU/SSE state
-        self.fxsave.load();
+    pub const fn new() -> Self {
+        FxSaveArea { _data: [0; 512] }
     }
 }
 
@@ -575,13 +544,15 @@ pub fn init_process() -> &'static [u8] {
         pid: 0,
         parent_pid: u64::MAX,
         state: ProcessState::default(),
-        name: String::from("init"),
+        status: ProcessStatus::Created,
+        name: String::from("/bin/init"),
         end: 0,
         entry_point: 0,
         load_bias,
         cr3: cr3.start_address(),
         file_handles,
         loaded: false,
+        user_stack_top: 0,
     };
     PROCESSES.lock().push(process);
     buf
@@ -599,7 +570,17 @@ fn get_len(file: &mut dyn File) -> Result<u64, ()> {
     Ok(end)
 }
 static CURRENT_PID: PerCpuVar<u64> = PerCpuVar::new(offset_of!(PerCpuData, curr_pid));
-static SCHEDULER: Lazy<Mutex<Scheduler>> = Lazy::new(|| Mutex::new(Scheduler::new()));
+pub static SCHEDULER: Lazy<Mutex<Scheduler>> = Lazy::new(|| Mutex::new(Scheduler::new()));
+
+/// Get the current process PID
+pub fn current_pid() -> u64 {
+    unsafe { CURRENT_PID.read() }
+}
+
+/// Set the current process PID
+pub fn set_current_pid(pid: u64) {
+    unsafe { CURRENT_PID.write(pid) }
+}
 
 // Helper to choose a per-process load bias for PIC/PIE binaries
 fn compute_load_bias(elf: &ElfFile) -> u64 {
@@ -617,7 +598,7 @@ mod tests {
 
     #[zenos_macros::test]
     pub fn test_process_state_new() -> Option<()> {
-        let state = ProcessState::new();
+        let state = ProcessState::default();
         assert_eq!(state.rax, 0);
         assert_eq!(state.rip, 0);
         Some(())
@@ -640,15 +621,19 @@ mod tests {
             rdx: 0,
             rsi: 0,
             rdi: 0,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
             rbp: 0,
             rsp: 0,
             rip: 0x1000,
             rflags: 0,
             cs: 0,
-            ds: 0,
-            es: 0,
-            fs: 0,
-            gs: 0,
             ss: 0,
             fxsave: Default::default(),
         };
@@ -656,18 +641,12 @@ mod tests {
         assert_eq!(state1.rax, state2.rax);
         assert_eq!(state1.rip, state2.rip);
         assert_eq!(state1.rflags, state2.rflags);
-        assert_eq!(state1.cs, state2.cs);
-        assert_eq!(state1.ds, state2.ds);
-        assert_eq!(state1.es, state2.es);
-        assert_eq!(state1.fs, state2.fs);
-        assert_eq!(state1.gs, state2.gs);
-        assert_eq!(state1.ss, state2.ss);
         Some(())
     }
 
     #[zenos_macros::test]
     pub fn test_process_state_all_registers_zero() -> Option<()> {
-        let state = ProcessState::new();
+        let state = ProcessState::default();
         assert_eq!(state.rax, 0);
         assert_eq!(state.rbx, 0);
         assert_eq!(state.rcx, 0);
@@ -682,22 +661,10 @@ mod tests {
     }
 
     #[zenos_macros::test]
-    pub fn test_process_state_segment_registers_zero() -> Option<()> {
-        let state = ProcessState::new();
-        assert_eq!(state.cs, 0);
-        assert_eq!(state.ds, 0);
-        assert_eq!(state.es, 0);
-        assert_eq!(state.fs, 0);
-        assert_eq!(state.gs, 0);
-        assert_eq!(state.ss, 0);
-        Some(())
-    }
-
-    #[zenos_macros::test]
     pub fn test_fxsave_area_default() -> Option<()> {
         let fx = FxSaveArea::default();
         // FxSave area should be zero-initialized
-        for byte in fx.data.iter() {
+        for byte in fx._data.iter() {
             assert_eq!(*byte, 0);
         }
         Some(())

@@ -1,4 +1,5 @@
 use crate::disk::vfs::File;
+use crate::kprint;
 use crate::syscall::copy_from_user;
 use crate::syscall::errors::{EBADF, EFAULT, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
@@ -23,7 +24,7 @@ fn write(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     };
 
     match write_inner(&buf, fd) {
-        Ok(n) => n as u64,
+        Ok(n) => n,
         Err(errno) => errno,
     }
 }

@@ -86,6 +86,7 @@ pub mod constants {
     pub const KERNEL_BASE: u64 = 0xFFFF_8000_5000_0000;
     pub const KERNEL_STACK_BASE: u64 = 0xFFFF_8001_0000_0000;
     pub const KERNEL_CR3_SCRATCH: u64 = 0xFFFF_FFFF_0000_0000;
+    pub const KERNEL_FB_MAPPINGS: u64 = HIGHER_HALF_BASE + 0xFFF_0000_0000;
 }
 
 pub(crate) struct PageAllocator {
@@ -431,35 +432,6 @@ impl PageAllocator {
             node_opt = node.next;
         }
         Err(MapErr::NotMapped)
-    }
-    pub(crate) fn get_first_free_phys(&self) -> Result<PhysAddr, MapErr> {
-        let _guard = self.lock.lock();
-
-        let mut node_opt = self.head;
-        while let Some(node_ptr) = node_opt {
-            let node = unsafe { node_ptr.as_ref() };
-            let bitmap = unsafe { node.map.as_ref() };
-
-            for (word_idx, word) in bitmap.iter().enumerate() {
-                let val = word.load(Ordering::Acquire);
-
-                if val != 0 {
-                    // Find the first set bit (1 = free page)
-                    let bit = val.trailing_zeros() as usize;
-
-                    // Safety check — trailing_zeros might point past the end of a region if last word is partial
-                    let page_index = word_idx * 64 + bit;
-                    if page_index < node.region_size / PAGE_4K {
-                        let addr = node.base_phys + (page_index * PAGE_4K) as u64;
-                        return Ok(PhysAddr::new(addr));
-                    }
-                }
-            }
-
-            node_opt = node.next;
-        }
-
-        Err(MapErr::OutOfMemory)
     }
 }
 
@@ -1001,14 +973,6 @@ pub(crate) mod tests {
 
         let none_left = alloc.alloc(PageSize::Size4KiB, None);
         test_assert!(none_left.is_none());
-        Some(())
-    }
-
-    #[zenos_macros::test]
-    pub fn test_get_first_free_phys() -> Option<()> {
-        let alloc = make_allocator();
-        let first = alloc.get_first_free_phys();
-        test_assert!(first.is_ok());
         Some(())
     }
 
