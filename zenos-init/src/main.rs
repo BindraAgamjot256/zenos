@@ -12,6 +12,7 @@ unsafe extern "C" {
     fn read(fd: i32, buf: *mut u8, count: usize) -> isize;
     fn write(fd: i32, buf: *const u8, count: usize) -> isize;
     fn lseek(fd: i32, offset: isize, whence: i32) -> isize;
+    fn fork() -> i64;
 }
 
 // Console writer for println
@@ -19,8 +20,9 @@ struct Console;
 
 impl Write for Console {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        unsafe {
-            write(1, s.as_ptr(), s.len());
+        let err = unsafe { write(1, s.as_ptr(), s.len()) };
+        if err < 0 {
+            return Err(fmt::Error);
         }
         Ok(())
     }
@@ -68,13 +70,14 @@ _start:
     ud2
 "#
 );
+
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> ! {
     // File test
     let path = "/chksum.txt\0";
     let fd = unsafe { open(path.as_ptr(), FileOpenOptions::all().bits() as i32) };
 
-    if fd != -1 {
+    if fd >= 0 {
         // Move cursor back to start of file
         unsafe { lseek(fd, 0, 0) };
         let msg = "hello, world\n";
@@ -107,7 +110,7 @@ pub extern "C" fn main() -> ! {
                 core::str::from_utf8(&buffer[..read_len as usize]).unwrap_or("?")
             );
         } else {
-            panic!("file_read failed. reality is pain");
+            panic!("file_read failed. reality is pain, err:{}", -read_len);
         }
         let ret = unsafe { close(fd) };
         if ret != 0 {
@@ -115,7 +118,7 @@ pub extern "C" fn main() -> ! {
         }
         println!("File closed.")
     } else {
-        println!("file_open failed. reality is pain");
+        println!("file_open failed. reality is pain, err:{}", -fd);
     }
     let mut stdin_buf = [0u8; 64];
     let ret = unsafe { read(0, stdin_buf.as_mut_ptr(), stdin_buf.len()) };
@@ -128,5 +131,17 @@ pub extern "C" fn main() -> ! {
     } else {
         println!("stdin read failed. reality is pain");
     }
-    panic!();
+    let err = unsafe { fork() };
+    if err > 0 {
+        // Parent
+        println!("Hello from the parent process! Child PID: {}", err);
+        loop {}
+    } else if err == 0 {
+        // Child
+        println!("Hello from the child process!, fork returned: {}", err);
+        loop {}
+    } else {
+        println!("Fork failed with error code: {}", err);
+    }
+    unreachable!()
 }

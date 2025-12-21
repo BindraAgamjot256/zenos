@@ -1,8 +1,10 @@
 #![allow(unused_assignments)]
 mod close;
 mod errors;
+mod fork;
 mod lseek;
 mod open;
+mod pause;
 mod read;
 mod table;
 mod write;
@@ -10,6 +12,7 @@ mod write;
 use crate::{
     interrupts::gdt::GDT,
     memory::{PAGE_4K, virt_to_phys},
+    process::{PROCESSES, ProcessState, current_pid},
 };
 use alloc::vec;
 use alloc::vec::Vec;
@@ -18,78 +21,162 @@ use core::ptr;
 use log::{debug, info};
 use x86_64::VirtAddr;
 
+use crate::process::FxSaveArea;
 use core::arch::global_asm;
 
+// Syscall entry that saves full register state for fork() support
+// On syscall entry: RCX = user RIP, R11 = user RFLAGS, RAX = syscall number
 global_asm!(
     r#"
 .global syscall_entry
 syscall_entry:
     swapgs
-    mov gs:[0x18], rsp
-    mov rsp, gs:[0x10]
+    mov gs:[0x18], rsp          // Save user RSP to scratch[0]
+    mov rsp, gs:[0x10]          // Switch to kernel stack
 
-    push gs:[0x18]
-    push r11
-    push rcx
+    // Build a SyscallFrame on the stack (must match SyscallFrame struct layout)
+    // Push in reverse order of struct fields
+    push gs:[0x18]              // user_rsp
+    push r11                    // user_rflags (saved by syscall instruction)
+    push rcx                    // user_rip (saved by syscall instruction)
+    push r15
+    push r14
+    push r13
+    push r12
+    push r11                    // r11 (clobbered, but save original from above)
+    push r10
     push r9
     push r8
-    push r10
-    push rdx
-    push rsi
+    push rbp
     push rdi
+    push rsi
+    push rdx
+    push rcx                    // rcx (clobbered, but save original user_rip)
+    push rbx
+    push rax                    // syscall number
 
-    mov rdi, rax
-    mov rsi, [rsp]
-    mov rdx, [rsp+8]
-    mov rcx, [rsp+16]
-    mov r8,  [rsp+24]
-    mov r9,  [rsp+32]
-    push [rsp+40]
-
+    // Pass pointer to SyscallFrame as first argument
+    mov rdi, rsp
+    
     call syscall_main
 
-    add rsp, 8
-
-    pop rdi
-    pop rsi
+    // Restore registers from frame
+    add rsp, 8                  // skip rax (return value is in rax)
+    pop rbx
+    pop rcx
     pop rdx
-    pop r10
+    pop rsi
+    pop rdi
+    pop rbp
     pop r8
     pop r9
-    pop rcx
+    pop r10
     pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
+    pop rcx                     // user_rip -> rcx for sysret
+    pop r11                     // user_rflags -> r11 for sysret
 
     cli
     swapgs
-    pop rsp
+    pop rsp                     // restore user RSP
     sysretq
 "#
 );
 
+/// Syscall frame saved by assembly entry point
+/// Layout must match the push order in syscall_entry assembly
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct SyscallFrame {
+    pub rax: u64, // syscall number
+    pub rbx: u64,
+    pub rcx: u64, // clobbered by syscall, contains user_rip
+    pub rdx: u64,
+    pub rsi: u64,
+    pub rdi: u64,
+    pub rbp: u64,
+    pub r8: u64,
+    pub r9: u64,
+    pub r10: u64,
+    pub r11: u64, // clobbered by syscall, contains user_rflags
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
+    pub user_rip: u64,
+    pub user_rflags: u64,
+    pub user_rsp: u64,
+}
+
 unsafe extern "C" {
     pub fn syscall_entry();
+}
+
+/// Convert a SyscallFrame to a ProcessState for fork support
+impl SyscallFrame {
+    pub fn to_process_state(&self) -> ProcessState {
+        ProcessState {
+            rax: self.rax,
+            rbx: self.rbx,
+            rcx: self.rcx,
+            rdx: self.rdx,
+            rsi: self.rsi,
+            rdi: self.rdi,
+            rbp: self.rbp,
+            rsp: self.user_rsp,
+            r8: self.r8,
+            r9: self.r9,
+            r10: self.r10,
+            r11: self.r11,
+            r12: self.r12,
+            r13: self.r13,
+            r14: self.r14,
+            r15: self.r15,
+            rip: self.user_rip,
+            rflags: self.user_rflags,
+            cs: (GDT.user_code_segment.0 | 3) as u64,
+            ss: (GDT.user_data_segment.0 | 3) as u64,
+            fxsave: FxSaveArea::new(),
+        }
+    }
 }
 
 ///
 /// # Safety
 /// one word: Syscall.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn syscall_main(
-    syscall_num: u64,
-    rdi: u64,
-    rsi: u64,
-    rdx: u64,
-    r10: u64,
-    r8: u64,
-    r9: u64,
-) -> u64 {
-    let mut ret = 0;
+pub unsafe extern "C" fn syscall_main(frame: *mut SyscallFrame) -> u64 {
+    let frame = unsafe { &*frame };
+    let syscall_num = frame.rax;
+    let rdi = frame.rdi;
+    let rsi = frame.rsi;
+    let rdx = frame.rdx;
+    let r10 = frame.r10;
+    let r8 = frame.r8;
+    let r9 = frame.r9;
 
-    debug!("syscall num: {}", syscall_num);
+    let curr_pid = unsafe { (*crate::percpu::get_percpu_data()).curr_pid };
+
+    debug!("syscall num: {} (pid={})", syscall_num, curr_pid);
     debug!(
         "args: rdi={:#x}, rsi={:#x}, rdx={:#x}, r10={:#x}, r8={:#x}, r9={:#x}",
         rdi, rsi, rdx, r10, r8, r9
     );
+    info!("percpu data ptr: {:#?}", *crate::percpu::get_percpu_data());
+
+    // Update current process state from syscall frame (needed for fork)
+    {
+        let pid = current_pid();
+        let mut procs = PROCESSES.lock();
+        if let Some(proc) = procs.iter_mut().find(|p| p.pid == pid) {
+            proc.state = frame.to_process_state();
+        }
+    }
+
+    let mut ret = 0;
     let syscall = table::SYSCALL_TABLE.deref()[syscall_num as usize];
     if let Some(func) = syscall {
         ret = func(rdi, rsi, rdx, r10, r8, r9);

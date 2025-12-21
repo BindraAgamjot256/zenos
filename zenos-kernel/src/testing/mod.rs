@@ -1,5 +1,6 @@
 use crate::serial_print;
 use core::fmt::Debug;
+#[cfg(feature = "run-kunittest")]
 use spin::Lazy;
 
 #[macro_export]
@@ -38,6 +39,8 @@ pub trait Testable {
 
 #[cfg(feature = "run-kunittest")]
 mod tests {
+    #[allow(unused_imports)]
+    use super::*;
     use zenos_macros::test;
     #[test]
     pub fn test_assert_eq_works() -> Option<()> {

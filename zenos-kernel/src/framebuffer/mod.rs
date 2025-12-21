@@ -8,7 +8,6 @@ pub(crate) mod helpers;
 pub(crate) mod macros;
 pub(crate) mod pixel_converter;
 
-use crate::testing::Testable;
 use crate::{
     framebuffer::pixel_converter::PixelConverter,
     framebuffer::pixel_converter::{Bgr888Converter, Gray8Converter, Rgb888Converter},

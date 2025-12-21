@@ -99,7 +99,7 @@ impl File for Stdin {
     }
 }
 
-pub(crate) struct FileHandle {
+pub struct FileHandle {
     descriptor: Box<dyn File>,
     _foo: FileOpenOptions,
 }

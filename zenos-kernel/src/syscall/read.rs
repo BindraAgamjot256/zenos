@@ -1,4 +1,3 @@
-use crate::disk::FileError;
 use crate::disk::vfs::File;
 use crate::syscall::errors::{EBADF, EFAULT, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
@@ -33,6 +32,15 @@ fn read(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 
 fn read_inner(fd: u64, buf: &mut [u8]) -> Result<usize, u64> {
     info!("read_inner called with fd: {}, buf len: {}", fd, buf.len());
+
+    // Handle stdin specially - don't hold the PROCESSES lock while blocking
+    if fd == 0 {
+        let n = crate::hardware::keyboard::read_exact(buf);
+        info!("read_inner read {} bytes from stdin", n);
+        return Ok(n);
+    }
+
+    // For other fds, we need to look up the file handle
     let mut processes = crate::process::PROCESSES.lock();
     let curr_pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
     let process = processes
