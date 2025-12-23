@@ -22,6 +22,9 @@ struct Args {
     debugger: bool,
     #[arg(long, short = 't', default_value = "false", group = "mode")]
     test: bool,
+    /// Build and run the kernel fuzzer
+    #[arg(long, short = 'f', default_value = "false")]
+    fuzz: bool,
 }
 
 fn main() {
@@ -34,7 +37,11 @@ fn main() {
         return;
     }
 
-    build_init(args);
+    if args.fuzz {
+        build_fuzz();
+    } else {
+        build_init(args);
+    }
     let binding = build_kernel(args);
     let kernel_path = binding.as_path();
     let binding = disk_img_builder(kernel_path);
@@ -213,4 +220,46 @@ fn add_files_recursively(
             builder.set_file(relative_path_str, path);
         }
     }
+}
+
+fn build_fuzz() {
+    // Build the fuzzer and place it as iso/bin/init.elf (replaces normal init)
+    let mut cmd = std::process::Command::new("cargo");
+    cmd.arg("+nightly");
+    cmd.arg("build");
+    cmd.arg("-p").arg("zenos-fuzz");
+    #[cfg(not(debug_assertions))]
+    cmd.arg("--release");
+
+    cmd.arg("--target=x86_64-unknown-zenos-user.json");
+    cmd.arg("--bin=zenos-fuzz");
+    cmd.arg("-Z").arg("build-std=core,alloc");
+    cmd.arg("-Z")
+        .arg("build-std-features=compiler-builtins-mem");
+
+    #[cfg(debug_assertions)]
+    cmd.env("RUSTFLAGS", "-Cforce-frame-pointers=yes");
+
+    let status = cmd.status().expect("failed to build fuzzer");
+    if !status.success() {
+        eprintln!("fuzzer build failed with status: {}", status);
+        exit(1);
+    }
+
+    let profile = if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    };
+
+    let fuzz_bin = Path::new("./target/x86_64-unknown-zenos-user")
+        .join(profile)
+        .join("zenos-fuzz");
+
+    let binding = Path::new("iso").join("bin");
+    let out_dir = binding.as_path();
+    std::fs::create_dir_all(out_dir).expect("failed to create iso/bin directory");
+    let out_path = out_dir.join("init.elf");
+    std::fs::copy(&fuzz_bin, &out_path).expect("failed to copy fuzzer as init.elf");
+    println!("Fuzzer installed as init.elf");
 }

@@ -460,7 +460,15 @@ unsafe impl GlobalAlloc for LockedAllocator {
             }
 
             let allocator = &self.slab_allocator;
-            allocator.as_mut_unchecked().alloc(layout)
+            let ptr = allocator.as_mut_unchecked().alloc(layout);
+            if ptr.is_null() {
+                let ptr = self.large_allocator.lock().allocate_first_fit(layout);
+                if ptr.is_err() {
+                    return core::ptr::null_mut();
+                }
+                return ptr.unwrap().as_ptr();
+            }
+            ptr
         })
     }
 

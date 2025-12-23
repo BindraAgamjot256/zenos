@@ -177,7 +177,12 @@ pub unsafe extern "C" fn syscall_main(frame: *mut SyscallFrame) -> u64 {
     }
 
     let mut ret = 0;
-    let syscall = table::SYSCALL_TABLE.deref()[syscall_num as usize];
+    let table = table::SYSCALL_TABLE.deref();
+    if syscall_num >= table.len() as u64 {
+        info!("invalid syscall number: {}", syscall_num);
+        return (-errors::ENOSYS) as u64;
+    }
+    let syscall = table[syscall_num as usize];
     if let Some(func) = syscall {
         ret = func(rdi, rsi, rdx, r10, r8, r9);
     } else {
@@ -224,10 +229,19 @@ pub(crate) fn user_range_is_mapped(user_ptr: *const u8, len: usize) -> bool {
     // Walk each 4 KiB page in the range and ensure it has a valid mapping.
     let mut addr = start & !(PAGE_4K as u64 - 1);
     while addr < end {
-        if virt_to_phys(VirtAddr::new(addr)).is_none() {
+        let virt = match VirtAddr::try_new(addr) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+
+        if virt_to_phys(virt).is_none() {
             return false;
         }
-        addr += PAGE_4K as u64;
+
+        addr = match addr.checked_add(PAGE_4K as u64) {
+            Some(v) => v,
+            None => return false,
+        };
     }
 
     true

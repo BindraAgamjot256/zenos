@@ -8,32 +8,37 @@ use core::ffi::CStr;
 use log::{debug, info};
 use zenos_macros::syscall;
 
+const MAX_PATH_LEN: usize = 4096;
+
 #[syscall(2)]
 fn open(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
-    // open(path, flags)
-    let buf_ptr = rdi;
-    let foo = FileOpenOptions::from_bits_truncate(rsi);
+    let user_ptr = rdi as *const u8;
+    let flags = FileOpenOptions::from_bits_truncate(rsi);
 
-    debug!("syscall open: buf={:#x}", buf_ptr);
+    debug!("syscall open: buf={:#x}", user_ptr as usize);
 
-    let cstr = unsafe { CStr::from_ptr(buf_ptr as *const i8) };
-    let buf = match copy_from_user(
-        cstr.to_bytes_with_nul().as_ptr() as *mut u8,
-        cstr.to_bytes_with_nul().len(),
-    ) {
+    // Step 1: copy a user-space path into kernel buffer
+    let buf = match copy_from_user(user_ptr, MAX_PATH_LEN) {
         Ok(b) => b,
         Err(_) => return (-EFAULT) as u64,
     };
 
-    let file_name = match CStr::from_bytes_with_nul(&buf) {
-        Ok(c) => match c.to_str() {
-            Ok(s) => s,
-            Err(_) => return (-EINVAL) as u64,
-        },
+    // Step 2: find the NUL terminator
+    let path_len = match buf.iter().position(|&c| c == 0) {
+        Some(pos) => pos,
+        None => return (-EINVAL) as u64,
+    };
+
+    // Step 3: convert to Rust str
+    let file_name = match str::from_utf8(&buf[..path_len]) {
+        Ok(s) => s,
         Err(_) => return (-EINVAL) as u64,
     };
 
-    match open_inner(file_name, foo) {
+    debug!("open syscall: filename='{}', flags={:?}", file_name, flags);
+
+    // Step 4: delegate to inner function
+    match open_inner(file_name, flags) {
         Ok(fd) => {
             info!("Opened file '{}' with fd {}", file_name, fd);
             fd
@@ -46,7 +51,7 @@ pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u
     let fs = FS.lock();
     let mut root = fs.root_dir().map_err(|e| file_error_to_errno(&e))?;
 
-    // Try to open the file
+    // Try to open the file, create if necessary
     match root.open_file(file_name) {
         Ok(_) => {}
         Err(FileError::NotFound) => {
@@ -61,10 +66,11 @@ pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u
         Err(e) => return Err(file_error_to_errno(&e)),
     }
 
-    let the_box = root
+    let file_handle = root
         .open_file(file_name)
         .map_err(|e| file_error_to_errno(&e))?;
 
+    // Add file handle to the current process
     let fd = {
         let mut processes = crate::process::PROCESSES.lock();
         let curr_pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
@@ -73,8 +79,9 @@ pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u
             .find(|p| p.pid == curr_pid)
             .ok_or((-ESRCH) as u64)?;
         process
-            .add_file_handle(the_box, foo)
+            .add_file_handle(file_handle, foo)
             .map_err(|_| (-EMFILE) as u64)?
     };
+
     Ok(fd)
 }
