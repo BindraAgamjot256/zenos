@@ -7,12 +7,13 @@ use core::arch::global_asm;
 use core::fmt::{self, Write};
 
 unsafe extern "C" {
-    fn open(path: *const u8, flags: i32) -> i32;
-    fn close(fd: i32) -> i32;
-    fn read(fd: i32, buf: *mut u8, count: usize) -> isize;
-    fn write(fd: i32, buf: *const u8, count: usize) -> isize;
-    fn lseek(fd: i32, offset: isize, whence: i32) -> isize;
+    fn open(path: *const u8, flags: u64) -> isize;
+    fn close(fd: u64) -> u64;
+    fn read(fd: u64, buf: *mut u8, count: usize) -> isize;
+    fn write(fd: u64, buf: *const u8, count: usize) -> isize;
+    fn lseek(fd: u64, offset: isize, whence: u64) -> isize;
     fn fork() -> i64;
+    fn execve(path: *const u8, argv: *const *const u8, envp: *const *const u8) -> i64;
 }
 
 // Console writer for println
@@ -43,13 +44,24 @@ macro_rules! println {
 }
 
 bitflags! {
-    #[derive(Default, Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy)]
     pub struct FileOpenOptions: u64 {
-        const READ = 0b0001;
-        const WRITE = 0b0010;
-        const CREATE = 0b0100;
-        const TRUNCATE = 0b1000;
+        // Access modes (mutually exclusive)
+        const READ_ONLY  = 0; // O_RDONLY
+        const WRITE_ONLY = 1; // O_WRONLY
+        const READ_WRITE = 2; // O_RDWR
+
+        // Flags
+        const CREATE        = 0o100;      // O_CREAT
+        const EXCLUSIVE     = 0o200;      // O_EXCL
+        const NOCTTY        = 0o400;      // O_NOCTTY
+        const TRUNCATE      = 0o1000;     // O_TRUNC
+        const APPEND        = 0o2000;     // O_APPEND
+        const NONBLOCK      = 0o4000;     // O_NONBLOCK
+        const SYNC          = 0o10000;    // O_SYNC
+        const CLOSE_ON_EXEC = 0o2000000;  // O_CLOEXEC
     }
+
 }
 
 #[panic_handler]
@@ -75,10 +87,16 @@ _start:
 pub extern "C" fn main() -> ! {
     // File test
     let path = "/chksum.txt\0";
-    let fd = unsafe { open(path.as_ptr(), FileOpenOptions::all().bits() as i32) };
+    let fd = unsafe {
+        open(
+            path.as_ptr(),
+            (FileOpenOptions::CREATE | FileOpenOptions::READ_WRITE).bits(),
+        )
+    };
 
     if fd >= 0 {
         // Move cursor back to start of file
+        let fd = fd as u64;
         unsafe { lseek(fd, 0, 0) };
         let msg = "hello, world\n";
         unsafe { write(fd, msg.as_ptr(), msg.len()) };
@@ -118,7 +136,7 @@ pub extern "C" fn main() -> ! {
         }
         println!("File closed.")
     } else {
-        println!("file_open failed. reality is pain, err:{}", -fd);
+        println!("file_open failed. reality is pain, err:{}", fd);
     }
     let mut stdin_buf = [0u8; 64];
     let ret = unsafe { read(0, stdin_buf.as_mut_ptr(), stdin_buf.len()) };
@@ -139,7 +157,14 @@ pub extern "C" fn main() -> ! {
     } else if err == 0 {
         // Child
         println!("Hello from the child process!, fork returned: {}", err);
-        loop {}
+        unsafe {
+            execve(
+                "/bin/fuzz.elf\0".as_ptr(),
+                core::ptr::null(),
+                core::ptr::null(),
+            )
+        };
+        unreachable!()
     } else {
         println!("Fork failed with error code: {}", err);
     }

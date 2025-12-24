@@ -43,6 +43,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use log::{debug, error, trace, warn};
 use plumbing::{
     BiosParameterBlock, FatDirEntry, FatTable, FatType, name_to_8_3, read_cluster, write_cluster,
 };
@@ -63,18 +64,25 @@ pub struct FatFileSystem<D: BlockDevice + 'static> {
 impl<D: BlockDevice + 'static> FatFileSystem<D> {
     /// Mount a FAT filesystem from the given block device.
     pub fn mount(mut device: D) -> Result<Self, FileError> {
+        debug!("FatFileSystem: mounting filesystem");
         // Read boot sector
         let mut boot_sector = [0u8; 512];
-        device
-            .seek(SeekFrom::Start(0))
-            .map_err(|_| FileError::SeekError)?;
-        device
-            .read(&mut boot_sector)
-            .map_err(|_| FileError::ReadError)?;
+        device.seek(SeekFrom::Start(0)).map_err(|e| {
+            error!("FatFileSystem: failed to seek to boot sector: {:?}", e);
+            FileError::SeekError
+        })?;
+        device.read(&mut boot_sector).map_err(|e| {
+            error!("FatFileSystem: failed to read boot sector: {:?}", e);
+            FileError::ReadError
+        })?;
 
         // Parse BPB
-        let bpb = BiosParameterBlock::parse(&boot_sector)?;
+        let bpb = BiosParameterBlock::parse(&boot_sector).map_err(|e| {
+            error!("FatFileSystem: failed to parse BPB: {:?}", e);
+            e
+        })?;
         let fat_type = bpb.fat_type();
+        debug!("FatFileSystem: detected {:?} filesystem", fat_type);
 
         Ok(Self {
             inner: Arc::new(Mutex::new(FatFileSystemInner {
@@ -93,6 +101,7 @@ impl<D: BlockDevice + 'static> FatFileSystem<D> {
 
 impl<D: BlockDevice + 'static> vfs::FileSystem for FatFileSystem<D> {
     fn root_dir(&self) -> Result<Box<dyn vfs::Directory>, FileError> {
+        trace!("FatFileSystem: getting root directory");
         let inner = self.inner.lock();
         let root_cluster = if inner.fat_type == FatType::Fat32 {
             inner.bpb.root_cluster
@@ -121,6 +130,10 @@ unsafe impl<D: BlockDevice + 'static> Sync for FatDirectory<D> {}
 
 impl<D: BlockDevice + 'static> FatDirectory<D> {
     fn read_entries(&mut self) -> Result<Vec<(FatDirEntry, usize)>, FileError> {
+        trace!(
+            "FatDirectory: reading directory entries from cluster {}",
+            self.cluster
+        );
         let mut inner = self.inner.lock();
         let mut entries = Vec::new();
         let bpb = inner.bpb.clone();
@@ -135,14 +148,14 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             let mut buf = vec![0u8; root_dir_size];
             let offset = root_dir_sector as u64 * bpb.bytes_per_sector as u64;
 
-            inner
-                .device
-                .seek(SeekFrom::Start(offset))
-                .map_err(|_| FileError::SeekError)?;
-            inner
-                .device
-                .read(&mut buf)
-                .map_err(|_| FileError::ReadError)?;
+            inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
+                error!("FatDirectory: failed to seek to root dir: {:?}", e);
+                FileError::SeekError
+            })?;
+            inner.device.read(&mut buf).map_err(|e| {
+                error!("FatDirectory: failed to read root dir: {:?}", e);
+                FileError::ReadError
+            })?;
 
             for (i, chunk) in buf.chunks(FatDirEntry::SIZE).enumerate() {
                 if chunk[0] == 0x00 {
@@ -190,6 +203,7 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
     }
 
     fn find_entry(&mut self, name: &str) -> Result<Option<(FatDirEntry, usize)>, FileError> {
+        trace!("FatDirectory: finding entry '{}'", name);
         let entries = self.read_entries()?;
         let target = name.to_uppercase();
 
@@ -203,6 +217,10 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
     }
 
     fn create_entry(&mut self, name: &str, is_dir: bool) -> Result<FatDirEntry, FileError> {
+        debug!(
+            "FatDirectory: creating entry '{}' (is_dir={})",
+            name, is_dir
+        );
         let mut inner = self.inner.lock();
         let bpb = inner.bpb.clone();
         let fat_type = inner.fat_type;
@@ -253,27 +271,33 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             let mut buf = vec![0u8; root_dir_size];
             let offset = root_dir_sector as u64 * bpb.bytes_per_sector as u64;
 
-            inner
-                .device
-                .seek(SeekFrom::Start(offset))
-                .map_err(|_| FileError::SeekError)?;
-            inner
-                .device
-                .read(&mut buf)
-                .map_err(|_| FileError::ReadError)?;
+            inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
+                error!(
+                    "FatDirectory: failed to seek for create_entry read: {:?}",
+                    e
+                );
+                FileError::SeekError
+            })?;
+            inner.device.read(&mut buf).map_err(|e| {
+                error!("FatDirectory: failed to read for create_entry: {:?}", e);
+                FileError::ReadError
+            })?;
 
             // Find free slot
             for (_i, chunk) in buf.chunks_mut(FatDirEntry::SIZE).enumerate() {
                 if chunk[0] == 0x00 || chunk[0] == 0xE5 {
                     chunk.copy_from_slice(&entry_data);
-                    inner
-                        .device
-                        .seek(SeekFrom::Start(offset))
-                        .map_err(|_| FileError::SeekError)?;
-                    inner
-                        .device
-                        .write(&buf)
-                        .map_err(|_| FileError::WriteError)?;
+                    inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
+                        error!(
+                            "FatDirectory: failed to seek for create_entry write: {:?}",
+                            e
+                        );
+                        FileError::SeekError
+                    })?;
+                    inner.device.write(&buf).map_err(|e| {
+                        error!("FatDirectory: failed to write for create_entry: {:?}", e);
+                        FileError::WriteError
+                    })?;
                     return Ok(entry);
                 }
             }
@@ -286,12 +310,24 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             let mut cluster = self.cluster;
 
             loop {
-                read_cluster(&mut inner.device, &bpb, cluster, &mut buf)?;
+                read_cluster(&mut inner.device, &bpb, cluster, &mut buf).map_err(|e| {
+                    error!(
+                        "FatDirectory: failed to read cluster {} for create_entry: {:?}",
+                        cluster, e
+                    );
+                    e
+                })?;
 
                 for chunk in buf.chunks_mut(FatDirEntry::SIZE) {
                     if chunk[0] == 0x00 || chunk[0] == 0xE5 {
                         chunk.copy_from_slice(&entry_data);
-                        write_cluster(&mut inner.device, &bpb, cluster, &buf)?;
+                        write_cluster(&mut inner.device, &bpb, cluster, &buf).map_err(|e| {
+                            error!(
+                                "FatDirectory: failed to write cluster {} for create_entry: {:?}",
+                                cluster, e
+                            );
+                            e
+                        })?;
                         return Ok(entry);
                     }
                 }
@@ -301,13 +337,20 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
                 let next = fat.read_entry(cluster)?;
                 if fat.is_eoc(next) {
                     // Allocate new cluster for directory
-                    let new_dir_cluster = fat.allocate_cluster()?;
+                    let new_dir_cluster = fat.allocate_cluster().map_err(|e| {
+                        error!("FatDirectory: failed to allocate cluster for directory extension: {:?}", e);
+                        e
+                    })?;
                     fat.write_entry(cluster, new_dir_cluster)?;
 
                     // Zero out new cluster and write entry
                     let mut new_buf = vec![0u8; cluster_size];
                     new_buf[0..FatDirEntry::SIZE].copy_from_slice(&entry_data);
                     write_cluster(&mut inner.device, &bpb, new_dir_cluster, &new_buf)?;
+                    debug!(
+                        "FatDirectory: extended directory with new cluster {}",
+                        new_dir_cluster
+                    );
                     return Ok(entry);
                 }
                 cluster = next;
@@ -318,12 +361,18 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
 
 impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
     fn open_file(&mut self, name: &str) -> Result<Box<dyn vfs::File>, FileError> {
-        let (entry, entry_idx) = self.find_entry(name)?.ok_or(FileError::NotFound)?;
+        debug!("FatDirectory: opening file '{}'", name);
+        let (entry, entry_idx) = self.find_entry(name)?.ok_or_else(|| {
+            warn!("FatDirectory: file '{}' not found", name);
+            FileError::NotFound
+        })?;
 
         if entry.is_directory() {
+            warn!("FatDirectory: '{}' is a directory, not a file", name);
             return Err(FileError::InvalidDescriptor);
         }
 
+        trace!("FatDirectory: file '{}' opened successfully", name);
         Ok(Box::new(FatFile::<D> {
             inner: Arc::clone(&self.inner),
             entry,
@@ -335,15 +384,24 @@ impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
     }
 
     fn create_file(&mut self, name: &str) -> Result<Box<dyn vfs::File>, FileError> {
+        debug!("FatDirectory: creating file '{}'", name);
         // Check if already exists
         if self.find_entry(name)?.is_some() {
+            warn!("FatDirectory: file '{}' already exists", name);
             return Err(FileError::AlreadyExists);
         }
 
-        let entry = self.create_entry(name, false)?;
+        let entry = self.create_entry(name, false).map_err(|e| {
+            error!("FatDirectory: failed to create file '{}': {:?}", name, e);
+            e
+        })?;
         // Find the entry index we just created
-        let (_, entry_idx) = self.find_entry(name)?.ok_or(FileError::NotFound)?;
+        let (_, entry_idx) = self.find_entry(name)?.ok_or_else(|| {
+            error!("FatDirectory: failed to find newly created file '{}'", name);
+            FileError::NotFound
+        })?;
 
+        debug!("FatDirectory: file '{}' created successfully", name);
         Ok(Box::new(FatFile::<D> {
             inner: Arc::clone(&self.inner),
             entry,
@@ -355,12 +413,18 @@ impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
     }
 
     fn open_dir(&mut self, name: &str) -> Result<Box<dyn vfs::Directory>, FileError> {
-        let (entry, _) = self.find_entry(name)?.ok_or(FileError::NotFound)?;
+        debug!("FatDirectory: opening directory '{}'", name);
+        let (entry, _) = self.find_entry(name)?.ok_or_else(|| {
+            warn!("FatDirectory: directory '{}' not found", name);
+            FileError::NotFound
+        })?;
 
         if !entry.is_directory() {
+            warn!("FatDirectory: '{}' is not a directory", name);
             return Err(FileError::InvalidDescriptor);
         }
 
+        trace!("FatDirectory: directory '{}' opened successfully", name);
         Ok(Box::new(FatDirectory::<D> {
             inner: Arc::clone(&self.inner),
             cluster: entry.first_cluster(),
@@ -369,13 +433,22 @@ impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
     }
 
     fn create_dir(&mut self, name: &str) -> Result<Box<dyn vfs::Directory>, FileError> {
+        debug!("FatDirectory: creating directory '{}'", name);
         // Check if already exists
         if self.find_entry(name)?.is_some() {
+            warn!("FatDirectory: directory '{}' already exists", name);
             return Err(FileError::AlreadyExists);
         }
 
-        let entry = self.create_entry(name, true)?;
+        let entry = self.create_entry(name, true).map_err(|e| {
+            error!(
+                "FatDirectory: failed to create directory '{}': {:?}",
+                name, e
+            );
+            e
+        })?;
 
+        debug!("FatDirectory: directory '{}' created successfully", name);
         Ok(Box::new(FatDirectory::<D> {
             inner: Arc::clone(&self.inner),
             cluster: entry.first_cluster(),
@@ -384,7 +457,11 @@ impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
     }
 
     fn remove(&mut self, name: &str) -> Result<(), FileError> {
-        let (entry, entry_idx) = self.find_entry(name)?.ok_or(FileError::NotFound)?;
+        debug!("FatDirectory: removing '{}'", name);
+        let (entry, entry_idx) = self.find_entry(name)?.ok_or_else(|| {
+            warn!("FatDirectory: '{}' not found for removal", name);
+            FileError::NotFound
+        })?;
 
         // If directory, check if empty
         if entry.is_directory() {
@@ -403,6 +480,10 @@ impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
                 })
                 .collect();
             if !real_entries.is_empty() {
+                warn!(
+                    "FatDirectory: cannot remove '{}': directory not empty",
+                    name
+                );
                 return Err(FileError::DirectoryNotEmpty);
             }
         }
@@ -412,7 +493,13 @@ impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
             let mut inner = self.inner.lock();
             let bpb = inner.bpb.clone();
             let mut fat = FatTable::new(&mut inner.device, &bpb);
-            fat.free_chain(entry.first_cluster())?;
+            fat.free_chain(entry.first_cluster()).map_err(|e| {
+                error!(
+                    "FatDirectory: failed to free cluster chain for '{}': {:?}",
+                    name, e
+                );
+                e
+            })?;
         }
 
         // Mark directory entry as deleted
@@ -426,14 +513,14 @@ impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
             let offset = root_dir_sector as u64 * bpb.bytes_per_sector as u64
                 + (entry_idx * FatDirEntry::SIZE) as u64;
 
-            inner
-                .device
-                .seek(SeekFrom::Start(offset))
-                .map_err(|_| FileError::SeekError)?;
-            inner
-                .device
-                .write(&[0xE5])
-                .map_err(|_| FileError::WriteError)?;
+            inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
+                error!("FatDirectory: failed to seek for remove: {:?}", e);
+                FileError::SeekError
+            })?;
+            inner.device.write(&[0xE5]).map_err(|e| {
+                error!("FatDirectory: failed to write delete marker: {:?}", e);
+                FileError::WriteError
+            })?;
         } else {
             let cluster_size = bpb.bytes_per_cluster() as usize;
             let entries_per_cluster = cluster_size / FatDirEntry::SIZE;
@@ -448,15 +535,23 @@ impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
             }
 
             let mut buf = vec![0u8; cluster_size];
-            read_cluster(&mut inner.device, &bpb, cluster, &mut buf)?;
+            read_cluster(&mut inner.device, &bpb, cluster, &mut buf).map_err(|e| {
+                error!("FatDirectory: failed to read cluster for remove: {:?}", e);
+                e
+            })?;
             buf[offset_in_cluster] = 0xE5;
-            write_cluster(&mut inner.device, &bpb, cluster, &buf)?;
+            write_cluster(&mut inner.device, &bpb, cluster, &buf).map_err(|e| {
+                error!("FatDirectory: failed to write cluster for remove: {:?}", e);
+                e
+            })?;
         }
 
+        debug!("FatDirectory: '{}' removed successfully", name);
         Ok(())
     }
 
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
+        trace!("FatDirectory: reading directory listing");
         let entries = self.read_entries()?;
         let mut result = Vec::new();
 
@@ -479,6 +574,7 @@ impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
             });
         }
 
+        trace!("FatDirectory: found {} entries", result.len());
         Ok(result)
     }
 }
@@ -502,6 +598,7 @@ unsafe impl<D: BlockDevice + 'static> Sync for FatFile<D> {}
 impl<D: BlockDevice + 'static> FatFile<D> {
     /// Write the current entry back to the directory on disk.
     fn sync_entry(&mut self) -> Result<(), FileError> {
+        trace!("FatFile: syncing entry to disk");
         let mut inner = self.inner.lock();
         let bpb = inner.bpb.clone();
         let fat_type = inner.fat_type;
@@ -515,14 +612,14 @@ impl<D: BlockDevice + 'static> FatFile<D> {
             let offset = root_dir_sector as u64 * bpb.bytes_per_sector as u64
                 + (self.entry_index * FatDirEntry::SIZE) as u64;
 
-            inner
-                .device
-                .seek(SeekFrom::Start(offset))
-                .map_err(|_| FileError::SeekError)?;
-            inner
-                .device
-                .write(&entry_data)
-                .map_err(|_| FileError::WriteError)?;
+            inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
+                error!("FatFile: failed to seek for sync_entry: {:?}", e);
+                FileError::SeekError
+            })?;
+            inner.device.write(&entry_data).map_err(|e| {
+                error!("FatFile: failed to write for sync_entry: {:?}", e);
+                FileError::WriteError
+            })?;
         } else {
             // Cluster-based directory
             let cluster_size = bpb.bytes_per_cluster() as usize;
@@ -538,18 +635,31 @@ impl<D: BlockDevice + 'static> FatFile<D> {
             }
 
             let mut buf = vec![0u8; cluster_size];
-            read_cluster(&mut inner.device, &bpb, cluster, &mut buf)?;
+            read_cluster(&mut inner.device, &bpb, cluster, &mut buf).map_err(|e| {
+                error!("FatFile: failed to read cluster for sync_entry: {:?}", e);
+                e
+            })?;
             buf[offset_in_cluster..offset_in_cluster + FatDirEntry::SIZE]
                 .copy_from_slice(&entry_data);
-            write_cluster(&mut inner.device, &bpb, cluster, &buf)?;
+            write_cluster(&mut inner.device, &bpb, cluster, &buf).map_err(|e| {
+                error!("FatFile: failed to write cluster for sync_entry: {:?}", e);
+                e
+            })?;
         }
 
+        trace!("FatFile: sync_entry complete");
         Ok(())
     }
 }
 impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, FileError> {
+        trace!(
+            "FatFile: read {} bytes at cursor {}",
+            buf.len(),
+            self.cursor
+        );
         if self.cursor >= self.entry.file_size as u64 {
+            trace!("FatFile: cursor at EOF");
             return Ok(0);
         }
 
@@ -581,10 +691,17 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
             && ((self.cursor + bytes_read as u64) < self.entry.file_size as u64)
         {
             if cluster < 2 {
+                warn!("FatFile: unexpected end of cluster chain during read");
                 break;
             }
 
-            read_cluster(&mut inner.device, &bpb, cluster, &mut cluster_buf)?;
+            read_cluster(&mut inner.device, &bpb, cluster, &mut cluster_buf).map_err(|e| {
+                error!(
+                    "FatFile: failed to read cluster {} during file read: {:?}",
+                    cluster, e
+                );
+                e
+            })?;
 
             let remaining_in_cluster = cluster_size as usize - offset_in_cluster;
             let remaining_in_file =
@@ -611,10 +728,16 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
         drop(inner);
 
         self.cursor += bytes_read as u64;
+        trace!("FatFile: read complete, {} bytes read", bytes_read);
         Ok(bytes_read)
     }
 
     fn write(&mut self, buf: &[u8]) -> Result<usize, FileError> {
+        trace!(
+            "FatFile: write {} bytes at cursor {}",
+            buf.len(),
+            self.cursor
+        );
         if buf.is_empty() {
             return Ok(0);
         }
@@ -628,8 +751,12 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
         // Allocate first cluster if needed
         if self.entry.first_cluster() < 2 {
             let mut fat = FatTable::new(&mut inner.device, &bpb);
-            let new_cluster = fat.allocate_cluster()?;
+            let new_cluster = fat.allocate_cluster().map_err(|e| {
+                error!("FatFile: failed to allocate first cluster: {:?}", e);
+                e
+            })?;
             self.entry.set_first_cluster(new_cluster);
+            debug!("FatFile: allocated first cluster {}", new_cluster);
         }
 
         let mut cluster = self.entry.first_cluster();
@@ -655,7 +782,13 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
         while bytes_written < buf.len() {
             // Read existing cluster data for partial writes
             if offset_in_cluster != 0 || buf.len() - bytes_written < cluster_size as usize {
-                read_cluster(&mut inner.device, &bpb, cluster, &mut cluster_buf)?;
+                read_cluster(&mut inner.device, &bpb, cluster, &mut cluster_buf).map_err(|e| {
+                    error!(
+                        "FatFile: failed to read cluster {} for partial write: {:?}",
+                        cluster, e
+                    );
+                    e
+                })?;
             }
 
             let remaining_in_cluster = cluster_size as usize - offset_in_cluster;
@@ -665,7 +798,10 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
             cluster_buf[offset_in_cluster..offset_in_cluster + to_copy]
                 .copy_from_slice(&buf[bytes_written..bytes_written + to_copy]);
 
-            write_cluster(&mut inner.device, &bpb, cluster, &cluster_buf)?;
+            write_cluster(&mut inner.device, &bpb, cluster, &cluster_buf).map_err(|e| {
+                error!("FatFile: failed to write cluster {}: {:?}", cluster, e);
+                e
+            })?;
 
             bytes_written += to_copy;
             offset_in_cluster = 0;
@@ -675,8 +811,15 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
                 let mut fat = FatTable::new(&mut inner.device, &bpb);
                 let next = fat.read_entry(cluster)?;
                 if fat.is_eoc(next) {
-                    let new_cluster = fat.allocate_cluster()?;
+                    let new_cluster = fat.allocate_cluster().map_err(|e| {
+                        error!(
+                            "FatFile: failed to allocate cluster for write extension: {:?}",
+                            e
+                        );
+                        e
+                    })?;
                     fat.write_entry(cluster, new_cluster)?;
+                    trace!("FatFile: extended file with cluster {}", new_cluster);
                     cluster = new_cluster;
                 } else {
                     cluster = next;
@@ -694,10 +837,12 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
             self.sync_entry()?;
         }
 
+        trace!("FatFile: write complete, {} bytes written", bytes_written);
         Ok(bytes_written)
     }
 
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, FileError> {
+        trace!("FatFile: seek {:?} from cursor {}", pos, self.cursor);
         self.cursor = match pos {
             SeekFrom::Start(offset) => offset,
             SeekFrom::End(offset) => {
@@ -715,18 +860,26 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
                 } else {
                     self.cursor
                         .checked_sub(offset.unsigned_abs())
-                        .ok_or(FileError::SeekError)?
+                        .ok_or_else(|| {
+                            warn!("FatFile: seek underflow");
+                            FileError::SeekError
+                        })?
                 }
             }
         };
+        trace!("FatFile: seek complete, new cursor {}", self.cursor);
         Ok(self.cursor)
     }
 
     fn flush(&mut self) -> Result<(), FileError> {
+        trace!("FatFile: flush");
         // Sync directory entry to disk
         self.sync_entry()?;
         let mut inner = self.inner.lock();
-        inner.device.flush().map_err(|_| FileError::WriteError)
+        inner.device.flush().map_err(|e| {
+            error!("FatFile: flush failed: {:?}", e);
+            FileError::WriteError
+        })
     }
 
     fn metadata(&self) -> Result<Metadata, FileError> {

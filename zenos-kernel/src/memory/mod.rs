@@ -828,7 +828,7 @@ pub fn kleak_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
     }
     Ok(())
 }
-static DMA_BASE: AtomicU64 = AtomicU64::new(KERNEL_BASE + 0x200_000);
+static DMA_BASE: AtomicU64 = AtomicU64::new(KERNEL_BASE + 0x1000_0000); // Start DMA allocations at an offset from kernel base
 
 pub fn kalloc_dma_pages(len: usize) -> Result<&'static mut [u8], MapErr> {
     if len == 0 {
@@ -838,7 +838,16 @@ pub fn kalloc_dma_pages(len: usize) -> Result<&'static mut [u8], MapErr> {
     let num_pages = len.div_ceil(PAGE_4K);
     let mut virt_base = DMA_BASE.load(Ordering::SeqCst);
 
-    kalloc_page(VirtAddr::new(virt_base), PageType::Recursive)?;
+    let res = kalloc_page(VirtAddr::new(virt_base), PageType::Arbitrary);
+    if res.is_err() {
+        let err = res.unwrap_err();
+        return if matches!(err, MapErr::OutOfMemory) {
+            DMA_BASE.store(virt_base + PAGE_4K as u64, Ordering::SeqCst);
+            kalloc_dma_pages(len)
+        } else {
+            Err(err)
+        };
+    }
     let first_virt = VirtAddr::new(virt_base);
     virt_base += PAGE_4K as u64;
 

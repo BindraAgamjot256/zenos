@@ -10,6 +10,7 @@ use crate::disk::vfs::SeekFrom;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
+use log::{error, trace};
 
 /// FAT filesystem type variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +48,10 @@ impl BiosParameterBlock {
     /// Parse BPB from the first 512 bytes of the volume.
     pub fn parse(boot_sector: &[u8]) -> Result<Self, FileError> {
         if boot_sector.len() < 512 {
+            error!(
+                "BiosParameterBlock: boot sector too small ({} bytes)",
+                boot_sector.len()
+            );
             return Err(FileError::ReadError);
         }
 
@@ -86,6 +91,11 @@ impl BiosParameterBlock {
             boot_sector[46],
             boot_sector[47],
         ]);
+
+        trace!(
+            "BiosParameterBlock: parsed BPB (bytes_per_sector={}, sectors_per_cluster={})",
+            bytes_per_sector, sectors_per_cluster
+        );
 
         Ok(Self {
             bytes_per_sector,
@@ -342,6 +352,7 @@ impl<'a, D: BlockDevice> FatTable<'a, D> {
 
     /// Read a FAT entry for the given cluster.
     pub fn read_entry(&mut self, cluster: u32) -> Result<u32, FileError> {
+        trace!("FatTable: reading entry for cluster {}", cluster);
         let fat_offset = match self.fat_type {
             FatType::Fat12 => cluster + (cluster / 2),
             FatType::Fat16 => cluster * 2,
@@ -389,11 +400,16 @@ impl<'a, D: BlockDevice> FatTable<'a, D> {
             }
         };
 
+        trace!("FatTable: cluster {} -> entry {:#x}", cluster, entry);
         Ok(entry)
     }
 
     /// Write a FAT entry for the given cluster.
     pub fn write_entry(&mut self, cluster: u32, value: u32) -> Result<(), FileError> {
+        trace!(
+            "FatTable: writing entry {:#x} for cluster {}",
+            value, cluster
+        );
         let fat_offset = match self.fat_type {
             FatType::Fat12 => cluster + (cluster / 2),
             FatType::Fat16 => cluster * 2,
@@ -456,6 +472,7 @@ impl<'a, D: BlockDevice> FatTable<'a, D> {
 
     /// Allocate a new cluster, returning its number.
     pub fn allocate_cluster(&mut self) -> Result<u32, FileError> {
+        trace!("FatTable: allocating new cluster");
         let total_clusters = (self.bpb.total_sectors() - self.bpb.first_data_sector())
             / self.bpb.sectors_per_cluster as u32;
 
@@ -469,6 +486,7 @@ impl<'a, D: BlockDevice> FatTable<'a, D> {
                     FatType::Fat32 => 0x0FFFFFFF,
                 };
                 self.write_entry(cluster, eoc)?;
+                trace!("FatTable: allocated cluster {}", cluster);
                 return Ok(cluster);
             }
         }
@@ -487,9 +505,11 @@ impl<'a, D: BlockDevice> FatTable<'a, D> {
 
     /// Free a cluster chain starting at `cluster`.
     pub fn free_chain(&mut self, mut cluster: u32) -> Result<(), FileError> {
+        trace!("FatTable: freeing cluster chain starting at {}", cluster);
         while cluster >= 2 && !self.is_eoc(cluster) {
             let next = self.read_entry(cluster)?;
             self.write_entry(cluster, FAT_FREE)?;
+            trace!("FatTable: freed cluster {}", cluster);
             cluster = next;
         }
         Ok(())
@@ -497,19 +517,30 @@ impl<'a, D: BlockDevice> FatTable<'a, D> {
 
     fn read_sector(&mut self, sector: u32, buf: &mut [u8]) -> Result<(), FileError> {
         let offset = sector as u64 * self.bpb.bytes_per_sector as u64;
-        self.device
-            .seek(SeekFrom::Start(offset))
-            .map_err(|_| FileError::SeekError)?;
-        self.device.read(buf).map_err(|_| FileError::ReadError)?;
+        self.device.seek(SeekFrom::Start(offset)).map_err(|e| {
+            error!("FatTable: failed to seek to sector {}: {:?}", sector, e);
+            FileError::SeekError
+        })?;
+        self.device.read(buf).map_err(|e| {
+            error!("FatTable: failed to read sector {}: {:?}", sector, e);
+            FileError::ReadError
+        })?;
         Ok(())
     }
 
     fn write_sector(&mut self, sector: u32, buf: &[u8]) -> Result<(), FileError> {
         let offset = sector as u64 * self.bpb.bytes_per_sector as u64;
-        self.device
-            .seek(SeekFrom::Start(offset))
-            .map_err(|_| FileError::SeekError)?;
-        self.device.write(buf).map_err(|_| FileError::WriteError)?;
+        self.device.seek(SeekFrom::Start(offset)).map_err(|e| {
+            error!(
+                "FatTable: failed to seek to sector {} for write: {:?}",
+                sector, e
+            );
+            FileError::SeekError
+        })?;
+        self.device.write(buf).map_err(|e| {
+            error!("FatTable: failed to write sector {}: {:?}", sector, e);
+            FileError::WriteError
+        })?;
         Ok(())
     }
 }
@@ -521,13 +552,21 @@ pub fn read_cluster<D: BlockDevice>(
     cluster: u32,
     buf: &mut [u8],
 ) -> Result<(), FileError> {
+    trace!("read_cluster: reading cluster {}", cluster);
     let sector = bpb.cluster_to_sector(cluster);
     let offset = sector as u64 * bpb.bytes_per_sector as u64;
 
-    device
-        .seek(SeekFrom::Start(offset))
-        .map_err(|_| FileError::SeekError)?;
-    device.read(buf).map_err(|_| FileError::ReadError)?;
+    device.seek(SeekFrom::Start(offset)).map_err(|e| {
+        error!(
+            "read_cluster: failed to seek to cluster {}: {:?}",
+            cluster, e
+        );
+        FileError::SeekError
+    })?;
+    device.read(buf).map_err(|e| {
+        error!("read_cluster: failed to read cluster {}: {:?}", cluster, e);
+        FileError::ReadError
+    })?;
     Ok(())
 }
 
@@ -538,13 +577,24 @@ pub fn write_cluster<D: BlockDevice>(
     cluster: u32,
     buf: &[u8],
 ) -> Result<(), FileError> {
+    trace!("write_cluster: writing cluster {}", cluster);
     let sector = bpb.cluster_to_sector(cluster);
     let offset = sector as u64 * bpb.bytes_per_sector as u64;
 
-    device
-        .seek(SeekFrom::Start(offset))
-        .map_err(|_| FileError::SeekError)?;
-    device.write(buf).map_err(|_| FileError::WriteError)?;
+    device.seek(SeekFrom::Start(offset)).map_err(|e| {
+        error!(
+            "write_cluster: failed to seek to cluster {}: {:?}",
+            cluster, e
+        );
+        FileError::SeekError
+    })?;
+    device.write(buf).map_err(|e| {
+        error!(
+            "write_cluster: failed to write cluster {}: {:?}",
+            cluster, e
+        );
+        FileError::WriteError
+    })?;
     Ok(())
 }
 
@@ -554,6 +604,7 @@ pub fn get_cluster_chain<D: BlockDevice>(
     bpb: &BiosParameterBlock,
     start_cluster: u32,
 ) -> Result<Vec<u32>, FileError> {
+    trace!("get_cluster_chain: starting from cluster {}", start_cluster);
     let mut chain = Vec::new();
     let mut fat = FatTable::new(device, bpb);
     let mut cluster = start_cluster;
@@ -567,5 +618,6 @@ pub fn get_cluster_chain<D: BlockDevice>(
         chain.push(cluster);
     }
 
+    trace!("get_cluster_chain: chain has {} clusters", chain.len());
     Ok(chain)
 }

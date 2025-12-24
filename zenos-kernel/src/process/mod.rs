@@ -7,7 +7,7 @@ pub use crate::process::scheduler::Scheduler;
 use crate::{
     disk::FS,
     disk::FileError,
-    disk::vfs::{File, SeekFrom},
+    disk::vfs::File,
     interrupts::gdt::GDT,
     kprintln,
     memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},

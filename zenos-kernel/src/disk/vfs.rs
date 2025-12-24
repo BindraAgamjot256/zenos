@@ -4,6 +4,7 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
+use log::{debug, trace};
 
 #[derive(Debug, Clone, Copy)]
 pub enum SeekFrom {
@@ -66,26 +67,42 @@ impl VFS {
         path: &str,
         fs: Arc<dyn FileSystem + Sync + Send>,
     ) -> Result<(), FileError> {
+        debug!("VFS: mounting filesystem at '{}'", path);
         if self.fs.contains_key(path) {
+            debug!("VFS: mount failed - path already exists");
             return Err(FileError::AlreadyExists);
         }
         self.fs.insert(path.to_string(), fs);
+        debug!("VFS: mount successful");
         Ok(())
     }
 
     pub fn unmount(&mut self, path: &str) -> Result<(), FileError> {
+        debug!("VFS: unmounting filesystem at '{}'", path);
         if self.fs.remove(path).is_none() {
+            debug!("VFS: unmount failed - path not found");
             return Err(FileError::NotFound);
         }
+        debug!("VFS: unmount successful");
         Ok(())
     }
 
     pub fn get_fs(&self, path: &str) -> Option<Arc<dyn FileSystem + Sync + Send>> {
+        trace!("VFS: looking up filesystem for path '{}'", path);
         self.fs.get(path).cloned()
     }
     pub fn root_dir(&self) -> Result<Box<dyn Directory>, FileError> {
+        trace!("VFS: getting root directory");
         let fs = self.get_fs("/").ok_or(FileError::NotFound)?;
         fs.root_dir()
+    }
+    pub fn open_file(&self, path: &str) -> Result<Box<dyn File>, FileError> {
+        trace!("VFS: opening file at path '{}'", path);
+        let path_parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        if path_parts.is_empty() {
+            return Err(FileError::NotFound);
+        };
+        todo!("VFS: opening file at path '{}'", path)
     }
 }
 

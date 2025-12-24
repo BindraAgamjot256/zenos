@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 use crate::disk::vfs::SeekFrom;
 use alloc::boxed::Box;
+use log::trace;
 
 pub mod ahci;
 
@@ -48,18 +49,22 @@ impl BlockDevice for BlockDeviceDriver {
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, BlockError> {
+        trace!("BlockDeviceDriver: read {} bytes", buf.len());
         self.device.read(buf)
     }
 
     fn write(&mut self, buf: &[u8]) -> Result<usize, BlockError> {
+        trace!("BlockDeviceDriver: write {} bytes", buf.len());
         self.device.write(buf)
     }
 
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, BlockError> {
+        trace!("BlockDeviceDriver: seek to {:?}", pos);
         self.device.seek(pos)
     }
 
     fn flush(&mut self) -> Result<(), BlockError> {
+        trace!("BlockDeviceDriver: flush");
         self.device.flush()
     }
 }

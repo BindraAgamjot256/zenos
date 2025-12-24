@@ -25,3 +25,6 @@ int fork(void) {
 int pause(void) {
     return (int) syscall0(SYS_pause);
 }
+int execve(const char *filename, char *const argv[], char *const envp[]) {
+    return (int) syscall3(SYS_execve, (long) filename, (long) argv, (long) envp);
+}

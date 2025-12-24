@@ -6,17 +6,12 @@
 #![no_std]
 #![no_main]
 #![feature(format_args_nl)]
-
+#![allow(unsafe_op_in_unsafe_fn)]
 use core::arch::{asm, global_asm};
 use core::fmt::{self, Write};
 
 unsafe extern "C" {
-    fn open(path: *const u8, flags: i32) -> i32;
-    fn close(fd: i32) -> i32;
-    fn read(fd: i32, buf: *mut u8, count: usize) -> isize;
     fn write(fd: i32, buf: *const u8, count: usize) -> isize;
-    fn lseek(fd: i32, offset: isize, whence: i32) -> isize;
-    fn fork() -> i64;
 }
 
 struct Console;
@@ -48,9 +43,7 @@ macro_rules! println {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     println!("[FUZZ PANIC] {}", info);
-    loop {
-        unsafe { asm!("hlt") };
-    }
+    loop {}
 }
 
 global_asm!(

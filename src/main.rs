@@ -37,11 +37,9 @@ fn main() {
         return;
     }
 
-    if args.fuzz {
-        build_fuzz();
-    } else {
-        build_init(args);
-    }
+    build_init(args);
+    build_fuzz(args);
+
     let binding = build_kernel(args);
     let kernel_path = binding.as_path();
     let binding = disk_img_builder(kernel_path);
@@ -222,7 +220,7 @@ fn add_files_recursively(
     }
 }
 
-fn build_fuzz() {
+fn build_fuzz(args: Args) {
     // Build the fuzzer and place it as iso/bin/init.elf (replaces normal init)
     let mut cmd = std::process::Command::new("cargo");
     cmd.arg("+nightly");
@@ -259,7 +257,13 @@ fn build_fuzz() {
     let binding = Path::new("iso").join("bin");
     let out_dir = binding.as_path();
     std::fs::create_dir_all(out_dir).expect("failed to create iso/bin directory");
-    let out_path = out_dir.join("init.elf");
+    let out_path = {
+        if !args.fuzz {
+            out_dir.join("fuzz.elf")
+        } else {
+            out_dir.join("init.elf")
+        }
+    };
     std::fs::copy(&fuzz_bin, &out_path).expect("failed to copy fuzzer as init.elf");
     println!("Fuzzer installed as init.elf");
 }

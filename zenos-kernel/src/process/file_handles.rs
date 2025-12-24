@@ -124,7 +124,7 @@ impl Debug for FileHandle {
 
 bitflags! {
     #[derive(Debug, Clone, Copy)]
-    pub struct FileOpenOptions: i32 {
+    pub struct FileOpenOptions: u64 {
         // Access modes (mutually exclusive)
         const READ_ONLY  = 0; // O_RDONLY
         const WRITE_ONLY = 1; // O_WRONLY

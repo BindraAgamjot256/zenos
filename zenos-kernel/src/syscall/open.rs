@@ -4,7 +4,6 @@ use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;
 use crate::syscall::errors::{EFAULT, EINVAL, EMFILE, ENOENT, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
-use core::ffi::CStr;
 use log::{debug, info};
 use zenos_macros::syscall;
 

@@ -1,5 +1,4 @@
 use crate::disk::vfs::File;
-use crate::kprint;
 use crate::syscall::copy_from_user;
 use crate::syscall::errors::{EBADF, EFAULT, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;

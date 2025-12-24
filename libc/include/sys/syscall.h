@@ -6,6 +6,7 @@
 #define SYS_lseek   8
 #define SYS_fork    57
 #define SYS_pause   34
+#define SYS_execve  59
 
 long syscall(long syscall_number, long arg1, long arg2, long arg3, long arg4, long arg5, long arg6);
 

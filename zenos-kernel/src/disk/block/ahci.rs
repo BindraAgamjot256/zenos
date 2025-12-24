@@ -53,7 +53,7 @@ use crate::pci::scan_pci_for_ahci;
 use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{Ordering, compiler_fence};
 use heapless::Vec;
-use log::{debug, error, trace};
+use log::{debug, error, info, trace};
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr};
 
@@ -389,7 +389,16 @@ impl Port {
         // We use a fixed virtual address range for the DMA buffer for simplicity here,
         // but normally `kalloc_dma_pages` would return a buffer.
         // We map a specific area to ensure we know the physical address for the HBA.
-        let dma_page_virt = VirtAddr::new(AHCI_VIRT_BASE + 0x8000 + (slot as u64) * PAGE_4K as u64);
+        let dma_buf = kalloc_dma_pages(total_bytes);
+        if dma_buf.is_err() {
+            error!(
+                "Failed to allocate DMA buffer, err: {:?}",
+                dma_buf.err().unwrap()
+            );
+            return Err(());
+        }
+        let dma_page_ptr = dma_buf.unwrap().as_ptr();
+        let dma_page_virt = VirtAddr::from_ptr(dma_page_ptr);
         let dma_page_phys =
             crate::memory::virt_to_phys(dma_page_virt).expect("Failed to map DMA page");
 
@@ -518,12 +527,15 @@ static PORTS: Mutex<Option<Vec<PortInfo, 32>>> = Mutex::new(None);
 ///    - Configures the Port registers ([`CLB`](Port), [`FB`](Port)) with physical addresses.
 ///    - Starts the engine.
 pub(crate) unsafe fn init() {
+    info!("AHCI: initializing controller");
     let pci = scan_pci_for_ahci().expect("No AHCI controller found");
+    debug!("AHCI: found controller at BAR5={:#x}", pci.bar5);
 
     // Map AHCI MMIO region (ABAR)
     let mmio_base = kalloc_page(VirtAddr::new(pci.bar5 as u64), PageType::Mmio)
         .expect("Failed to map AHCI MMIO")
         .as_u64();
+    debug!("AHCI: MMIO mapped at {:#x}", mmio_base);
 
     let mut ports = Vec::<_, 32>::new();
     let ports_implemented = read_volatile((mmio_base + reg::PORTS_IMPLEMENTED as u64) as *mut u32);
@@ -618,6 +630,7 @@ pub(crate) unsafe fn init() {
     }
 
     *PORTS.lock() = Some(ports);
+    info!("AHCI: initialization complete");
 }
 
 // ============================================================================
@@ -645,14 +658,21 @@ pub struct AhciBlockDevice {
 impl AhciBlockDevice {
     /// Create a device bound to the given initialized AHCI port.
     pub fn new(port_index: usize) -> Option<Self> {
+        debug!("AhciBlockDevice: creating device for port {}", port_index);
         let ports = PORTS.lock();
         let ports = ports.as_ref()?;
 
-        ports.get(port_index).map(|pinfo| Self {
-            port_base: pinfo.port_base,
-            sector_size: SECTOR_SIZE,
-            cursor: 0,
-            partition_offset: 34, // Hardcoded GPT Data start LBA (TODO: Parse partition table)
+        ports.get(port_index).map(|pinfo| {
+            debug!(
+                "AhciBlockDevice: port {} initialized successfully",
+                port_index
+            );
+            Self {
+                port_base: pinfo.port_base,
+                sector_size: SECTOR_SIZE,
+                cursor: 0,
+                partition_offset: 34, // Hardcoded GPT Data start LBA (TODO: Parse partition table)
+            }
         })
     }
 
@@ -668,6 +688,11 @@ impl BlockDevice for AhciBlockDevice {
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, BlockError> {
+        trace!(
+            "AhciBlockDevice: read {} bytes at cursor {}",
+            buf.len(),
+            self.cursor
+        );
         let mut total_read = 0;
 
         // Loop until the entire buffer is filled
@@ -733,10 +758,16 @@ impl BlockDevice for AhciBlockDevice {
 
         // Update global cursor only after success
         self.cursor += total_read as u64;
+        trace!("AhciBlockDevice: read complete, {} bytes read", total_read);
         Ok(total_read)
     }
 
     fn write(&mut self, buf: &[u8]) -> Result<usize, BlockError> {
+        trace!(
+            "AhciBlockDevice: write {} bytes at cursor {}",
+            buf.len(),
+            self.cursor
+        );
         let mut total_written = 0;
 
         while total_written < buf.len() {
@@ -797,10 +828,18 @@ impl BlockDevice for AhciBlockDevice {
         }
 
         self.cursor += total_written as u64;
+        trace!(
+            "AhciBlockDevice: write complete, {} bytes written",
+            total_written
+        );
         Ok(total_written)
     }
 
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, BlockError> {
+        trace!(
+            "AhciBlockDevice: seek {:?} from cursor {}",
+            pos, self.cursor
+        );
         self.cursor = match pos {
             SeekFrom::Start(offset) => offset,
             SeekFrom::End(_) => return Err(BlockError::UnsupportedOperation),
@@ -816,10 +855,12 @@ impl BlockDevice for AhciBlockDevice {
                 }
             }
         };
+        trace!("AhciBlockDevice: seek complete, new cursor {}", self.cursor);
         Ok(self.cursor)
     }
 
     fn flush(&mut self) -> Result<(), BlockError> {
+        trace!("AhciBlockDevice: flush");
         Ok(())
     }
 }
