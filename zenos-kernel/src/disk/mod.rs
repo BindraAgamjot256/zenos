@@ -75,12 +75,13 @@ pub mod fs;
 pub mod vfs;
 
 use crate::disk::block::BlockDeviceDriver;
-use crate::disk::vfs::VFS;
+use crate::disk::vfs::{File, SeekFrom, VFS};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 use block::ahci::{AhciBlockDevice, init};
 use fs::fat::FatFileSystem;
+use log::error;
 use spin::{Lazy, Mutex};
 
 #[derive(Debug, Clone)]
@@ -119,3 +120,15 @@ pub static FS: Lazy<Mutex<VFS>> = Lazy::new(|| {
         .expect("Failed to mount FAT filesystem at /");
     Mutex::new(vfs)
 });
+
+pub(crate) fn get_len(file: &mut dyn File) -> Result<u64, ()> {
+    let current_pos = file.seek(SeekFrom::Current(0)).map_err(|e| {
+        error!("Failed to get stream position: {:?}", e);
+    })?;
+    let end = file
+        .seek(SeekFrom::End(0))
+        .map_err(|e| error!("Seek failed: {:?}", e))?;
+    file.seek(SeekFrom::Start(current_pos))
+        .map_err(|e| error!("Seek restore failed: {:?}", e))?;
+    Ok(end)
+}

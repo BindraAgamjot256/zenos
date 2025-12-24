@@ -101,12 +101,12 @@ impl File for Stdin {
 
 pub struct FileHandle {
     descriptor: Box<dyn File>,
-    _foo: FileOpenOptions,
+    pub foo: FileOpenOptions,
 }
 
 impl FileHandle {
-    pub fn new(_id: u32, descriptor: Box<dyn File>, _foo: FileOpenOptions) -> Self {
-        Self { descriptor, _foo }
+    pub fn new(_id: u32, descriptor: Box<dyn File>, foo: FileOpenOptions) -> Self {
+        Self { descriptor, foo }
     }
 
     pub fn descriptor(&mut self) -> &mut dyn File {
@@ -123,12 +123,28 @@ impl Debug for FileHandle {
 }
 
 bitflags! {
-    #[derive(Default, Debug, Clone, Copy)]
-    pub struct FileOpenOptions: u64 {
-        const READ = 0b0001;
-        const WRITE = 0b0010;
-        const CREATE = 0b0100;
-        const TRUNCATE = 0b1000;
+    #[derive(Debug, Clone, Copy)]
+    pub struct FileOpenOptions: i32 {
+        // Access modes (mutually exclusive)
+        const READ_ONLY  = 0; // O_RDONLY
+        const WRITE_ONLY = 1; // O_WRONLY
+        const READ_WRITE = 2; // O_RDWR
+
+        // Flags
+        const CREATE        = 0o100;      // O_CREAT
+        const EXCLUSIVE     = 0o200;      // O_EXCL
+        const NOCTTY        = 0o400;      // O_NOCTTY
+        const TRUNCATE      = 0o1000;     // O_TRUNC
+        const APPEND        = 0o2000;     // O_APPEND
+        const NONBLOCK      = 0o4000;     // O_NONBLOCK
+        const SYNC          = 0o10000;    // O_SYNC
+        const CLOSE_ON_EXEC = 0o2000000;  // O_CLOEXEC
+    }
+
+}
+impl Default for FileOpenOptions {
+    fn default() -> Self {
+        FileOpenOptions::empty()
     }
 }
 
@@ -147,17 +163,17 @@ mod tests {
 
     #[zenos_macros::test]
     pub fn test_file_open_options_read() -> Option<()> {
-        let opts = FileOpenOptions::READ;
-        crate::test_assert!(opts.contains(FileOpenOptions::READ));
-        crate::test_assert!(!opts.contains(FileOpenOptions::WRITE));
+        let opts = FileOpenOptions::READ_ONLY;
+        crate::test_assert!(opts.contains(FileOpenOptions::READ_ONLY));
+        crate::test_assert!(!opts.contains(FileOpenOptions::WRITE_ONLY));
         Some(())
     }
 
     #[zenos_macros::test]
     pub fn test_file_open_options_combined() -> Option<()> {
-        let opts = FileOpenOptions::READ | FileOpenOptions::WRITE;
-        crate::test_assert!(opts.contains(FileOpenOptions::READ));
-        crate::test_assert!(opts.contains(FileOpenOptions::WRITE));
+        let opts = FileOpenOptions::READ_ONLY | FileOpenOptions::WRITE_ONLY;
+        crate::test_assert!(opts.contains(FileOpenOptions::READ_ONLY));
+        crate::test_assert!(opts.contains(FileOpenOptions::WRITE_ONLY));
         crate::test_assert!(!opts.contains(FileOpenOptions::CREATE));
         Some(())
     }
@@ -165,8 +181,8 @@ mod tests {
     #[zenos_macros::test]
     pub fn test_file_open_options_all() -> Option<()> {
         let opts = FileOpenOptions::all();
-        crate::test_assert!(opts.contains(FileOpenOptions::READ));
-        crate::test_assert!(opts.contains(FileOpenOptions::WRITE));
+        crate::test_assert!(opts.contains(FileOpenOptions::READ_ONLY));
+        crate::test_assert!(opts.contains(FileOpenOptions::WRITE_ONLY));
         crate::test_assert!(opts.contains(FileOpenOptions::CREATE));
         crate::test_assert!(opts.contains(FileOpenOptions::TRUNCATE));
         Some(())
@@ -175,16 +191,16 @@ mod tests {
     #[zenos_macros::test]
     pub fn test_file_open_options_from_bits() -> Option<()> {
         let opts = FileOpenOptions::from_bits_truncate(0b0101);
-        crate::test_assert!(opts.contains(FileOpenOptions::READ));
+        crate::test_assert!(opts.contains(FileOpenOptions::READ_ONLY));
         crate::test_assert!(opts.contains(FileOpenOptions::CREATE));
-        crate::test_assert!(!opts.contains(FileOpenOptions::WRITE));
+        crate::test_assert!(!opts.contains(FileOpenOptions::WRITE_ONLY));
         Some(())
     }
 
     #[zenos_macros::test]
     pub fn test_file_open_options_bits_values() -> Option<()> {
-        assert_eq!(FileOpenOptions::READ.bits(), 0b0001);
-        assert_eq!(FileOpenOptions::WRITE.bits(), 0b0010);
+        assert_eq!(FileOpenOptions::READ_ONLY.bits(), 0b0001);
+        assert_eq!(FileOpenOptions::WRITE_ONLY.bits(), 0b0010);
         assert_eq!(FileOpenOptions::CREATE.bits(), 0b0100);
         assert_eq!(FileOpenOptions::TRUNCATE.bits(), 0b1000);
         Some(())

@@ -2,6 +2,7 @@ pub(crate) mod file_handles;
 pub(crate) mod isolation;
 pub(crate) mod scheduler;
 
+use crate::disk::get_len;
 pub use crate::process::scheduler::Scheduler;
 use crate::{
     disk::FS,
@@ -108,6 +109,21 @@ impl Process {
         };
         NEXT_PID.store(pid + 1, Ordering::Release);
         p
+    }
+
+    pub fn exec_replace(&mut self) {
+        self.state = ProcessState::default();
+        self.status = ProcessStatus::Created;
+        self.load_bias = 0;
+        self.end = 0;
+        self.entry_point = 0;
+        self.loaded = false;
+        self.user_stack_top = 0;
+        self.file_handles = self
+            .file_handles
+            .drain()
+            .filter(|(_, fh)| !fh.foo.contains(FileOpenOptions::CLOSE_ON_EXEC))
+            .collect();
     }
 
     /// Create a child process by forking from a parent
@@ -558,17 +574,6 @@ pub fn init_process() -> &'static [u8] {
     buf
 }
 
-fn get_len(file: &mut dyn File) -> Result<u64, ()> {
-    let current_pos = file.seek(SeekFrom::Current(0)).map_err(|e| {
-        error!("Failed to get stream position: {:?}", e);
-    })?;
-    let end = file
-        .seek(SeekFrom::End(0))
-        .map_err(|e| error!("Seek failed: {:?}", e))?;
-    file.seek(SeekFrom::Start(current_pos))
-        .map_err(|e| error!("Seek restore failed: {:?}", e))?;
-    Ok(end)
-}
 static CURRENT_PID: PerCpuVar<u64> = PerCpuVar::new(offset_of!(PerCpuData, curr_pid));
 pub static SCHEDULER: Lazy<Mutex<Scheduler>> = Lazy::new(|| Mutex::new(Scheduler::new()));
 

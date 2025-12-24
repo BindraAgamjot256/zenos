@@ -140,3 +140,23 @@ pub(crate) unsafe fn clone_address_space() -> Result<PhysAddr, ()> {
 
     Ok(new_l4_phys)
 }
+
+pub(crate) unsafe fn new_user_address_space() -> Result<PhysAddr, ()> {
+    // Allocate a new L4 page table
+    let new_l4_phys = alloc_page_table().ok_or(())?;
+
+    let active_l4 = active_level_4_table(VirtAddr::new(HIGHER_HALF_BASE));
+    let new_l4 = phys_to_page_table_mut(new_l4_phys);
+
+    // Copy kernel mappings (entries 256-511) - these share the same physical pages
+    for i in 256..512 {
+        new_l4[i] = active_l4[i].clone();
+    }
+
+    trace!(
+        "new_user_address_space: created new L4 at {:?}",
+        new_l4_phys
+    );
+
+    Ok(new_l4_phys)
+}

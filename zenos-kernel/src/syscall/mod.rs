@@ -1,6 +1,7 @@
 #![allow(unused_assignments)]
 mod close;
 mod errors;
+mod exec;
 mod fork;
 mod lseek;
 mod open;
