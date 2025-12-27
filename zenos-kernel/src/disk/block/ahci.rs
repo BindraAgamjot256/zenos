@@ -63,6 +63,8 @@ const SECTOR_SIZE: usize = 512;
 const MAX_SLOTS: usize = 32;
 // Approx loop count for timeout; depends on CPU speed, should be replaced by timer ticks in real OS
 const TIMEOUT_MAX: u32 = 10_000_000;
+// address for AHCI MMIO BAR.
+const AHCI_MMIO_BASE: u64 = AHCI_VIRT_BASE + 0x2000_0000;
 
 /// AHCI Generic Host Control Registers and Port Register Offsets.
 mod reg {
@@ -239,9 +241,10 @@ struct HbaCmdTable {
 /// Metadata about an initialized port to reconstruct the [`Port`] struct later.
 #[derive(Copy, Clone)]
 struct PortInfo {
-    port_base: usize,               // MMIO base address (Virtual)
-    virt_cmd_list: VirtAddr,        // Virtual address of Command List (for CPU access)
-    virt_cmd_tables_base: VirtAddr, // Virtual base address for per-slot Command Tables
+    port_base: usize,
+    port_phys_offset: u64, // phys = AHCI_BAR5 + offset (NO VIRTUAL!)
+    virt_cmd_list: VirtAddr,
+    virt_cmd_tables_base: VirtAddr,
 }
 
 /// Represents an active AHCI Port.
@@ -531,10 +534,10 @@ pub(crate) unsafe fn init() {
     let pci = scan_pci_for_ahci().expect("No AHCI controller found");
     debug!("AHCI: found controller at BAR5={:#x}", pci.bar5);
 
-    // Map AHCI MMIO region (ABAR)
-    let mmio_base = kalloc_page(VirtAddr::new(pci.bar5 as u64), PageType::Mmio)
-        .expect("Failed to map AHCI MMIO")
-        .as_u64();
+    // Replace the kalloc_page BAR5 line with
+    let mmio_base = pci.bar5 as u64;
+    kalloc_page(VirtAddr::new(mmio_base), PageType::Mmio).expect("Failed to map AHCI MMIO BAR");
+
     debug!("AHCI: MMIO mapped at {:#x}", mmio_base);
 
     let mut ports = Vec::<_, 32>::new();
@@ -554,6 +557,7 @@ pub(crate) unsafe fn init() {
         // Temporarily create port wrapper
         let port = Port::new(PortInfo {
             port_base: port_base as usize,
+            port_phys_offset: pci.bar5 as u64 + (reg::PORT_BASE + port_num * reg::PORT_SIZE) as u64,
             virt_cmd_list: VirtAddr::new(0),
             virt_cmd_tables_base: VirtAddr::new(0),
         });
@@ -580,6 +584,10 @@ pub(crate) unsafe fn init() {
         // 4. Write Physical Addresses to Controller Registers
         port.write_reg(reg::CLB, cmd_list_phys.as_u64() as u32);
         port.write_reg(reg::CLBU, (cmd_list_phys.as_u64() >> 32) as u32);
+        let written = port.read_reg(reg::CLB);
+        let expected = cmd_list_phys.as_u64() as u32;
+        debug!("CLB written={:#x} expected={:#x}", written, expected);
+
         port.write_reg(reg::FB, fis_phys.as_u64() as u32);
         port.write_reg(reg::FBU, (fis_phys.as_u64() >> 32) as u32);
 
@@ -611,6 +619,8 @@ pub(crate) unsafe fn init() {
             // Save the initialized info
             let pinfo = PortInfo {
                 port_base: port_base as usize,
+                port_phys_offset: pci.bar5 as u64
+                    + (reg::PORT_BASE + port_num * reg::PORT_SIZE) as u64,
                 virt_cmd_list,
                 virt_cmd_tables_base: cmd_table_base_virt,
             };

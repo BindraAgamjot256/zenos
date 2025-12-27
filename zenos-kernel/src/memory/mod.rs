@@ -532,7 +532,7 @@ pub fn kalloc_page(virtaddr: VirtAddr, ptype: PageType) -> Result<PhysAddr, MapE
     // Setup flags
     let mut flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
     match ptype {
-        PageType::Mmio => flags |= PageTableFlags::NO_CACHE,
+        PageType::Mmio | PageType::Recursive => flags |= PageTableFlags::NO_CACHE,
         PageType::Huge => flags |= PageTableFlags::HUGE_PAGE,
         _ => flags |= PageTableFlags::GLOBAL,
     }
@@ -640,7 +640,7 @@ fn allocate_frame(
             )),
         ),
         PageType::Arbitrary => alloc.map_last_free_page(PageSize::Size4KiB),
-        PageType::ArbitraryPhys(phhys) => Some(*phhys),
+        PageType::ArbitraryPhys(phys) => Some(*phys),
     };
 
     addr.map(|a| {

@@ -1,8 +1,8 @@
 use crate::disk::FS;
-use crate::disk::FileError;
+use crate::process::PROCESSES;
 use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;
-use crate::syscall::errors::{EFAULT, EINVAL, EMFILE, ENOENT, ESRCH, file_error_to_errno};
+use crate::syscall::errors::{EFAULT, EINVAL, EMFILE, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
 use log::{debug, info};
 use zenos_macros::syscall;
@@ -48,39 +48,26 @@ fn open(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 
 pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u64> {
     let fs = FS.lock();
-    let mut root = fs.root_dir().map_err(|e| file_error_to_errno(&e))?;
-
-    // Try to open the file, create if necessary
-    match root.open_file(file_name) {
-        Ok(_) => {}
-        Err(FileError::NotFound) => {
-            if foo.contains(FileOpenOptions::CREATE) {
-                info!("Creating file '{}'", file_name);
-                root.create_file(file_name)
-                    .map_err(|e| file_error_to_errno(&e))?;
-            } else {
-                return Err((-ENOENT) as u64);
+    let res = fs.open_file(file_name);
+    if res.is_err() {
+        if foo.contains(FileOpenOptions::CREATE) {
+            let res = fs.create_file(file_name);
+            if res.is_err() {
+                return Err(file_error_to_errno(&res.err().unwrap()));
             }
+        } else {
+            return Err(file_error_to_errno(&res.err().unwrap()));
         }
-        Err(e) => return Err(file_error_to_errno(&e)),
     }
-
-    let file_handle = root
-        .open_file(file_name)
-        .map_err(|e| file_error_to_errno(&e))?;
-
-    // Add file handle to the current process
-    let fd = {
-        let mut processes = crate::process::PROCESSES.lock();
-        let curr_pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
-        let process = processes
-            .iter_mut()
-            .find(|p| p.pid == curr_pid)
-            .ok_or((-ESRCH) as u64)?;
-        process
-            .add_file_handle(file_handle, foo)
-            .map_err(|_| (-EMFILE) as u64)?
-    };
-
+    let file = fs.open_file(file_name).unwrap();
+    let process = crate::process::current_pid();
+    let mut binding = PROCESSES.lock();
+    let process = binding
+        .iter_mut()
+        .find(move |proc| proc.pid == process)
+        .ok_or(ESRCH as u64)?;
+    let fd = process
+        .add_file_handle(file, foo)
+        .map_err(|_| EMFILE as u64)?;
     Ok(fd)
 }

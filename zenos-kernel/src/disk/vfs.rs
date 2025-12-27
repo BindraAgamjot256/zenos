@@ -1,5 +1,6 @@
 use super::FileError;
 use alloc::boxed::Box;
+use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -96,14 +97,80 @@ impl VFS {
         let fs = self.get_fs("/").ok_or(FileError::NotFound)?;
         fs.root_dir()
     }
+
+    pub fn path_to_fs(&self, path: &str) -> Option<(&str, Arc<dyn FileSystem + Sync + Send>)> {
+        let normalized_path = normalize_path(path);
+        let mut best_match: Option<(&str, Arc<dyn FileSystem + Sync + Send>)> = None;
+        for (mount_point, fs) in &self.fs {
+            if normalized_path.starts_with(mount_point) {
+                if let Some((best_mount, _)) = &best_match {
+                    if mount_point.len() > best_mount.len() {
+                        best_match = Some((mount_point.as_str(), fs.clone()));
+                    }
+                } else {
+                    best_match = Some((mount_point.as_str(), fs.clone()));
+                }
+            }
+        }
+        best_match
+    }
+
     pub fn open_file(&self, path: &str) -> Result<Box<dyn File>, FileError> {
         trace!("VFS: opening file at path '{}'", path);
-        let path_parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-        if path_parts.is_empty() {
+        let normalized_path = normalize_path(path);
+        let (mount_point, fs) = self
+            .path_to_fs(&normalized_path)
+            .ok_or(FileError::NotFound)?;
+
+        let relative_path = normalized_path[mount_point.len()..].trim_start_matches('/');
+        let mut dir = fs.root_dir()?;
+
+        let parts: Vec<&str> = relative_path.split('/').filter(|p| !p.is_empty()).collect();
+        if parts.is_empty() {
             return Err(FileError::NotFound);
-        };
-        todo!("VFS: opening file at path '{}'", path)
+        }
+
+        for part in &parts[..parts.len() - 1] {
+            dir = dir.open_dir(part)?;
+        }
+
+        dir.open_file(parts.last().unwrap())
     }
+    pub fn create_file(&self, path: &str) -> Result<Box<dyn File>, FileError> {
+        trace!("VFS: creating file at path '{}'", path);
+        let normalized_path = normalize_path(path);
+        let (mount_point, fs) = self
+            .path_to_fs(&normalized_path)
+            .ok_or(FileError::NotFound)?;
+
+        let relative_path = normalized_path[mount_point.len()..].trim_start_matches('/');
+        let mut dir = fs.root_dir()?;
+
+        let parts: Vec<&str> = relative_path.split('/').filter(|p| !p.is_empty()).collect();
+        if parts.is_empty() {
+            return Err(FileError::NotFound);
+        }
+
+        for part in &parts[..parts.len() - 1] {
+            dir = dir.open_dir(part)?;
+        }
+
+        dir.create_file(parts.last().unwrap())
+    }
+}
+
+fn normalize_path(path: &str) -> String {
+    let mut components = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => continue,
+            ".." => {
+                components.pop();
+            }
+            _ => components.push(part),
+        }
+    }
+    format!("/{}", components.join("/"))
 }
 
 #[cfg(feature = "run-kunittest")]

@@ -98,6 +98,18 @@ pub extern "C" fn main() -> ! {
         // Move cursor back to start of file
         let fd = fd as u64;
         unsafe { lseek(fd, 0, 0) };
+        let mut buffer = [0u8; 32];
+        let read_len = unsafe { read(fd, buffer.as_mut_ptr(), buffer.len()) };
+
+        if read_len > 0 {
+            println!(
+                "File says: {}",
+                core::str::from_utf8(&buffer[..read_len as usize]).unwrap_or("?")
+            );
+        } else {
+            panic!("file_read failed. reality is pain");
+        }
+        unsafe { lseek(fd, 0, 0) };
         let msg = "hello, world\n";
         unsafe { write(fd, msg.as_ptr(), msg.len()) };
 
@@ -157,13 +169,16 @@ pub extern "C" fn main() -> ! {
     } else if err == 0 {
         // Child
         println!("Hello from the child process!, fork returned: {}", err);
-        unsafe {
+        let ret = unsafe {
             execve(
                 "/bin/fuzz.elf\0".as_ptr(),
                 core::ptr::null(),
                 core::ptr::null(),
             )
         };
+        if ret != 0 {
+            panic!("execve failed. reality is pain, err:{}", -ret);
+        }
         unreachable!()
     } else {
         println!("Fork failed with error code: {}", err);

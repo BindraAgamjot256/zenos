@@ -3,6 +3,7 @@ pub(crate) mod isolation;
 pub(crate) mod scheduler;
 
 use crate::disk::get_len;
+use crate::process::isolation::new_user_address_space;
 pub use crate::process::scheduler::Scheduler;
 use crate::{
     disk::FS,
@@ -124,6 +125,7 @@ impl Process {
             .drain()
             .filter(|(_, fh)| !fh.foo.contains(FileOpenOptions::CLOSE_ON_EXEC))
             .collect();
+        unsafe { self.cr3 = new_user_address_space().unwrap() }
     }
 
     /// Create a child process by forking from a parent
@@ -493,6 +495,15 @@ impl FxSaveArea {
     pub const fn new() -> Self {
         FxSaveArea { _data: [0; 512] }
     }
+    pub fn save(&mut self) {
+        unsafe {
+            asm!(
+                "fxsave [{}]",
+                in(reg) &mut self._data,
+                options(nostack, preserves_flags),
+            );
+        }
+    }
 }
 
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
@@ -500,9 +511,7 @@ static NEXT_PID: AtomicU64 = AtomicU64::new(1);
 
 pub fn init_process() -> &'static [u8] {
     let fs = FS.lock();
-    let mut root = fs.root_dir().expect("Failed to get root dir");
-    let mut bin_dir = root.open_dir("bin").expect("Failed to open bin dir");
-    let mut file = match bin_dir.open_file("init.elf") {
+    let mut file = match fs.open_file("/bin/init.elf") {
         Ok(f) => f,
         Err(e) => {
             error!("Failed to open init: {:?}", e);

@@ -35,29 +35,25 @@ fn exec(rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 
 fn exec_inner(path: &str) -> u64 {
     let fs = FS.lock();
-    let mut root = {
-        let root = fs.root_dir();
-        match root {
-            Err(e) => return file_error_to_errno(&e), // No root directory mounted
-            Ok(dir) => dir,
-        }
-    };
-    match root.open_file(path) {
+    match fs.open_file(path) {
         Ok(mut file) => {
             let len = get_len(file.as_mut()).ok();
             if len.is_none() {
+                panic!("test-1");
                 return -EINVAL as u64;
             }
             let file_len = len.unwrap();
             let mut buf = alloc::vec![0u8; file_len as usize];
             let res = file.read(&mut buf);
             if res.is_err() {
+                panic!("test-2, err: {:?}", res.err().unwrap());
                 return file_error_to_errno(&res.err().unwrap());
             }
             let parent = process::current_pid();
             let mut binding = PROCESSES.lock();
             let parent_process = binding.iter_mut().find(|p| p.pid == parent);
             if parent_process.is_none() {
+                panic!("test-3");
                 return -EINVAL as u64;
             }
             let parent_process = parent_process.unwrap();
@@ -77,6 +73,6 @@ fn exec_inner(path: &str) -> u64 {
 
             process::enter_user_mode(entry, stack);
         }
-        Err(e) => file_error_to_errno(&e), // File isn't found or other error
+        Err(e) => panic!("test-4, err: {e:#?}"), // File isn't found or other error
     }
 }

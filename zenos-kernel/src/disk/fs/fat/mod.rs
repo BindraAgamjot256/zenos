@@ -163,6 +163,7 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
                 }
                 if let Some(entry) = FatDirEntry::parse(chunk) {
                     if !entry.is_long_name() && !entry.is_volume_id() {
+                        debug!("FatDirectory: found entry '{}'", entry.short_name());
                         entries.push((entry, i));
                     }
                 }
@@ -209,6 +210,7 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
 
         for (entry, idx) in entries {
             if entry.short_name().to_uppercase() == target {
+                debug!("found entry '{}' at index {}", name, idx);
                 return Ok(Some((entry, idx)));
             }
         }

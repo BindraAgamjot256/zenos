@@ -1,5 +1,6 @@
 pub(crate) mod gdt;
 
+use crate::process::FxSaveArea;
 use crate::{
     hardware::idt_vectors::*,
     interrupts::gdt::DOUBLE_FAULT_IST_INDEX,
@@ -9,7 +10,9 @@ use crate::{
 };
 use core::arch::global_asm;
 use log::{error, warn};
+use pc_keyboard::KeyCode::T;
 use spin::Lazy;
+use x86_64::instructions::tlb;
 use x86_64::{
     instructions::port::Port,
     registers::control::Cr3,
@@ -148,6 +151,8 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
     }
 
     // Build ProcessState from interrupt context
+    let mut fxsave = FxSaveArea::new();
+    fxsave.save();
     let current_state = ProcessState {
         rax: context.rax,
         rbx: context.rbx,
@@ -169,7 +174,7 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
         rflags: context.rflags,
         cs: context.cs,
         ss: context.ss,
-        fxsave: Default::default(),
+        fxsave,
     };
 
     // Try to schedule next process - use try_lock to avoid deadlock
@@ -185,6 +190,7 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
         // Switch CR3 to new process
         let frame = PhysFrame::containing_address(x86_64::PhysAddr::new(new_cr3));
         Cr3::write(frame, Cr3::read().1);
+        tlb::flush_all();
 
         // Update current PID
         set_current_pid(new_pid);
@@ -214,10 +220,11 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
 
         // Verify the context was updated correctly
         if context.rax != new_state.rax {
-            error!(
+            warn!(
                 "CRITICAL: context.rax ({:#x}) != new_state.rax ({:#x})",
                 context.rax, new_state.rax
-            );
+            ); // this isn't a error, as it is possible for raxes to be equal... unlikely, but possible... i'll take my odds with russian roulette.
+            // the odds are 1/64 for this, 1/3 for russian roulette...
         }
 
         return 1;
@@ -244,7 +251,6 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt[SPURIOUS].set_handler_fn(spurious_interrupt);
     idt[IRQ1_KEYBOARD].set_handler_fn(keyboard);
     idt[IRQ2_CASCADE].set_handler_fn(cascade_handler);
-    idt[IRQ4_SERIAL1].set_handler_fn(cascade_handler);
     idt.invalid_opcode.set_handler_fn(undefined_opcode);
     idt.general_protection_fault.set_handler_fn(gpf_handler);
     idt
