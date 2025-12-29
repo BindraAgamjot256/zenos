@@ -9,7 +9,6 @@
 pub mod alloc;
 
 pub use constants::*;
-use core::cmp::PartialEq;
 use core::{
     ptr::NonNull,
     slice,
@@ -17,6 +16,7 @@ use core::{
 };
 use log::{error, trace, warn};
 use spin::Mutex;
+use x86_64::instructions::tlb;
 use x86_64::{
     PhysAddr, VirtAddr,
     registers::control::Cr3,
@@ -51,6 +51,8 @@ pub enum PageType {
     Arbitrary,
     /// An arbitrary page(4KiB recursive style, mapped to a specific physical address)
     ArbitraryPhys(PhysAddr),
+    /// MMIO page, mapped to higher half address
+    MmioRecursive,
 }
 
 /// Possible page allocation/mapping errors
@@ -641,6 +643,9 @@ fn allocate_frame(
         ),
         PageType::Arbitrary => alloc.map_last_free_page(PageSize::Size4KiB),
         PageType::ArbitraryPhys(phys) => Some(*phys),
+        PageType::MmioRecursive => Some(PhysAddr::new(
+            virtaddr.as_u64().wrapping_sub(HIGHER_HALF_BASE),
+        )),
     };
 
     addr.map(|a| {
@@ -712,7 +717,7 @@ fn map_page(
                     }
                     Err(x86_64::structures::paging::mapper::MapToError::PageAlreadyMapped(e)) => {
                         // page is already mapped... ignore but warn
-                        warn!("Page already mapped {e:#?}");
+                        warn!("Page already mapped {e:#?}, page: {:#x}", virtaddr.as_u64());
                     }
                     Err(e) => {
                         error!("err: {e:#?}");

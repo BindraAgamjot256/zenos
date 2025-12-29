@@ -190,7 +190,9 @@ mod tests {
 
     #[zenos_macros::test]
     pub fn test_file_open_options_from_bits() -> Option<()> {
-        let opts = FileOpenOptions::from_bits_truncate(0b0101);
+        let opts = FileOpenOptions::from_bits_truncate(
+            FileOpenOptions::READ_ONLY.bits() | FileOpenOptions::CREATE.bits(),
+        );
         crate::test_assert!(opts.contains(FileOpenOptions::READ_ONLY));
         crate::test_assert!(opts.contains(FileOpenOptions::CREATE));
         crate::test_assert!(!opts.contains(FileOpenOptions::WRITE_ONLY));
@@ -199,10 +201,10 @@ mod tests {
 
     #[zenos_macros::test]
     pub fn test_file_open_options_bits_values() -> Option<()> {
-        assert_eq!(FileOpenOptions::READ_ONLY.bits(), 0b0001);
-        assert_eq!(FileOpenOptions::WRITE_ONLY.bits(), 0b0010);
-        assert_eq!(FileOpenOptions::CREATE.bits(), 0b0100);
-        assert_eq!(FileOpenOptions::TRUNCATE.bits(), 0b1000);
+        assert_eq!(FileOpenOptions::READ_ONLY.bits(), 0);
+        assert_eq!(FileOpenOptions::WRITE_ONLY.bits(), 0b0001);
+        assert_eq!(FileOpenOptions::CREATE.bits(), 0o100);
+        assert_eq!(FileOpenOptions::TRUNCATE.bits(), 0o1000);
         Some(())
     }
 }

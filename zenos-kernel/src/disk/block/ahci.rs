@@ -47,7 +47,8 @@
 use crate::disk::block::{BlockDevice, BlockError};
 use crate::disk::vfs::SeekFrom;
 use crate::memory::{
-    KERNEL_BASE, PAGE_4K, PageType, kalloc_dma_pages, kalloc_page, kfree_dma_pages, kfree_page,
+    HIGHER_HALF_BASE, KERNEL_BASE, PAGE_4K, PageType, kalloc_dma_pages, kalloc_page,
+    kfree_dma_pages, kfree_page,
 };
 use crate::pci::scan_pci_for_ahci;
 use core::ptr::{read_volatile, write_volatile};
@@ -535,8 +536,9 @@ pub(crate) unsafe fn init() {
     debug!("AHCI: found controller at BAR5={:#x}", pci.bar5);
 
     // Replace the kalloc_page BAR5 line with
-    let mmio_base = pci.bar5 as u64;
-    kalloc_page(VirtAddr::new(mmio_base), PageType::Mmio).expect("Failed to map AHCI MMIO BAR");
+    let mmio_base = pci.bar5 as u64 + HIGHER_HALF_BASE;
+    kalloc_page(VirtAddr::new(mmio_base), PageType::MmioRecursive)
+        .expect("Failed to map AHCI MMIO BAR");
 
     debug!("AHCI: MMIO mapped at {:#x}", mmio_base);
 
