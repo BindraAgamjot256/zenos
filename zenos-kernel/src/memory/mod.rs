@@ -16,7 +16,6 @@ use core::{
 };
 use log::{error, trace, warn};
 use spin::Mutex;
-use x86_64::instructions::tlb;
 use x86_64::{
     PhysAddr, VirtAddr,
     registers::control::Cr3,
@@ -43,7 +42,7 @@ pub enum PageType {
     Mmio,
     /// Identity-mapped (virtual == physical)
     Identity,
-    /// Recursive mapping (virtual == physical + offset)
+    /// Recursive mapping (`virtual == physical + offset`)
     Recursive,
     /// Huge page (2MiB, recursive style)
     Huge,
@@ -51,7 +50,7 @@ pub enum PageType {
     Arbitrary,
     /// An arbitrary page(4KiB recursive style, mapped to a specific physical address)
     ArbitraryPhys(PhysAddr),
-    /// MMIO page, mapped to higher half address
+    /// MMIO page, mapped to the higher half address
     MmioRecursive,
 }
 
@@ -60,7 +59,7 @@ pub enum PageType {
 pub enum MapErr {
     /// No free pages available
     OutOfMemory,
-    /// Page not previously mapped(also used as a generic error)
+    /// Page not previously mapped (also used as a generic error)
     NotMapped,
     /// Initialization not performed
     Uninitialized,
@@ -91,6 +90,17 @@ pub mod constants {
     pub const LARGE_ALLOC_BASE_ADDR: u64 = 0x_5555_0000_0000 + HIGHER_HALF_BASE;
     pub const PAGE_4K: usize = 4096;
     pub const PAGE_2M: usize = 2 * 1024 * 1024;
+}
+
+macro_rules! get_page_tables {
+    () => {
+        unsafe {
+            OffsetPageTable::new(
+                active_level_4_table(VirtAddr::new(HIGHER_HALF_BASE)),
+                VirtAddr::new(HIGHER_HALF_BASE),
+            )
+        }
+    };
 }
 
 pub(crate) struct PageAllocator {
@@ -203,7 +213,7 @@ impl PageAllocator {
                                         Ordering::Acquire,
                                     ) {
                                         Ok(_) => {
-                                            // log::debug!("Allocated 4KiB page at {phys:#x}");
+                                            log::debug!("Allocated 4KiB page at {phys:#x}");
                                             return Some(phys_addr);
                                         }
                                         Err(new_val) => {
@@ -441,11 +451,10 @@ impl FrameDeallocator<Size2MiB> for PageAllocator {
 
 /// Global allocator holder
 pub(crate) static ALLOCATOR: Mutex<Option<PageAllocator>> = Mutex::new(None);
-pub static MAPPER: Mutex<Option<OffsetPageTable>> = Mutex::new(None);
 
 /// Initialize the allocator
 pub fn init(
-    _kernel_base: VirtAddr, // offset addr where kernel will be remapped... will remain unused since i decided to fork the bootloader and do it there
+    _kernel_base: VirtAddr, // offset addr where kernel will be remapped... will remain unused since I decided to fork the bootloader and do it there
     offset: VirtAddr,       // address where bootloader remaps physical memory
     _last: usize,           // last free memory region same as above, unused
     memory_regions_iter: impl Iterator<Item = (u64, usize)>, // an iterator of memory regions as (start, size)
@@ -462,7 +471,6 @@ pub fn init(
         ALLOCATOR
             .lock()
             .replace(PageAllocator::initialize(memory_regions_iter));
-        MAPPER.lock().replace(mapper);
     }
 }
 
@@ -481,8 +489,8 @@ pub unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static
 }
 
 pub fn virt_to_phys(virt: VirtAddr) -> Option<PhysAddr> {
-    let mut mapper = MAPPER.lock();
-    let mapper = mapper.as_mut().unwrap();
+    let mapper = get_page_tables!();
+
     mapper.translate_addr(virt)
 }
 
@@ -672,8 +680,7 @@ fn map_page(
     alloc: &mut dyn FrameAllocator<Size4KiB>,
     ptype: &PageType,
 ) -> Result<(), MapErr> {
-    let mut mapper_guard = MAPPER.lock();
-    let mapper = mapper_guard.as_mut().ok_or(MapErr::Uninitialized)?;
+    let mut mapper = get_page_tables!();
 
     let (phys, size) = frame;
 
@@ -750,8 +757,7 @@ pub fn kfree_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
 
     // Future me here: I implemented something... hope it works:
 
-    let mut ptable = MAPPER.lock();
-    let ptable = ptable.as_mut().ok_or(MapErr::Uninitialized)?;
+    let mut ptable = get_page_tables!();
 
     let phys = ptable.translate_addr(virtaddr).ok_or(MapErr::NotMapped)?;
 
@@ -800,8 +806,7 @@ pub fn kleak_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
         _ => PageSize::Size4KiB,
     };
 
-    let mut ptable = MAPPER.lock();
-    let ptable = ptable.as_mut().ok_or(MapErr::Uninitialized)?;
+    let mut ptable = get_page_tables!();
 
     match size {
         PageSize::Size2MiB => {
@@ -835,7 +840,7 @@ pub fn kleak_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
     }
     Ok(())
 }
-static DMA_BASE: AtomicU64 = AtomicU64::new(KERNEL_BASE + 0x1000_0000); // Start DMA allocations at an offset from kernel base
+static DMA_BASE: AtomicU64 = AtomicU64::new(KERNEL_BASE + 0x1000_0000); // Start DMA allocations at an offset from the kernel base
 
 pub fn kalloc_dma_pages(len: usize) -> Result<&'static mut [u8], MapErr> {
     if len == 0 {
@@ -1007,7 +1012,7 @@ pub(crate) mod tests {
 
     #[zenos_macros::test]
     pub fn test_constants_higher_half() -> Option<()> {
-        // Verify higher half address is in canonical high space
+        // Verify the higher half address is in canonical high space
         test_assert!(HIGHER_HALF_BASE >= 0xFFFF_8000_0000_0000);
         Some(())
     }
@@ -1058,7 +1063,7 @@ pub(crate) mod tests {
     #[zenos_macros::test]
     pub fn test_allocate_specific_unaligned_4k_fails() -> Option<()> {
         let alloc = make_allocator();
-        // Address not aligned to 4KiB
+        // Address isn't aligned to 4KiB
         let misaligned = PhysAddr::new(0x20001);
         let phys = alloc.alloc(PageSize::Size4KiB, Some(misaligned));
         test_assert!(phys.is_none());

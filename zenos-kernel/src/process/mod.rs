@@ -3,22 +3,23 @@ pub(crate) mod file_handles;
 pub(crate) mod isolation;
 pub(crate) mod scheduler;
 
-use crate::disk::get_len;
-use crate::memory::change_flags;
-use crate::process::debug::dump_pte;
-use crate::process::isolation::new_user_address_space;
 pub use crate::process::scheduler::Scheduler;
 use crate::{
     disk::FS,
     disk::FileError,
+    disk::get_len,
     disk::vfs::File,
     interrupts::gdt::GDT,
     kprintln,
+    memory::change_flags,
     memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},
     percpu::PerCpuData,
     percpu::PerCpuVar,
+    process::debug::dump_pte,
     process::file_handles::{FileHandle, FileOpenOptions, Stderr, Stdin, Stdout},
+    process::isolation::new_user_address_space,
 };
+use alloc::string::ToString;
 use alloc::{boxed::Box, string::String, vec::Vec};
 use core::{
     arch::asm,
@@ -115,7 +116,12 @@ impl Process {
         p
     }
 
-    pub fn exec_replace(&mut self) {
+    pub fn exec_replace(&mut self, name: &str) {
+        let s = name.to_string();
+
+        let trimmed = s.strip_suffix(".elf").map(|x| x.to_string()).unwrap_or(s);
+
+        self.name = trimmed;
         self.state = ProcessState::default();
         self.status = ProcessStatus::Created;
         self.load_bias = 0;
@@ -227,7 +233,7 @@ impl Process {
                         log::set_max_level(LevelFilter::Debug);
                         addr += PAGE_4K as u64;
                     }
-                    let src = (ELF_ADDR + segment.offset()) as *mut u8;
+                    let src = unsafe { bytes.as_ptr().add(segment.offset() as usize) };
                     let dst =
                         ((segment.virtual_addr() as *mut u8) as u64 + self.load_bias) as *mut u8;
                     let len = segment.file_size() as usize;

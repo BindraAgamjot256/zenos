@@ -50,7 +50,6 @@ global_asm!(
     r#"
 .global _start
 _start:
-    sub rsp, 8      
     jmp main
     ud2
 "#
