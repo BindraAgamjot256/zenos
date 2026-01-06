@@ -14,7 +14,8 @@ extern crate alloc;
 
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
-use zenos_kernel::{kinit, kprintln};
+use zenos_kernel::memory::PAGE_4K;
+use zenos_kernel::{kinit, kprintln, serial_println};
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -113,6 +114,12 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     let buf = str::from_utf8(buf).unwrap();
     kprintln!("new contents of chksum.txt: {buf}");
     drop(fs);
+    let (free, total) = zenos_kernel::memory::get_stats().unwrap();
+    let used = total - free;
+    kprintln!("Pages used: {} / {}", used, total);
+    kprintln!("Memory used: {} KiB", used * PAGE_4K / 1024);
+    serial_println!("Pages used: {} / {}", used, total);
+    serial_println!("Memory used: {} KiB", used * PAGE_4K / 1024);
     #[cfg(feature = "test_stub")]
     {
         kprintln!("stub does not exist anymore. test it through init you idiot.");

@@ -8,6 +8,7 @@
 
 pub mod alloc;
 
+use crate::serial_println;
 pub use constants::*;
 use core::{
     ptr::NonNull,
@@ -411,6 +412,27 @@ impl PageAllocator {
             node_opt = node.next;
         }
         Err(MapErr::NotMapped)
+    }
+
+    fn dump(&self) {
+        let mut node_opt = self.head;
+        while let Some(node_ptr) = node_opt {
+            let node = unsafe { node_ptr.as_ref() };
+            let bitmap = unsafe { node.map.as_ref() };
+            if bitmap[0].load(Ordering::Relaxed) != u64::MAX {
+                for bn in bitmap.iter() {
+                    serial_println!("Bitmap word: {:064b}", bn.load(Ordering::Relaxed));
+                }
+            }
+
+            serial_println!(
+                "Node {:#x} region size:{:#x}",
+                node.base_phys,
+                node.region_size
+            );
+
+            node_opt = node.next;
+        }
     }
 }
 
@@ -921,7 +943,7 @@ pub fn get_stats() -> Result<(usize, usize), MapErr> {
 
         node_opt = node.next;
     }
-
+    alloc.dump();
     Ok((free_pages, total_pages))
 }
 
