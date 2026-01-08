@@ -9,9 +9,10 @@ use crate::{
     serial::SERIAL,
 };
 use core::arch::global_asm;
-use log::{error, warn};
+use log::{error, info, warn};
 use spin::Lazy;
 use x86_64::instructions::tlb;
+use x86_64::registers::rflags::RFlags;
 use x86_64::{
     instructions::port::Port,
     registers::control::Cr3,
@@ -142,12 +143,6 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
 
     // Check if we came from userspace (for preemption)
     let context = &mut *ctx;
-    let from_userspace = (context.cs & 3) != 0;
-
-    if !from_userspace {
-        // Don't preempt kernel code
-        return 0;
-    }
 
     // Build ProcessState from interrupt context
     let mut fxsave = FxSaveArea::new();
@@ -191,9 +186,7 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
         Cr3::write(frame, Cr3::read().1);
         tlb::flush_all();
 
-        // Update current PID
-        set_current_pid(new_pid);
-
+        info!("Switched to process {}", new_pid);
         // Update the interrupt context with new process state
         context.rax = new_state.rax;
         context.rbx = new_state.rbx;
@@ -223,8 +216,11 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
                 "CRITICAL: context.rax ({:#x}) != new_state.rax ({:#x})",
                 context.rax, new_state.rax
             ); // this isn't a error, as it is possible for raxes to be equal... unlikely, but possible... i'll take my odds with russian roulette.
-            // the odds are 1/64 for this, 1/3 for russian roulette...
+            // the odds are 1/2**64 for this, 1/3 for russian roulette...
         }
+        let rfl = RFlags::from_bits_retain(new_state.rflags);
+        info!("rflags after switch: {rfl:?}");
+        assert!(rfl.contains(RFlags::INTERRUPT_FLAG));
 
         return 1;
     }

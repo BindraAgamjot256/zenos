@@ -1,11 +1,14 @@
-use crate::process::{PROCESSES, Process, ProcessState, ProcessStatus};
-use log::{debug, trace};
+use crate::process::{PROCESSES, Process, ProcessState, ProcessStatus, set_current_pid};
+use log::{debug, info, trace};
+use pc_keyboard::KeyCode::N;
 
 /// Round-robin scheduler for preemptive multitasking
 pub struct Scheduler {
     cursor: usize,
     /// PID of the currently running process (if any)
     current_pid: Option<u64>,
+    #[cfg(debug_assertions)]
+    times_scheduled: u64,
 }
 
 impl Scheduler {
@@ -13,6 +16,7 @@ impl Scheduler {
         Scheduler {
             cursor: 0,
             current_pid: None,
+            times_scheduled: 0,
         }
     }
 
@@ -27,31 +31,10 @@ impl Scheduler {
     }
 
     /// Set the currently running process
+    /// This updates both the scheduler's internal state and the per-CPU data
     pub fn set_current(&mut self, pid: u64) {
         self.current_pid = Some(pid);
-    }
-
-    /// Get next ready process index to run (round-robin)
-    /// Returns the index in the PROCESSES array
-    pub fn next_proc(&mut self) -> Option<usize> {
-        let procs = PROCESSES.lock();
-        if procs.is_empty() {
-            return None;
-        }
-
-        let len = procs.len();
-        // Search for a ready process starting from cursor
-        for i in 0..len {
-            let idx = (self.cursor + i) % len;
-            if procs[idx].status == ProcessStatus::Ready
-                || procs[idx].status == ProcessStatus::Running
-            {
-                self.cursor = (idx + 1) % len;
-                return Some(idx);
-            }
-        }
-
-        None
+        set_current_pid(pid);
     }
 
     /// Schedule: save current process state and switch to next
@@ -61,16 +44,12 @@ impl Scheduler {
         // Use try_lock to avoid deadlock with syscalls holding the lock
         let mut procs = PROCESSES.try_lock()?;
 
-        // Debug: log all process states
-        for p in procs.iter() {
-            debug!("schedule: pid {} status {:?}", p.pid, p.status);
-        }
-
         // Save state of current process if there is one
         if let Some(current_pid) = self.current_pid {
             if let Some(current_proc) = procs.iter_mut().find(|p| p.pid == current_pid) {
                 if current_proc.status == ProcessStatus::Running {
                     current_proc.save_context(current_state);
+                    current_proc.status = ProcessStatus::Ready;
                     trace!("Saved context for pid {}", current_pid);
                 }
             }
@@ -84,39 +63,44 @@ impl Scheduler {
             return None;
         }
 
-        // Start searching from cursor, but skip the current process
-        for i in 0..len {
-            let idx = (self.cursor + i) % len;
-            let proc = &procs[idx];
+        if self.cursor > len {
+            self.cursor = 0;
+        }
 
-            // Skip the current process - we want to give other processes a chance
-            if self.current_pid == Some(proc.pid) {
-                continue;
-            }
+        let proc = procs.get_mut(self.cursor);
+        if let Some(next_proc) = proc {
+            if next_proc.status == ProcessStatus::Ready {
+                // Found next process to run
+                let next_pid = next_proc.pid;
+                let next_cr3 = next_proc.cr3.as_u64();
+                let next_state = next_proc.state;
+                let curr = self.current_pid.unwrap_or(0);
+                self.current_pid = Some(next_pid);
 
-            if proc.status == ProcessStatus::Ready {
-                self.cursor = (idx + 1) % len;
-                let pid = proc.pid;
-                let cr3 = proc.get_cr3().as_u64();
-                let ctx = *proc.get_context();
-
-                debug!(
-                    "schedule: switching to pid {} (rip={:#x}, rsp={:#x}, rax={:#x}, cs={:#x}, ss={:#x})",
-                    pid, ctx.rip, ctx.rsp, ctx.rax, ctx.cs, ctx.ss
-                );
-
-                // Mark the process as running (we already hold the lock)
-                drop(procs);
-                if let Some(mut procs) = PROCESSES.try_lock() {
-                    if let Some(p) = procs.iter_mut().find(|p| p.pid == pid) {
-                        p.status = ProcessStatus::Running;
-                    }
+                // Move cursor to next for future calls
+                self.cursor = (self.cursor + 1) % len;
+                next_proc.status = ProcessStatus::Running;
+                self.set_current(next_pid);
+                if next_pid == curr {
+                    info!(
+                        "Scheduler chose the same process (pid {}) to run again",
+                        next_pid
+                    );
+                    return None; // early return if switching to the same process
                 }
 
-                self.current_pid = Some(pid);
-                trace!("Switching to pid {}", pid);
-                return Some((pid, cr3, ctx));
+                #[cfg(debug_assertions)]
+                {
+                    self.times_scheduled += 1;
+                    debug!(
+                        "Scheduling switch to pid {} (times scheduled: {})",
+                        next_pid, self.times_scheduled
+                    );
+                }
+                return Some((next_pid, next_cr3, next_state));
             }
+            // Move cursor to next for future calls
+            self.cursor = (self.cursor + 1) % len;
         }
 
         // No other process ready, continue with current if it exists

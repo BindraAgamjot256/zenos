@@ -531,7 +531,7 @@ impl FxSaveArea {
 }
 
 pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
-static NEXT_PID: AtomicU64 = AtomicU64::new(1);
+static NEXT_PID: AtomicU64 = AtomicU64::new(2);
 
 pub fn init_process() -> &'static [u8] {
     let fs = FS.lock();
@@ -590,8 +590,8 @@ pub fn init_process() -> &'static [u8] {
         FileHandle::new(2, Box::new(Stderr), FileOpenOptions::all()),
     );
     let process = Process {
-        pid: 0,
-        parent_pid: u64::MAX,
+        pid: 1,
+        parent_pid: 0,
         state: ProcessState::default(),
         status: ProcessStatus::Created,
         name: String::from("/bin/init"),
@@ -711,14 +711,14 @@ mod tests {
     #[zenos_macros::test]
     pub fn test_fxsave_area_alignment() -> Option<()> {
         // FxSave requires 16-byte alignment
-        crate::test_assert!(core::mem::align_of::<FxSaveArea>() >= 16);
+        crate::test_assert!(align_of::<FxSaveArea>() >= 16);
         Some(())
     }
 
     #[zenos_macros::test]
     pub fn test_fxsave_area_size() -> Option<()> {
         // FxSave area should be 512 bytes
-        assert_eq!(core::mem::size_of::<FxSaveArea>(), 512);
+        assert_eq!(size_of::<FxSaveArea>(), 512);
         Some(())
     }
 

@@ -15,16 +15,17 @@ use log::error;
 /// # Parameters
 /// - `f`: A closure that takes a mutable reference to a FrameBufferWriter.
 pub(crate) fn with_writer<T>(f: impl FnOnce(&mut FrameBufferWriter) -> T) -> Result<T, ()> {
-    x86_64::instructions::interrupts::without_interrupts(|| {
-        let mut fb = FRAMEBUFFER.lock();
-        if let Some(ref mut fb_writer) = *fb {
-            Ok(f(fb_writer))
-        } else {
-            // If the framebuffer is not available, return an error.
-            error!("Framebuffer not initialized or not available");
-            Err(())
-        }
-    })
+    unsafe {
+        FRAMEBUFFER.force_unlock();
+    }
+    let mut fb = FRAMEBUFFER.lock();
+    if let Some(ref mut fb_writer) = *fb {
+        Ok(f(fb_writer))
+    } else {
+        // If the framebuffer is not available, return an error.
+        error!("Framebuffer not initialized or not available");
+        Err(())
+    }
 }
 
 /// Internal helper to print formatted arguments to the framebuffer.

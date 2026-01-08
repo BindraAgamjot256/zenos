@@ -5,7 +5,7 @@
 #![allow(dead_code)] // the IPI infrastructure is never used... we silence the warnings for now.
 pub(crate) mod keyboard;
 
-use crate::memory::{PageType, kalloc_page};
+use crate::memory::{HIGHER_HALF_BASE, PageType, kalloc_page};
 use core::arch::x86_64::__cpuid;
 use heapless::Vec;
 use log::{debug, error, info, trace, warn};
@@ -247,7 +247,7 @@ impl LocalApic {
         self.write(apic_regs::APIC_TIMER_DIVIDE, 0x3);
 
         // Use PIT to sleep for 10ms while LAPIC timer counts down
-        pit::prepare_sleep(10_000);
+        pit::prepare_sleep(5000);
 
         // Set LAPIC timer to maximum value
         trace!("Setting LAPIC timer initial count to maximum");
@@ -546,7 +546,10 @@ impl ApicManager {
         info!("Initializing APIC Manager");
         info!("LAPIC base: {apic_base:#x}");
         info!("IOAPIC bases: {io_bases:?}");
-        let r = kalloc_page(VirtAddr::new(apic_base), PageType::Mmio);
+        let r = kalloc_page(
+            VirtAddr::new(apic_base + HIGHER_HALF_BASE),
+            PageType::MmioRecursive,
+        );
         if r.is_ok() {
             trace!("Allocated page for LAPIC MMIO");
         } else {
@@ -554,19 +557,22 @@ impl ApicManager {
             panic!("Fuc-") // :)
         }
 
-        let lapic = LocalApic::new(apic_base);
+        let lapic = LocalApic::new(apic_base + HIGHER_HALF_BASE);
         let mut ios: Vec<IoApic, MAX_IOAPICS> = Vec::new();
 
         for (i, &base) in io_bases.iter().enumerate().take(MAX_IOAPICS) {
             info!("Initializing IOAPIC {i} at {base:#x}");
-            let r = kalloc_page(VirtAddr::new(base), PageType::Mmio);
+            let r = kalloc_page(
+                VirtAddr::new(base + HIGHER_HALF_BASE),
+                PageType::MmioRecursive,
+            );
             if r.is_ok() {
                 trace!("Allocated page for IOAPIC MMIO");
             } else {
                 error!("Failed to allocate page for IOAPIC MMIO, error: {r:#?}");
                 panic!("Failed to allocate page for IOAPIC MMIO, error: {r:#?}")
             }
-            if ios.push(IoApic::new(base)).is_ok() {
+            if ios.push(IoApic::new(base + HIGHER_HALF_BASE)).is_ok() {
                 debug!("IOAPIC {i} added successfully");
             } else {
                 error!("Failed to add IOAPIC {i} - maximum limit reached");

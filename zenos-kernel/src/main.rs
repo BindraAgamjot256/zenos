@@ -84,40 +84,8 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     // Initialize kernel subsystems
     kinit(boot_info);
 
-    let fs = zenos_kernel::disk::FS.lock();
-    let mut binding = [0; 13];
-    let buf = binding.as_mut_slice();
-    fs.root_dir()
-        .unwrap()
-        .open_file("chksum.txt")
-        .expect("chksum.txt exists")
-        .read(buf)
-        .expect("read failed");
-    let buf = str::from_utf8(buf).unwrap();
-    kprintln!("contents of chksum.txt: {buf}");
-
-    kprintln!("writing \"chksum.txt\" to chksum.txt");
-    fs.root_dir()
-        .unwrap()
-        .open_file("chksum.txt")
-        .expect("chksum.txt exists")
-        .write(b"chksum.txt")
-        .expect("write failed");
-    let mut binding = [0; 13];
-    let buf = binding.as_mut_slice();
-    fs.root_dir()
-        .unwrap()
-        .open_file("chksum.txt")
-        .expect("chksum.txt exists")
-        .read(buf)
-        .expect("read failed");
-    let buf = str::from_utf8(buf).unwrap();
-    kprintln!("new contents of chksum.txt: {buf}");
-    drop(fs);
     let (free, total) = zenos_kernel::memory::get_stats().unwrap();
     let used = total - free;
-    kprintln!("Pages used: {} / {}", used, total);
-    kprintln!("Memory used: {} KiB", used * PAGE_4K / 1024);
     serial_println!("Pages used: {} / {}", used, total);
     serial_println!("Memory used: {} KiB", used * PAGE_4K / 1024);
     #[cfg(feature = "test_stub")]

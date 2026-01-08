@@ -149,8 +149,8 @@ impl SyscallFrame {
 /// # Safety
 /// one word: Syscall.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn syscall_main(frame: *mut SyscallFrame) -> u64 {
-    let frame = unsafe { &*frame };
+pub unsafe extern "C" fn syscall_main(sframe: *mut SyscallFrame) -> u64 {
+    let frame = unsafe { &mut *sframe };
     let syscall_num = frame.rax;
     let rdi = frame.rdi;
     let rsi = frame.rsi;
@@ -158,7 +158,7 @@ pub unsafe extern "C" fn syscall_main(frame: *mut SyscallFrame) -> u64 {
     let r10 = frame.r10;
     let r8 = frame.r8;
     let r9 = frame.r9;
-
+    frame.user_rflags |= 0x200; // set IF flag in RFLAGS to re-enable interrupts on return
     let curr_pid = unsafe { (*crate::percpu::get_percpu_data()).curr_pid };
 
     debug!("syscall num: {} (pid={})", syscall_num, curr_pid);
