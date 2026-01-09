@@ -67,7 +67,7 @@ fn exec_inner(path: &str) -> u64 {
                 let mut sched = process::SCHEDULER.lock();
                 sched.set_current(pid);
             }
-
+            drop(binding);
             process::enter_user_mode(entry, stack);
         }
         Err(e) => file_error_to_errno(&e), // File isn't found or other error

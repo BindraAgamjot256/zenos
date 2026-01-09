@@ -10,7 +10,7 @@ use core::{
 };
 use heapless::Vec;
 use linked_list_allocator::LockedHeap;
-use log::{error, trace, warn};
+use log::{error, info, trace, warn};
 use spin::Mutex;
 use x86_64::VirtAddr;
 
@@ -110,6 +110,27 @@ pub struct Slab {
 impl Slab {
     /// Initialize a new slab at base_addr, with blocks of slab_size bytes and meta info.
     pub fn new(base_addr: usize, slab_size: usize, mut meta: SlabMeta) -> Self {
+        for j in 0..MAX_SLAB_PAGES {
+            let page_addr = base_addr + (j * PAGE_SIZE);
+            trace!(
+                "Allocating page {} at address 0x{:x} for slab",
+                j + 1,
+                page_addr,
+            );
+
+            // Make sure your kalloc_page function sets proper write permissions
+            match kalloc_page(VirtAddr::new(page_addr as u64), PageType::Arbitrary) {
+                Ok(_) => {
+                    // Page allocated successfully - we'll verify it during slab creation
+                    trace!("Page allocated successfully at 0x{page_addr:x}");
+                }
+                Err(e) => {
+                    error!("Failed to allocate page at 0x{page_addr:x}: {e:#?}");
+                    panic!("Failed to allocate page at 0x{page_addr:x}: {e:#?}");
+                }
+            }
+        }
+
         // Write slab metadata at start
         let meta_ptr = base_addr as *mut SlabMeta;
         unsafe {
@@ -172,6 +193,28 @@ impl Slab {
             base_addr,
             slab_size,
             head,
+        }
+    }
+    pub fn used_blocks(&self) -> usize {
+        let slab_meta = unsafe { &*(self.base_addr as *const SlabMeta) };
+        slab_meta.used
+    }
+
+    /// Free all blocks in the slab, and delete it, decreasing mem usage, and requiring re-creation of slav.
+    pub fn free(&self) {
+        let base = self.base_addr;
+        for i in 0..MAX_SLAB_PAGES {
+            let page_addr = base + (i * PAGE_SIZE);
+            trace!("Freeing page {} at address 0x{:x}", i + 1, page_addr);
+            match crate::memory::kfree_page(VirtAddr::new(page_addr as u64), PageType::Arbitrary) {
+                Ok(_) => {
+                    trace!("Page freed successfully at 0x{page_addr:x}");
+                }
+                Err(e) => {
+                    error!("Failed to free page at 0x{page_addr:x}: {e:#?}");
+                    panic!("Failed to free slab pages");
+                }
+            }
         }
     }
 
@@ -276,75 +319,10 @@ impl SlabAllocator {
             base_addr: AtomicUsize::new(SLAB_BASE_ADDR as usize),
         }
     }
-
-    /// Initialize the slab allocator with a set of slabs
-    pub fn init(&mut self) {
-        for (i, &size) in SLAB_SIZE_CLASSES.iter().enumerate() {
-            trace!(
-                "Initializing slab {}/{} with size {} bytes",
-                i + 1,
-                SLAB_SIZE_CLASSES.len(),
-                size
-            );
-
-            // Calculate new base address BEFORE allocating pages
-            let current_base = self.base_addr.load(Ordering::Acquire);
-
-            // Log transition between slabs clearly
-            if i > 0 {
-                trace!("Moving to new slab region at 0x{current_base:x}");
-            }
-
-            let slab_meta = SlabMeta::new(size, MAX_SLAB_PAGES * PAGE_SIZE / size);
-
-            // Allocate pages for this slab with explicit flags
-            for j in 0..MAX_SLAB_PAGES {
-                let page_addr = current_base + (j * PAGE_SIZE);
-                trace!(
-                    "Allocating page {} at address 0x{:x} for slab {}",
-                    j + 1,
-                    page_addr,
-                    i + 1
-                );
-
-                // Make sure your kalloc_page function sets proper write permissions
-                match kalloc_page(VirtAddr::new(page_addr as u64), PageType::Arbitrary) {
-                    Ok(_) => {
-                        // Page allocated successfully - we'll verify it during slab creation
-                        trace!("Page allocated successfully at 0x{page_addr:x}");
-                    }
-                    Err(e) => {
-                        error!("Failed to allocate page at 0x{page_addr:x}: {e:#?}");
-                        return;
-                    }
-                }
-            }
-
-            trace!("Creating slab at base address 0x{current_base:x}");
-            let slab = Slab::new(current_base, size, slab_meta);
-
-            match self.slabs.push(Mutex::new(slab)) {
-                Ok(_) => trace!("Slab {} added to collection", i + 1),
-                Err(_) => {
-                    error!("Failed to add slab to collection");
-                    return;
-                }
-            }
-
-            // Update base_addr for next slab
-            self.base_addr
-                .store(current_base + MAX_SLAB_PAGES * PAGE_SIZE, Ordering::Release);
-            trace!(
-                "Slab {} initialized, next base address: 0x{:x}",
-                i + 1,
-                self.base_addr.load(Ordering::Relaxed)
-            );
-        }
-    }
 }
 
 impl SlabAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+    unsafe fn alloc(&mut self, layout: Layout) -> *mut u8 {
         let size = layout.size();
         let align = layout.align();
         trace!("Allocating {size} bytes with alignment {align}");
@@ -387,12 +365,43 @@ impl SlabAllocator {
             slab.dump_metadata(); // Dump metadata for debugging
             ptr
         } else {
-            error!("No slab found for size {slab_size} bytes");
-            core::ptr::null_mut() // nothing to do
+            // No slab found for this size, create a new one
+            warn!("No slab found for size {slab_size} bytes, creating new slab");
+            let base_addr = self
+                .base_addr
+                .fetch_add(MAX_SLAB_PAGES * PAGE_SIZE, Ordering::SeqCst);
+            let usable_space = MAX_SLAB_PAGES * PAGE_SIZE - size_of::<SlabMeta>();
+            let total_blocks = usable_space / (size_of::<BlockMeta>() + slab_size);
+            let slab_meta = SlabMeta::new(slab_size, total_blocks);
+            let mut new_slab = Slab::new(base_addr, slab_size, slab_meta);
+            let ptr = new_slab.alloc();
+            if ptr.is_null() {
+                warn!("New slab allocation failed for size {size} bytes");
+                return core::ptr::null_mut(); // nothing to do
+            }
+            trace!(
+                "Created new slab at 0x{base_addr:x} for size {slab_size} bytes, allocated {size} bytes at address {ptr:p}",
+            );
+
+            #[cfg(debug_assertions)]
+            new_slab.dump_metadata(); // Dump metadata for debugging
+
+            // Add the new slab to the list
+            match self.slabs.push(Mutex::new(new_slab)) {
+                Ok(_) => {
+                    trace!("New slab added to allocator");
+                }
+                Err(e) => {
+                    error!("Failed to add new slab to allocator: {e:#?}");
+                    panic!("Failed to add new slab to allocator");
+                }
+            }
+
+            ptr
         }
     }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+    unsafe fn dealloc(&mut self, ptr: *mut u8, layout: Layout) {
         if ptr.is_null() {
             warn!("Dealloc called with null pointer, ignoring");
             return;
@@ -401,7 +410,6 @@ impl SlabAllocator {
         let size = layout.size();
         trace!("Deallocating {size} bytes at address {ptr:p}");
 
-        // Find the appropriate slab size class
         let slab_size = match SLAB_SIZE_CLASSES.iter().find(|&&s| s >= size) {
             Some(&s) => s,
             None => {
@@ -410,17 +418,40 @@ impl SlabAllocator {
             }
         };
 
-        // Find the slab with the right size
-        if let Some(mtx) = self.slabs.iter().find(|s| s.lock().slab_size == slab_size) {
-            let mut slab = mtx.lock();
-            trace!("Deallocating pointer {ptr:p} in slab with block size {slab_size}",);
-            slab.dealloc(ptr);
+        // Find slab index FIRST (no locks held)
+        let index = match self
+            .slabs
+            .iter()
+            .position(|s| s.lock().slab_size == slab_size)
+        {
+            Some(i) => i,
+            None => {
+                error!("No slab found for size {slab_size} bytes");
+                return;
+            }
+        };
 
-            #[cfg(debug_assertions)]
-            slab.dump_metadata(); // Dump metadata for debugging
-        } else {
-            error!("No slab found for size {slab_size} bytes");
+        // Now lock exactly one slab
+        let mut slab = self.slabs[index].lock();
+        trace!("Deallocating pointer {ptr:p} in slab with block size {slab_size}");
+        slab.dealloc(ptr);
+
+        let empty = slab.used_blocks() == 0;
+
+        #[cfg(debug_assertions)]
+        slab.dump_metadata();
+
+        drop(slab); // explicitly drop before mutating slabs
+
+        if empty {
+            warn!("Slab is now empty after deallocation, freeing slab");
+            let slab = self.slabs.swap_remove(index);
+            slab.into_inner().free();
+            trace!("Slab removed from allocator");
         }
+    }
+    fn total_slabs(&self) -> usize {
+        self.slabs.len()
     }
 }
 
@@ -435,11 +466,6 @@ impl LockedAllocator {
                 slab_allocator: UnsafeCell::new(SlabAllocator::new()),
                 large_allocator: LockedHeap::empty(),
             }
-        }
-    }
-    pub fn init(&self) {
-        unsafe {
-            self.slab_allocator.as_mut_unchecked().init();
         }
     }
 }
@@ -493,7 +519,6 @@ static ALLOCATOR: LockedAllocator = LockedAllocator::new();
 
 pub fn init() {
     trace!("Initializing slab slab_allocator");
-    ALLOCATOR.init();
     // map pages for large allocator.
     let mut addr = LARGE_ALLOC_BASE_ADDR;
     let pages = (super::PAGE_2M * 5) / super::PAGE_4K;

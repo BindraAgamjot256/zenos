@@ -5,7 +5,7 @@ use crate::{
     hardware::idt_vectors::*,
     interrupts::gdt::DOUBLE_FAULT_IST_INDEX,
     kprintln,
-    process::{ProcessState, SCHEDULER, set_current_pid},
+    process::{ProcessState, SCHEDULER},
     serial::SERIAL,
 };
 use core::arch::global_asm;

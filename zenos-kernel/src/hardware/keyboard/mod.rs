@@ -1,4 +1,7 @@
 use crate::kprint;
+use crate::process::block_current_process;
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering::SeqCst;
 use heapless::Deque;
 use log::trace;
 use pc_keyboard::{DecodedKey, HandleControl, KeyCode, Keyboard, ScancodeSet1, layouts};
@@ -36,8 +39,10 @@ pub fn joint_keyboard_handler(scancode: u8) {
 /// Reads bytes from the keyboard buffer into `buf` until newline or buffer full.
 /// Returns the number of bytes read.
 pub fn read_exact(buf: &mut [u8]) -> usize {
+    static PROCESSING: AtomicBool = AtomicBool::new(false);
     let mut count = 0;
     while count < buf.len() {
+        PROCESSING.store(true, SeqCst);
         // Try to get a character, releasing lock between attempts
         let byte = loop {
             {
@@ -47,11 +52,13 @@ pub fn read_exact(buf: &mut [u8]) -> usize {
                 }
             }
             // Release lock while spinning to allow keyboard interrupt to add chars
+            block_current_process(&PROCESSING);
             core::hint::spin_loop();
         };
 
         if let Some(b) = byte {
             if b == b'\n' {
+                PROCESSING.store(false, SeqCst);
                 break;
             } else if b == b'\r' {
                 // Ignore carriage return

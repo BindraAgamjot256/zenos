@@ -573,9 +573,9 @@ pub(crate) unsafe fn init() {
 
         // 2. Allocate Physical Memory & Map to Virtual
         // `kalloc_page` here allocates a physical page and maps it to `virt_addr`.
-        let cmd_list_phys = kalloc_page(virt_cmd_list, PageType::Recursive)
+        let cmd_list_phys = kalloc_page(virt_cmd_list, PageType::Arbitrary)
             .expect("Failed to allocate command list");
-        let fis_phys = kalloc_page(virt_fis, PageType::Recursive).expect("Failed to allocate FIS");
+        let fis_phys = kalloc_page(virt_fis, PageType::Arbitrary).expect("Failed to allocate FIS");
 
         // 3. Zero Memory (Crucial for stability)
         core::ptr::write_bytes(virt_cmd_list.as_mut_ptr::<u8>(), 0, PAGE_4K);
@@ -601,7 +601,7 @@ pub(crate) unsafe fn init() {
         for slot in 0..MAX_SLOTS {
             let table_virt =
                 VirtAddr::new(cmd_table_base_virt.as_u64() + (slot as u64) * PAGE_4K as u64);
-            let table_phys = kalloc_page(table_virt, PageType::Recursive)
+            let table_phys = kalloc_page(table_virt, PageType::Arbitrary)
                 .expect("Failed to allocate command table");
 
             // Zero table
@@ -634,7 +634,7 @@ pub(crate) unsafe fn init() {
             for slot in 0..MAX_SLOTS {
                 let table_virt =
                     VirtAddr::new(cmd_table_base_virt.as_u64() + (slot as u64) * PAGE_4K as u64);
-                kfree_page(table_virt, PageType::Recursive).expect("Failed to free command table");
+                kfree_page(table_virt, PageType::Arbitrary).expect("Failed to free command table");
             }
         }
     }

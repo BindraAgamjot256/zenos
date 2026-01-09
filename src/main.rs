@@ -73,7 +73,7 @@ fn main() {
     // Machine configuration
     cmd.arg("-machine").arg("q35"); // Modern chipset
     cmd.arg("-bios").arg(ovmf_prebuilt::ovmf_pure_efi()); // Use UEFI firmware
-    cmd.arg("-m").arg("2048M"); // 2GB RAM
+    cmd.arg("-m").arg("512M"); // 512 MiB RAM
     cmd.arg("-smp").arg("2"); // 2 CPU cores
 
     // Debug/Exit behavior

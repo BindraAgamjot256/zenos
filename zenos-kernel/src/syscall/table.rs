@@ -29,6 +29,8 @@ unsafe fn build_syscall_table() -> [Option<SyscallFn>; 256] {
 
         if entry.id < 256 {
             table[entry.id] = Some(entry.handler);
+        } else {
+            panic!("invalid syscall table entry");
         }
 
         // Move to next entry

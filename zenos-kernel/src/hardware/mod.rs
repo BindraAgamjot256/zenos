@@ -247,7 +247,7 @@ impl LocalApic {
         self.write(apic_regs::APIC_TIMER_DIVIDE, 0x3);
 
         // Use PIT to sleep for 10ms while LAPIC timer counts down
-        pit::prepare_sleep(5000);
+        pit::prepare_sleep(10000);
 
         // Set LAPIC timer to maximum value
         trace!("Setting LAPIC timer initial count to maximum");

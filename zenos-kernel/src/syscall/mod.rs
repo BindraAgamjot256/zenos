@@ -185,6 +185,7 @@ pub unsafe extern "C" fn syscall_main(sframe: *mut SyscallFrame) -> u64 {
     }
     let syscall = table[syscall_num as usize];
     if let Some(func) = syscall {
+        info!("invoking syscall number: {}", syscall_num);
         ret = func(rdi, rsi, rdx, r10, r8, r9);
     } else {
         info!("invalid syscall number: {}", syscall_num);

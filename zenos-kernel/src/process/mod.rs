@@ -21,6 +21,7 @@ use crate::{
 };
 use alloc::string::ToString;
 use alloc::{boxed::Box, string::String, vec::Vec};
+use core::sync::atomic::AtomicBool;
 use core::{
     arch::asm,
     mem::offset_of,
@@ -39,8 +40,8 @@ use xmas_elf::{ElfFile, header::Type as ElfType, program, program::Type as PhTyp
 const DEFAULT_USER_BASE: u64 = 0x0000_0000_0040_0000; // 4 MiB, away from the null page(0x0)
 const ELF_ADDR: u64 = 0x1000000 + KERNEL_BASE;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProcessStatus {
+#[derive(Debug, Clone, Copy)]
+pub enum ProcessStatus<'a> {
     /// Process is currently running on a CPU
     Running,
     /// Process is ready to run
@@ -49,13 +50,34 @@ pub enum ProcessStatus {
     Created,
     /// Process has exited
     Exited,
+    /// Process is blocked/waiting(e.g., on a lock. The AtomicBool indicates the lock(true = locked))
+    Blocked(&'a AtomicBool),
 }
 
-impl Default for ProcessStatus {
+impl Default for ProcessStatus<'_> {
     fn default() -> Self {
         ProcessStatus::Created
     }
 }
+
+impl PartialEq<ProcessStatus<'_>> for ProcessStatus<'_> {
+    fn eq(&self, other: &ProcessStatus<'_>) -> bool {
+        match (self, other) {
+            (ProcessStatus::Running, ProcessStatus::Running) => true,
+            (ProcessStatus::Ready, ProcessStatus::Ready) => true,
+            (ProcessStatus::Created, ProcessStatus::Created) => true,
+            (ProcessStatus::Exited, ProcessStatus::Exited) => true,
+            (ProcessStatus::Blocked(a), ProcessStatus::Blocked(b)) => {
+                let a = a.load(Ordering::SeqCst);
+                let b = b.load(Ordering::SeqCst);
+                a == b
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ProcessStatus<'_> {}
 
 #[derive(Debug)]
 pub struct Process {
@@ -63,7 +85,7 @@ pub struct Process {
     pub parent_pid: u64,
     pub name: String,
     pub state: ProcessState,
-    pub status: ProcessStatus,
+    pub status: ProcessStatus<'static>,
     pub cr3: PhysAddr,
     pub end: u64,
     pub entry_point: u64,
@@ -88,15 +110,15 @@ impl Process {
         let mut file_handles = HashMap::new();
         file_handles.insert(
             0,
-            FileHandle::new(0, Box::new(Stdin), FileOpenOptions::all()),
+            FileHandle::new(0, Box::new(Stdin), FileOpenOptions::READ_WRITE),
         );
         file_handles.insert(
             1,
-            FileHandle::new(1, Box::new(Stdout), FileOpenOptions::all()),
+            FileHandle::new(1, Box::new(Stdout), FileOpenOptions::READ_WRITE),
         );
         file_handles.insert(
             2,
-            FileHandle::new(2, Box::new(Stderr), FileOpenOptions::all()),
+            FileHandle::new(2, Box::new(Stderr), FileOpenOptions::READ_WRITE),
         );
         let p = Process {
             pid,
@@ -129,11 +151,8 @@ impl Process {
         self.entry_point = 0;
         self.loaded = false;
         self.user_stack_top = 0;
-        self.file_handles = self
-            .file_handles
-            .drain()
-            .filter(|(_, fh)| !fh.foo.contains(FileOpenOptions::CLOSE_ON_EXEC))
-            .collect();
+        self.file_handles
+            .retain(|_, fh| !fh.foo.contains(FileOpenOptions::CLOSE_ON_EXEC));
         unsafe { self.cr3 = new_user_address_space().unwrap() }
     }
 
@@ -457,6 +476,20 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
         );
     }
     unreachable!();
+}
+
+pub fn block_current_process(lock: &'static AtomicBool) {
+    let curr_pid = current_pid();
+    let mut procs = PROCESSES.lock();
+    if let Some(proc) = procs.iter_mut().find(|p| p.pid == curr_pid) {
+        proc.status = ProcessStatus::Blocked(lock);
+        trace!("Process {} blocked", curr_pid);
+    } else {
+        warn!(
+            "block_current_process: no process found with pid {}",
+            curr_pid
+        );
+    }
 }
 
 pub fn switch_to(process: &Process) {

@@ -82,13 +82,16 @@ struct BitmapNode {
 
 pub mod constants {
     // Constants
-    pub const HIGHER_HALF_BASE: u64 = 0xFFFF_8000_0000_0000;
-    pub const KERNEL_BASE: u64 = 0xFFFF_8000_5000_0000;
-    pub const KERNEL_STACK_BASE: u64 = 0xFFFF_8001_0000_0000;
-    pub const KERNEL_CR3_SCRATCH: u64 = 0xFFFF_FFFF_0000_0000;
-    pub const KERNEL_FB_MAPPINGS: u64 = HIGHER_HALF_BASE + 0x111_0000_0000;
-    pub const SLAB_BASE_ADDR: u64 = 0x_4444_0000_0000 + HIGHER_HALF_BASE;
-    pub const LARGE_ALLOC_BASE_ADDR: u64 = 0x_5555_0000_0000 + HIGHER_HALF_BASE;
+    // All kernel mappings consolidated into PML4 entries 256 (physical memory) and 510 (kernel structures)
+    // This reduces PML4 entry usage from 5 entries to just 2
+    pub const HIGHER_HALF_BASE: u64 = 0xFFFF_8000_0000_0000; // PML4 entry 256: physical memory mapping
+    const KERNEL_MAPPING_BASE: u64 = 0xFFFF_FF00_0000_0000; // PML4 entry 510: all kernel structures
+    pub const KERNEL_BASE: u64 = KERNEL_MAPPING_BASE; // Kernel code/data
+    pub const KERNEL_STACK_BASE: u64 = KERNEL_MAPPING_BASE + 0x01_0000_0000; // Kernel stack (4GB offset)
+    pub const KERNEL_FB_MAPPINGS: u64 = KERNEL_MAPPING_BASE + 0x02_0000_0000; // Framebuffer (8GB offset)
+    pub const SLAB_BASE_ADDR: u64 = KERNEL_MAPPING_BASE + 0x10_0000_0000; // Slab allocator (64GB offset)
+    pub const LARGE_ALLOC_BASE_ADDR: u64 = KERNEL_MAPPING_BASE + 0x40_0000_0000; // Large allocations (256GB offset)
+    pub const KERNEL_CR3_SCRATCH: u64 = KERNEL_MAPPING_BASE + 0x70_0000_0000; // CR3 scratch space (448GB offset)
     pub const PAGE_4K: usize = 4096;
     pub const PAGE_2M: usize = 2 * 1024 * 1024;
 }
@@ -870,27 +873,28 @@ pub fn kalloc_dma_pages(len: usize) -> Result<&'static mut [u8], MapErr> {
     }
 
     let num_pages = len.div_ceil(PAGE_4K);
-    let mut virt_base = DMA_BASE.load(Ordering::SeqCst);
+    let alloc_size = (num_pages * PAGE_4K) as u64;
+
+    // Atomically reserve the address range first to prevent races
+    let virt_base = DMA_BASE.fetch_add(alloc_size, Ordering::SeqCst);
 
     let res = kalloc_page(VirtAddr::new(virt_base), PageType::Arbitrary);
     if res.is_err() {
         let err = res.unwrap_err();
         return if matches!(err, MapErr::OutOfMemory) {
-            DMA_BASE.store(virt_base + PAGE_4K as u64, Ordering::SeqCst);
+            // Skip this address and try again (range already reserved, just recurse)
             kalloc_dma_pages(len)
         } else {
             Err(err)
         };
     }
     let first_virt = VirtAddr::new(virt_base);
-    virt_base += PAGE_4K as u64;
 
-    for _ in 1..num_pages {
-        kalloc_page(VirtAddr::new(virt_base), PageType::Recursive)?;
-        virt_base += PAGE_4K as u64;
+    for i in 1..num_pages {
+        let page_virt = virt_base + (i * PAGE_4K) as u64;
+        kalloc_page(VirtAddr::new(page_virt), PageType::Arbitrary)?;
     }
 
-    DMA_BASE.store(virt_base, Ordering::SeqCst);
     let buf = unsafe { slice::from_raw_parts_mut(first_virt.as_mut_ptr(), len) };
     Ok(buf)
 }
@@ -905,10 +909,12 @@ pub fn kfree_dma_pages(buf: &mut [u8]) -> Result<(), MapErr> {
 
     for i in 0..num_pages {
         let page_ptr = base_ptr + (i as u64) * PAGE_4K as u64;
-        kfree_page(VirtAddr::new(page_ptr), PageType::Recursive)?;
+        kfree_page(VirtAddr::new(page_ptr), PageType::Arbitrary)?;
     }
 
-    DMA_BASE.store(base_ptr, Ordering::SeqCst); // store the actual start
+    // Note: We don't reset DMA_BASE here. The DMA allocator is a simple bump allocator.
+    // Freed virtual addresses are not reused to avoid complexity with page table management.
+    // The physical frames are returned to the allocator and can be reused elsewhere.
     Ok(())
 }
 
@@ -945,6 +951,14 @@ pub fn get_stats() -> Result<(usize, usize), MapErr> {
     }
     alloc.dump();
     Ok((free_pages, total_pages))
+}
+
+/// Free a physical page directly without requiring a virtual mapping.
+/// Used for cleaning up page tables during address space teardown.
+pub fn free_phys_page(phys: PhysAddr) -> Result<(), MapErr> {
+    let mut alloc = ALLOCATOR.lock();
+    let alloc = alloc.as_mut().ok_or(MapErr::Uninitialized)?;
+    alloc.dealloc(phys, PageSize::Size4KiB)
 }
 
 #[cfg(feature = "run-kunittest")]

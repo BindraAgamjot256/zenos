@@ -22,10 +22,7 @@ fn write(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         Err(_) => return (-EFAULT) as u64,
     };
 
-    match write_inner(&buf, fd) {
-        Ok(n) => n,
-        Err(errno) => errno,
-    }
+    write_inner(&buf, fd).unwrap_or_else(|errno| errno)
 }
 
 pub(crate) fn write_inner(buf: &[u8], fd: u64) -> Result<u64, u64> {
@@ -35,7 +32,7 @@ pub(crate) fn write_inner(buf: &[u8], fd: u64) -> Result<u64, u64> {
         .iter_mut()
         .find(|p| p.pid == curr_pid)
         .ok_or((-ESRCH) as u64)?;
-    let file_handle = process.get_file_handle(fd).ok_or((-EBADF) as u64)?;
+    let file_handle = process.get_file_handle(fd).unwrap(); // temp.
     let handle = &mut *file_handle.descriptor();
     let written = File::write(handle, buf).map_err(|e| file_error_to_errno(&e))?;
     Ok(written as u64)
