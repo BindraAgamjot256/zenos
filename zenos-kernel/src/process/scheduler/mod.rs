@@ -76,8 +76,8 @@ impl Scheduler {
 
             let proc = procs.get_mut(self.cursor);
             if let Some(next_proc) = proc {
-                if next_proc.status == ProcessStatus::Ready
-                    || next_proc.status == ProcessStatus::Blocked(&AtomicBool::new(false))
+                if let ProcessStatus::Blocked(flag) = next_proc.status
+                    && !flag.load(core::sync::atomic::Ordering::SeqCst)
                 {
                     // Found next process to run
                     let next_pid = next_proc.pid;
@@ -106,6 +106,37 @@ impl Scheduler {
                             next_pid, self.times_scheduled
                         );
                     }
+                    self.time = 0; // reset time for new process
+                    return Some((next_pid, next_cr3, next_state));
+                } else if next_proc.status == ProcessStatus::Ready {
+                    // Found next process to run
+                    let next_pid = next_proc.pid;
+                    let next_cr3 = next_proc.cr3.as_u64();
+                    let next_state = next_proc.state;
+                    let curr = self.current_pid.unwrap_or(0);
+                    self.current_pid = Some(next_pid);
+
+                    // Move cursor to next for future calls
+                    self.cursor = (self.cursor + 1) % len;
+                    next_proc.status = ProcessStatus::Running;
+                    self.set_current(next_pid);
+                    if next_pid == curr {
+                        info!(
+                            "Scheduler chose the same process (pid {}) to run again",
+                            next_pid
+                        );
+                        return None; // early return if switching to the same process
+                    }
+
+                    #[cfg(debug_assertions)]
+                    {
+                        self.times_scheduled += 1;
+                        debug!(
+                            "Scheduling switch to pid {} (times scheduled: {})",
+                            next_pid, self.times_scheduled
+                        );
+                    }
+                    self.time = 0; // reset time for new process
                     return Some((next_pid, next_cr3, next_state));
                 }
                 // Move cursor to next for future calls
