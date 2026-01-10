@@ -1,5 +1,5 @@
 use crate::disk::FileError;
-use crate::disk::vfs::{File, Metadata, SeekFrom};
+use crate::disk::vfs::{File, FileType, Metadata, SeekFrom};
 use crate::hardware::keyboard;
 use crate::kprint;
 use alloc::boxed::Box;
@@ -34,8 +34,7 @@ impl File for Stdout {
     fn metadata(&self) -> Result<Metadata, FileError> {
         Ok(Metadata {
             size: 0,
-            is_dir: false,
-            is_file: true,
+            ftype: FileType::File,
             created: 0,
             modified: 0,
             accessed: 0,
@@ -62,8 +61,7 @@ impl File for Stderr {
     fn metadata(&self) -> Result<Metadata, FileError> {
         Ok(Metadata {
             size: 0,
-            is_dir: false,
-            is_file: true,
+            ftype: FileType::File,
             created: 0,
             modified: 0,
             accessed: 0,
@@ -90,8 +88,7 @@ impl File for Stdin {
     fn metadata(&self) -> Result<Metadata, FileError> {
         Ok(Metadata {
             size: 0,
-            is_dir: false,
-            is_file: true,
+            ftype: FileType::File,
             created: 0,
             modified: 0,
             accessed: 0,

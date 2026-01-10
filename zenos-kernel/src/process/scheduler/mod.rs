@@ -1,5 +1,4 @@
 use crate::process::{PROCESSES, Process, ProcessState, ProcessStatus, set_current_pid};
-use core::sync::atomic::AtomicBool;
 use log::{debug, info, trace};
 
 /// Round-robin scheduler for preemptive multitasking

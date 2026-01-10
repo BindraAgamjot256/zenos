@@ -95,6 +95,7 @@ pub struct Process {
     pub loaded: bool,
     /// User stack top (saved for context switches)
     pub user_stack_top: u64,
+    pub exit_code: Option<u64>,
 }
 impl Eq for Process {}
 impl PartialEq for Process {
@@ -133,6 +134,7 @@ impl Process {
             file_handles,
             loaded: false,
             user_stack_top: 0,
+            exit_code: None,
         };
         NEXT_PID.store(pid + 1, Ordering::Release);
         p
@@ -635,6 +637,7 @@ pub fn init_process() -> &'static [u8] {
         file_handles,
         loaded: false,
         user_stack_top: 0,
+        exit_code: None,
     };
     PROCESSES.lock().push(process);
     buf

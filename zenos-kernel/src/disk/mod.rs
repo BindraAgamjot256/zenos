@@ -118,6 +118,9 @@ pub static FS: Lazy<Mutex<VFS>> = Lazy::new(|| {
     let mut vfs = VFS::new();
     vfs.mount("/", Arc::new(fatfs))
         .expect("Failed to mount FAT filesystem at /");
+    // Mount procfs at /proc
+    vfs.mount("/proc", Arc::new(fs::proc::ProcFs))
+        .expect("Failed to mount procfs at /proc");
     Mutex::new(vfs)
 });
 

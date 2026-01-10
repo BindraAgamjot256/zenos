@@ -6,3 +6,4 @@
 //! All filesystems implement the VFS traits defined in [`crate::disk::vfs`].
 
 pub mod fat;
+pub mod proc;

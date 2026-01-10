@@ -1363,6 +1363,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "zenos-test-dumper-1"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.10.0",
+ "cc",
+]
+
+[[package]]
 name = "zero"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

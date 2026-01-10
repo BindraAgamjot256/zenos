@@ -171,7 +171,7 @@ pub extern "C" fn main() -> ! {
         println!("Hello from the child process!, fork returned: {}", err);
         let ret = unsafe {
             execve(
-                "/bin/fuzz.elf\0".as_ptr(),
+                "/bin/dump.elf\0".as_ptr(),
                 core::ptr::null(),
                 core::ptr::null(),
             )

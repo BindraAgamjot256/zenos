@@ -132,6 +132,9 @@ pub struct InterruptContext {
 /// Returns 1 if context switch occurred, 0 otherwise
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext) -> u64 {
+    // Increment the tick counter for timekeeping
+    crate::disk::fs::proc::tick();
+
     // Update cursor (existing functionality)
     crate::update_cursor();
 

@@ -1,0 +1,17 @@
+[package]
+name = "zenos-test-dumper-1"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bitflags = "2.10.0"
+
+[build-dependencies]
+cc = "1.0"
+
+
+
+
+[[bin]]
+name = "zenos-test-dumper-1"
+path = "src/main.rs"

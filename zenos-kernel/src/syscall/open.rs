@@ -47,19 +47,33 @@ fn open(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 }
 
 pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u64> {
-    let fs = FS.lock();
-    let res = fs.open_file(file_name);
-    if res.is_err() {
-        if foo.contains(FileOpenOptions::CREATE) {
-            let res = fs.create_file(file_name);
-            if res.is_err() {
+    use x86_64::instructions::interrupts;
+
+    debug!("open_inner: attempting to lock FS for '{}'", file_name);
+
+    // Disable interrupts to prevent deadlock with spinlocks during preemption
+    let file = interrupts::without_interrupts(|| {
+        let fs = FS.lock();
+        debug!("open_inner: FS lock acquired for '{}'", file_name);
+        let res = fs.open_file(file_name);
+        debug!(
+            "open_inner: open_file result for '{}': {:?}",
+            file_name,
+            res.is_ok()
+        );
+        if res.is_err() {
+            if foo.contains(FileOpenOptions::CREATE) {
+                let res = fs.create_file(file_name);
+                if res.is_err() {
+                    return Err(file_error_to_errno(&res.err().unwrap()));
+                }
+            } else {
                 return Err(file_error_to_errno(&res.err().unwrap()));
             }
-        } else {
-            return Err(file_error_to_errno(&res.err().unwrap()));
         }
-    }
-    let file = fs.open_file(file_name).unwrap();
+        Ok(fs.open_file(file_name).unwrap())
+    })?;
+
     let process = crate::process::current_pid();
     let mut binding = PROCESSES.lock();
     let process = binding

@@ -2,6 +2,7 @@
 mod close;
 mod errors;
 mod exec;
+mod exit;
 mod fork;
 mod lseek;
 mod open;

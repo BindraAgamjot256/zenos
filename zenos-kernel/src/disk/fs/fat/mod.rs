@@ -37,7 +37,7 @@ mod plumbing;
 
 use crate::disk::FileError;
 use crate::disk::block::BlockDevice;
-use crate::disk::vfs::{self, DirEntry, Metadata, SeekFrom};
+use crate::disk::vfs::{self, DirEntry, FileType, Metadata, SeekFrom};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -563,12 +563,17 @@ impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
                 continue;
             }
 
+            let ftype = if entry.is_directory() {
+                vfs::FileType::Directory
+            } else {
+                vfs::FileType::File
+            };
+
             result.push(DirEntry {
                 name,
                 metadata: Metadata {
                     size: entry.file_size as u64,
-                    is_dir: entry.is_directory(),
-                    is_file: !entry.is_directory(),
+                    ftype,
                     created: 0,
                     modified: 0,
                     accessed: 0,
@@ -887,8 +892,7 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
     fn metadata(&self) -> Result<Metadata, FileError> {
         Ok(Metadata {
             size: self.entry.file_size as u64,
-            is_dir: false,
-            is_file: true,
+            ftype: FileType::File,
             created: 0,
             modified: 0,
             accessed: 0,

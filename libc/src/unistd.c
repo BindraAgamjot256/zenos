@@ -28,3 +28,7 @@ int pause(void) {
 int execve(const char *filename, char *const argv[], char *const envp[]) {
     return (int) syscall3(SYS_execve, (long) filename, (long) argv, (long) envp);
 }
+
+int exit(int code){
+    return (int) syscall1(SYS_exit, code);
+}

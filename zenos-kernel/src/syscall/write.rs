@@ -32,7 +32,7 @@ pub(crate) fn write_inner(buf: &[u8], fd: u64) -> Result<u64, u64> {
         .iter_mut()
         .find(|p| p.pid == curr_pid)
         .ok_or((-ESRCH) as u64)?;
-    let file_handle = process.get_file_handle(fd).unwrap(); // temp.
+    let file_handle = process.get_file_handle(fd).ok_or((-EBADF) as u64)?;
     let handle = &mut *file_handle.descriptor();
     let written = File::write(handle, buf).map_err(|e| file_error_to_errno(&e))?;
     Ok(written as u64)

@@ -392,6 +392,17 @@ impl<'fb> FrameBufferWriter<'fb> {
                     .ok();
             }
             return;
+        } else if c == '\t' {
+            // Tab character - move cursor to next tab stop (every 4 characters)
+            let char_width = self.font.character_size.width as usize;
+            let current_col = (self.cursor.get_x() - L_PADDING) / char_width;
+            let next_tab_col = (current_col / 4 + 1) * 4;
+            let new_x = L_PADDING + next_tab_col * char_width;
+            self.cursor.move_to(new_x, self.cursor.get_y());
+            return;
+        } else if c == '\0' {
+            // Ignore null characters
+            return;
         }
 
         let font = self.font;

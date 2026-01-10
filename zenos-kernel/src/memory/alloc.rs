@@ -10,7 +10,7 @@ use core::{
 };
 use heapless::Vec;
 use linked_list_allocator::LockedHeap;
-use log::{error, info, trace, warn};
+use log::{error, trace, warn};
 use spin::Mutex;
 use x86_64::VirtAddr;
 

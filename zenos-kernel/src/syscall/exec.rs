@@ -67,6 +67,7 @@ fn exec_inner(path: &str) -> u64 {
                 let mut sched = process::SCHEDULER.lock();
                 sched.set_current(pid);
             }
+            drop(fs);
             drop(binding);
             process::enter_user_mode(entry, stack);
         }
