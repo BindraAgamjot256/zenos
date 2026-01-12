@@ -20,7 +20,8 @@ use crate::{
     process::isolation::new_user_address_space,
 };
 use alloc::string::ToString;
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
+use core::ffi::CStr;
 use core::sync::atomic::AtomicBool;
 use core::{
     arch::asm,
@@ -96,6 +97,10 @@ pub struct Process {
     /// User stack top (saved for context switches)
     pub user_stack_top: u64,
     pub exit_code: Option<u64>,
+    /// Environment variables for the process
+    pub envp: Vec<Vec<u8>>,
+    /// Argument vectors for the process
+    pub argv: Vec<Vec<u8>>,
 }
 impl Eq for Process {}
 impl PartialEq for Process {
@@ -135,27 +140,97 @@ impl Process {
             loaded: false,
             user_stack_top: 0,
             exit_code: None,
+            envp: parent.envp.clone(),
+            argv: Vec::new(),
         };
         NEXT_PID.store(pid + 1, Ordering::Release);
         p
     }
 
-    pub fn exec_replace(&mut self, name: &str) {
-        let s = name.to_string();
+    pub fn exec_replace(
+        &mut self,
+        commandline: &str,
+        argc: usize,
+        argv: *const *const u8,
+        envp: *const *const u8,
+    ) {
+        info!("Process {} execve: {}", self.pid, commandline);
+        info!("  argc: {:#X}", argc);
+        info!("  argv: {:#?}", argv);
+        info!("  envp: {:#?}", envp);
+        // Command line is already assembled by userspace.
+        // We store it as-is for debugging / proc listings.
+        let mut cmdline = commandline.to_string();
 
-        let trimmed = s.strip_suffix(".elf").map(|x| x.to_string()).unwrap_or(s);
+        // ---- ENVIRONMENT ----
+        let mut new_envp: Vec<Vec<u8>> = Vec::new();
 
-        self.name = trimmed;
+        if !envp.is_null() {
+            unsafe {
+                let mut i = 0;
+                loop {
+                    let ptr = *envp.add(i);
+                    if ptr.is_null() {
+                        break;
+                    }
+
+                    let cstr = CStr::from_ptr(ptr as *const i8);
+                    new_envp.push(cstr.to_bytes().to_vec());
+
+                    i += 1;
+                }
+            }
+        }
+
+        // ---- ARGUMENTS ----
+        let mut new_argv: Vec<Vec<u8>> = Vec::new();
+
+        if !argv.is_null() {
+            unsafe {
+                for i in 0..argc {
+                    let ptr = *argv.add(i);
+                    if ptr.is_null() {
+                        continue;
+                    }
+
+                    let cstr = CStr::from_ptr(ptr as *const i8);
+                    new_argv.push(cstr.to_bytes().to_vec());
+                }
+            }
+        }
+
+        // Optional polish: strip ".elf" from argv[0] in the *display name*
+        if let Some(first) = new_argv.first() {
+            if let Ok(s) = core::str::from_utf8(first) {
+                if let Some(stripped) = s.strip_suffix(".elf") {
+                    // Replace only the leading token in the command line
+                    if let Some(rest) = cmdline.strip_prefix(s) {
+                        cmdline = format!("{}{}", stripped, rest);
+                    }
+                }
+            }
+        }
+
+        // ---- COMMIT PROCESS STATE ----
+        self.argv = new_argv;
+        self.envp = new_envp;
+        self.name = cmdline;
+
         self.state = ProcessState::default();
         self.status = ProcessStatus::Created;
+
         self.load_bias = 0;
         self.end = 0;
         self.entry_point = 0;
         self.loaded = false;
         self.user_stack_top = 0;
+
         self.file_handles
             .retain(|_, fh| !fh.foo.contains(FileOpenOptions::CLOSE_ON_EXEC));
-        unsafe { self.cr3 = new_user_address_space().unwrap() }
+
+        unsafe {
+            self.cr3 = new_user_address_space().unwrap();
+        }
     }
 
     /// Create a child process by forking from a parent
@@ -348,40 +423,101 @@ impl Process {
             CURRENT_PID.write(self.pid);
         }
 
-        // Only allocate stack if not already allocated
+        // Allocate stack once
         if self.user_stack_top == 0 {
             let max_end = self.end;
 
-            let stack_gap = 0x20_000; // 128 KiB gap above image
-            let stack_size = 0x4000; // 16 KiB user stack
+            let stack_gap = 0x20_000; // 128 KiB gap
+            let stack_size = 0x4000; // 16 KiB stack
+
             let user_stack_top = (self.load_bias + max_end + stack_gap + (PAGE_4K as u64 - 1))
                 & !((PAGE_4K as u64) - 1);
-
-            info!(
-                "Allocating user stack: max_end={:#x}, stack_top={:#x}, stack_size={:#x}",
-                max_end, user_stack_top, stack_size
-            );
 
             let stack_start = user_stack_top - stack_size;
             let mut addr = stack_start;
             while addr < user_stack_top {
-                info!("Allocating stack page at {:#x}", addr);
                 ualloc_page(VirtAddr::new(addr), PageType::Arbitrary).unwrap();
                 addr += PAGE_4K as u64;
             }
 
-            self.user_stack_top = user_stack_top;
-            self.state.rip = self.entry_point + self.load_bias;
-            self.state.rsp = user_stack_top;
-        }
+            // ----- BUILD USER STACK -----
+            let mut sp = user_stack_top;
 
-        let user_stack = self.state.rsp;
-        let user_entry = self.state.rip;
+            // Store addresses of envp strings
+            let mut envp_ptrs: Vec<u64> = Vec::new();
+
+            // Copy envp strings onto stack (reverse order)
+            for env in self.envp.iter().rev() {
+                let len = env.len() + 1; // include NULL terminator
+                sp -= len as u64;
+                unsafe {
+                    core::ptr::copy_nonoverlapping(env.as_ptr(), sp as *mut u8, env.len());
+                    *(sp as *mut u8).add(env.len()) = 0;
+                }
+                envp_ptrs.push(sp);
+            }
+
+            envp_ptrs.reverse();
+
+            // Store addresses of argv strings
+            let mut argv_ptrs: Vec<u64> = Vec::new();
+
+            // Copy argv strings onto stack (reverse order)
+            for arg in self.argv.iter().rev() {
+                let len = arg.len() + 1; // include NULL terminator
+                sp -= len as u64;
+                unsafe {
+                    core::ptr::copy_nonoverlapping(arg.as_ptr(), sp as *mut u8, arg.len());
+                    *(sp as *mut u8).add(arg.len()) = 0;
+                }
+                argv_ptrs.push(sp);
+            }
+
+            argv_ptrs.reverse();
+
+            // Align stack to 16-byte boundary before pushing pointers
+            sp &= !0xF;
+
+            // Push envp NULL terminator
+            sp -= 8;
+            unsafe { *(sp as *mut u64) = 0 };
+
+            // Push envp pointers (in reverse order so they appear in order on stack)
+            for ptr in envp_ptrs.iter().rev() {
+                sp -= 8;
+                unsafe { *(sp as *mut u64) = *ptr };
+            }
+
+            // Push argv NULL terminator
+            sp -= 8;
+            unsafe { *(sp as *mut u64) = 0 };
+
+            // Push argv pointers (in reverse order so they appear in order on stack)
+            for ptr in argv_ptrs.iter().rev() {
+                sp -= 8;
+                unsafe { *(sp as *mut u64) = *ptr };
+            }
+
+            // Push argc
+            sp -= 8;
+            unsafe { *(sp as *mut u64) = self.argv.len() as u64 };
+
+            // Ensure final stack pointer is 16-byte aligned as per ABI
+            // argc is at sp, argv starts at sp+8, which is correct
+            // The ABI requires (%rsp + 8) to be 16-byte aligned on function entry,
+            // but for _start, %rsp itself should be 16-byte aligned
+            if sp % 16 != 0 {
+                sp -= 8;
+            }
+
+            self.state.rsp = sp;
+            self.state.rip = self.entry_point + self.load_bias;
+            self.user_stack_top = user_stack_top;
+        }
 
         self.status = ProcessStatus::Running;
 
-        info!("Prepared process: {}", self.name);
-        Some((user_entry, user_stack))
+        Some((self.state.rip, self.state.rsp))
     }
 
     /// Save CPU context into this process (called from timer interrupt)
@@ -469,6 +605,9 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
         "push {rflags}",          // RFLAGS
         "push {user_cs}",         // CS
         "push {user_rip}",        // RIP
+        "xor rax, rax",        // clear RAX
+        "xor rdi, rdi",        // clear RDI
+        "xor rsi, rsi",        // clear RSI
         "iretq",
         user_ss = in(reg) user_ss,
         user_rsp = in(reg) user_stack,
@@ -638,6 +777,8 @@ pub fn init_process() -> &'static [u8] {
         loaded: false,
         user_stack_top: 0,
         exit_code: None,
+        envp: Vec::new(),
+        argv: Vec::new(),
     };
     PROCESSES.lock().push(process);
     buf

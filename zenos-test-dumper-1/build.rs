@@ -1,33 +1,33 @@
 fn main() {
-    let mut build = cc::Build::new();
-    build
-        .include("../libc/include")
-        .flag("-ffreestanding")
-        .flag("-nostdlib")
-        .flag("-mno-red-zone")
-        .debug(false);
+    // Link to prebuilt crt0.o and libc.a from libc/build/
+    // Run `make` in ../libc first!
 
-    add_recursively(&mut build, "../libc/src".as_ref());
-    println!("cargo:rerun-if-changed=../libc/src");
-    if std::env::var("TARGET").unwrap().contains("x86_64") {
-        build.target("x86_64-unknown-none-elf");
-    } else {
-        panic!("Unsupported target architecture");
+    let libc_build_dir = std::path::Path::new("../libc/build")
+        .canonicalize()
+        .expect("libc/build not found - run `make` in ../libc first");
+
+    // Verify files exist
+    let crt0_path = libc_build_dir.join("crt0.o");
+    let libc_path = libc_build_dir.join("libc.a");
+
+    if !crt0_path.exists() {
+        panic!("crt0.o not found - run `make` in ../libc first");
+    }
+    if !libc_path.exists() {
+        panic!("libc.a not found - run `make` in ../libc first");
     }
 
-    build.compile("libc");
-}
+    // Link crt0.o first (entry point)
+    println!("cargo:rustc-link-arg={}", crt0_path.display());
 
-fn add_recursively(build: &mut cc::Build, path: &std::path::Path) {
-    for entry in std::fs::read_dir(path).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.is_dir() {
-            add_recursively(build, &path);
-        } else if let Some(ext) = path.extension() {
-            if ext == "c" {
-                build.file(path);
-            }
-        }
-    }
+    // Link libc.a
+    println!(
+        "cargo:rustc-link-search=native={}",
+        libc_build_dir.display()
+    );
+    println!("cargo:rustc-link-lib=static=c");
+
+    // Rerun if libc changes
+    println!("cargo:rerun-if-changed=../libc/build/crt0.o");
+    println!("cargo:rerun-if-changed=../libc/build/libc.a");
 }

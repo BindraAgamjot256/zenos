@@ -20,7 +20,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ptr;
-use log::{debug, info};
+use log::{debug, error, info};
 use x86_64::VirtAddr;
 
 use crate::process::FxSaveArea;
@@ -260,6 +260,7 @@ fn copy_from_user(user_ptr: *const u8, len: usize) -> Result<Vec<u8>, ()> {
     info!("copy from user {:x} len {len:x}", user_ptr as usize);
 
     if !user_range_is_mapped(user_ptr, len) {
+        error!("invalid user pointer");
         return Err(());
     }
 

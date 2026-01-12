@@ -3,7 +3,6 @@
 #![feature(format_args_nl)]
 
 use bitflags::bitflags;
-use core::arch::global_asm;
 use core::fmt::{self, Write};
 
 unsafe extern "C" {
@@ -44,14 +43,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-global_asm!(
-    r#"
-    .global _start
-_start: sub rsp, 8
-jmp main
-ud2 "#
-);
-
 bitflags! {
     #[derive(Debug, Clone, Copy)]
     pub struct FileOpenOptions: u64 {
@@ -74,7 +65,38 @@ bitflags! {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn main() -> ! {
+pub extern "C" fn main(argc: usize, argv: *const *const u8) -> ! {
+    // Display command line arguments
+    println!("=== Command Line Arguments ===");
+    println!("argc = {}", argc);
+
+    if !argv.is_null() {
+        for i in 0..argc {
+            let arg_ptr = unsafe { *argv.add(i) };
+            if !arg_ptr.is_null() {
+                // Find the length of the C string
+                let mut len = 0;
+                unsafe {
+                    while *arg_ptr.add(len) != 0 {
+                        len += 1;
+                    }
+                }
+                let arg_slice = unsafe { core::slice::from_raw_parts(arg_ptr, len) };
+                if let Ok(s) = core::str::from_utf8(arg_slice) {
+                    println!("argv[{}] = \"{}\"", i, s);
+                } else {
+                    println!("argv[{}] = [invalid utf-8]", i);
+                }
+            } else {
+                println!("argv[{}] = (null)", i);
+            }
+        }
+    }
+    println!("==============================");
+    println!();
+    let mut i = 0u64;
+    while i < 10000 {}
+
     // List of files we want to dump
     let files = [
         b"/proc/cpuinfo\0\0\0",

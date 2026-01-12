@@ -4,73 +4,138 @@ use crate::process::PROCESSES;
 use crate::syscall::copy_from_user;
 use crate::syscall::errors::{EINVAL, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
+use core::ffi::CStr;
+use core::mem::size_of;
 use log::info;
 use zenos_macros::syscall;
 
 const MAX_PATH_LEN: usize = 4096;
+const MAX_ARGC: usize = 256;
+const MAX_ARG_LEN: usize = 4096;
+const MAX_ARG_BYTES: usize = 128 * 1024;
 
 #[syscall(0x3b)]
-fn exec(rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
-    info!("exec rdi {:#x}", rdi);
-    let path_buf = rdi as *const u8;
-    let buf = copy_from_user(path_buf, MAX_PATH_LEN);
-    if buf.is_err() {
-        -EINVAL as u64
-    } else {
-        let cstr_bytes = buf.unwrap();
-        let nul_pos = cstr_bytes
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(cstr_bytes.len());
-        let path = core::str::from_utf8(&cstr_bytes[..nul_pos]);
-        if path.is_err() {
-            -EINVAL as u64
-        } else {
-            let ret = exec_inner(path.unwrap());
-            info!("exec returning {}", ret as isize);
-            ret
+fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
+    info!("exec rdi {:#x} rsi {:#x}", rdi, rsi);
+
+    let path_ptr = rdi as *const u8;
+    let argv_ptr = rsi as *const *const u8;
+
+    // ---- copy path ----
+    let path_buf = match copy_from_user(path_ptr, MAX_PATH_LEN) {
+        Ok(b) => b,
+        Err(_) => return -EINVAL as u64,
+    };
+
+    let path_len = match path_buf.iter().position(|&b| b == 0) {
+        Some(p) => p,
+        None => return -EINVAL as u64,
+    };
+
+    let path = &path_buf[..path_len];
+    let path = match core::str::from_utf8(path) {
+        Ok(s) => s,
+        Err(_) => return -EINVAL as u64,
+    };
+
+    // ---- copy argv pointer array ----
+    let mut argv_ptrs: alloc::vec::Vec<*const u8> = alloc::vec::Vec::new();
+
+    for i in 0..MAX_ARGC {
+        let ptr_addr = unsafe { argv_ptr.add(i) };
+
+        let ptr_bytes = match copy_from_user(ptr_addr as *const u8, size_of::<*const u8>()) {
+            Ok(b) => b,
+            Err(_) => return -EINVAL as u64,
+        };
+
+        let arg_ptr = unsafe { *(ptr_bytes.as_ptr() as *const *const u8) };
+
+        if arg_ptr.is_null() {
+            break;
         }
+
+        argv_ptrs.push(arg_ptr);
     }
+
+    // ---- copy argv strings ----
+    let mut kargv: alloc::vec::Vec<alloc::vec::Vec<u8>> = alloc::vec::Vec::new();
+    let mut total_bytes = 0usize;
+
+    for arg_ptr in argv_ptrs {
+        if arg_ptr.is_null() {
+            break;
+        }
+
+        let arg_buf = match copy_from_user(arg_ptr, MAX_ARG_LEN) {
+            Ok(b) => b,
+            Err(_) => return -EINVAL as u64,
+        };
+
+        let arg_len = match arg_buf.iter().position(|&b| b == 0) {
+            Some(p) => p,
+            None => return -EINVAL as u64,
+        };
+
+        total_bytes += arg_len + 1;
+        if total_bytes > MAX_ARG_BYTES {
+            return -EINVAL as u64;
+        }
+
+        kargv.push(arg_buf[..arg_len].to_vec());
+    }
+
+    exec_inner(path, &kargv)
 }
 
-fn exec_inner(path: &str) -> u64 {
+fn exec_inner(path: &str, argv: &[alloc::vec::Vec<u8>]) -> u64 {
     let fs = FS.lock();
-    match fs.open_file(path) {
-        Ok(mut file) => {
-            let len = get_len(file.as_mut()).ok();
-            if len.is_none() {
-                return -EINVAL as u64;
-            }
-            let file_len = len.unwrap();
-            let mut buf = alloc::vec![0u8; file_len as usize];
-            let res = file.read(&mut buf);
-            if res.is_err() {
-                return file_error_to_errno(&res.err().unwrap());
-            }
-            let parent = process::current_pid();
-            let mut binding = PROCESSES.lock();
-            let parent_process = binding.iter_mut().find(|p| p.pid == parent);
-            if parent_process.is_none() {
-                return -EINVAL as u64;
-            }
-            let parent_process = parent_process.unwrap();
-            parent_process.exec_replace(path);
-            parent_process.load(&buf);
-            let (entry, stack, pid) = {
-                let pinit = parent_process;
-                let (e, s) = pinit.prepare_run().unwrap();
-                (e, s, pinit.pid)
-            };
 
-            // Tell the scheduler which process is currently running
-            {
-                let mut sched = process::SCHEDULER.lock();
-                sched.set_current(pid);
-            }
-            drop(fs);
-            drop(binding);
-            process::enter_user_mode(entry, stack);
-        }
-        Err(e) => file_error_to_errno(&e), // File isn't found or other error
+    let mut file = match fs.open_file(path) {
+        Ok(f) => f,
+        Err(e) => return file_error_to_errno(&e),
+    };
+
+    let file_len = match get_len(file.as_mut()) {
+        Ok(l) => l,
+        Err(_) => return -EINVAL as u64,
+    };
+
+    let mut file_buf = alloc::vec![0u8; file_len as usize];
+    if let Err(e) = file.read(&mut file_buf) {
+        return file_error_to_errno(&e);
     }
+
+    let parent_pid = process::current_pid();
+    let mut procs = PROCESSES.lock();
+
+    let proc = match procs.iter_mut().find(|p| p.pid == parent_pid) {
+        Some(p) => p,
+        None => return -EINVAL as u64,
+    };
+
+    let argc = argv.len();
+    let argv: alloc::vec::Vec<*const u8> = argv
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .chain(core::iter::once(core::ptr::null()))
+        .collect();
+
+    proc.exec_replace(path, argc, argv.as_ptr(), core::ptr::null());
+    proc.load(&file_buf);
+
+    let (entry, stack, pid) = match proc.prepare_run() {
+        Some(v) => (v.0, v.1, proc.pid),
+        None => return -EINVAL as u64,
+    };
+
+    {
+        let mut sched = process::SCHEDULER.lock();
+        sched.set_current(pid);
+    }
+
+    drop(fs);
+    drop(procs);
+
+    process::enter_user_mode(entry, stack);
 }

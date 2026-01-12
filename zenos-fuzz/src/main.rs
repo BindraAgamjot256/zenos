@@ -46,15 +46,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-global_asm!(
-    r#"
-.global _start
-_start:
-    jmp main
-    ud2
-"#
-);
-
 // Simple LFSR-based PRNG (no std required)
 struct Rng {
     state: u64,
