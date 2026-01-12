@@ -1,7 +1,23 @@
+/**
+ * math.c - Hardware FPU math library for Zenos
+ *
+ * Implements standard C math functions in pure software.
+ * Functions use inline assembly for:
+ *   - sqrtsd/sqrtss for sqrt
+ *   - roundsd/roundss for floor/ceil/trunc/round (SSE4.1)
+ *   - minsd/maxsd for fmin/fmax
+ *
+ * Trig/exp/log still use optimized software implementations.
+ * Both double and float (f-suffix) variants provided.
+ */
+
 #include "math.h"
 #include "stdint.h"
 
-/* IEEE 754 double-precision bit manipulation */
+/**
+ * IEEE 754 double-precision bit manipulation union.
+ * Allows direct access to sign, exponent, and mantissa bits.
+ */
 typedef union {
     double d;
     uint64_t u;
@@ -12,6 +28,9 @@ typedef union {
     } parts;
 } double_bits;
 
+/**
+ * IEEE 754 single-precision bit manipulation union.
+ */
 typedef union {
     float f;
     uint32_t u;

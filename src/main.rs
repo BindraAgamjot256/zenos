@@ -315,44 +315,37 @@ fn build_fuzz(args: Args) {
 }
 
 fn build_test_1(_args: Args) {
-    println!("[BUILD] Compiling procfs dumper...");
-    let mut cmd = std::process::Command::new("cargo");
-    cmd.arg("+nightly");
-    cmd.arg("build");
-    cmd.arg("-p").arg("zenos-test-dumper-1");
+    println!("[BUILD] Compiling procfs dumper (C version)...");
 
-    #[cfg(not(debug_assertions))]
-    cmd.arg("--release");
+    let dumper_dir = Path::new("zenos-test-dumper-c");
+    let build_dir = dumper_dir.join("build");
+    std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
 
-    cmd.arg("--target=x86_64-unknown-zenos-user.json");
-    cmd.arg("--bin=zenos-test-dumper-1");
-    cmd.arg("-Z").arg("build-std=core,alloc");
-    cmd.arg("-Z")
-        .arg("build-std-features=compiler-builtins-mem");
-
-    #[cfg(debug_assertions)]
-    cmd.env("RUSTFLAGS", "-Cforce-frame-pointers=yes");
-
-    let status = cmd.status().expect("Fuzzer build failed");
-    if !status.success() {
-        eprintln!("[ERROR] procfs dumper build failed.");
+    // Build libc first
+    println!("[BUILD] Building libc...");
+    let libc_status = std::process::Command::new("make")
+        .current_dir("libc")
+        .status()
+        .expect("Failed to run make for libc");
+    if !libc_status.success() {
+        eprintln!("[ERROR] libc build failed.");
         exit(1);
     }
 
-    let profile = if cfg!(debug_assertions) {
-        "debug"
-    } else {
-        "release"
-    };
-    let fuzz_bin = Path::new("./target/x86_64-unknown-zenos-user")
-        .join(profile)
-        .join("zenos-test-dumper-1");
-
+    // Compile main.c to build/main.o
+    println!("[BUILD] Compiling test-dumper...");
+    let compile_status = std::process::Command::new("make")
+        .current_dir("zenos-test-dumper-c")
+        .status();
+    if !compile_status.unwrap().success() {
+        eprintln!("[ERROR] test-dumper build failed.");
+        exit(1);
+    }
+    // Copy to iso/bin
     let out_dir = Path::new("iso").join("bin");
     std::fs::create_dir_all(&out_dir).unwrap();
-
-    // If fuzzing mode is on, we replace the standard init process with the fuzzer.
     let out_path = out_dir.join("dump.elf");
 
-    std::fs::copy(&fuzz_bin, &out_path).expect("Failed to stage dumper binary");
+    std::fs::copy(build_dir.join("test-dumper"), &out_path).expect("Failed to stage dumper binary");
+    println!("[BUILD] Staged test-dumper to {:?}", out_path);
 }

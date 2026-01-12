@@ -1,19 +1,40 @@
+/**
+ * stdio.c - Standard I/O for Zenos
+ *
+ * Implements printf() with basic format specifiers. All output goes directly
+ * to stdout (fd 1) via the write() syscall—no buffering.
+ *
+ * Supported format specifiers:
+ *   %d  - signed decimal integer
+ *   %u  - unsigned decimal integer
+ *   %x  - unsigned hexadecimal (lowercase)
+ *   %p  - pointer (prints as 0x...)
+ *   %s  - null-terminated string
+ *   %c  - single character
+ *   %%  - literal percent sign
+ *
+ * Width and zero-padding supported (e.g., %08x for zero-padded hex).
+ */
+
 #include "unistd.h"
 #include "stdarg.h"
 #include "stdint.h"
 #include "string.h"
 
+/** Write a single character to stdout, returns 1 */
 static int write_char(char c) {
     write(1, &c, 1);
     return 1;
 }
 
+/** Write a null-terminated string to stdout, returns bytes written */
 static int write_str(const char *s) {
     const int len = (int) strlen(s);
     write(1, s, len);
     return len;
 }
 
+/** Print unsigned int in given base (10 or 16) with optional width/zero-padding */
 static int print_uint_base(unsigned int value, int base, int width, int zero_pad) {
     char buffer[32];
     int i = 0;
@@ -46,6 +67,7 @@ static int print_uint_base(unsigned int value, int base, int width, int zero_pad
     return bytes;
 }
 
+/** Print signed int with optional width/zero-padding */
 static int print_int(int value, int width, int zero_pad) {
     unsigned int u;
     int bytes = 0;
@@ -83,6 +105,7 @@ static int print_int(int value, int width, int zero_pad) {
     return bytes;
 }
 
+/** Print pointer as "0x..." hex address */
 static int print_pointer(void *ptr) {
     uintptr_t p = (uintptr_t) ptr;
     int bytes = 0;
@@ -92,6 +115,12 @@ static int print_pointer(void *ptr) {
     return bytes;
 }
 
+/**
+ * Formatted output to stdout.
+ * @param format  Format string with % specifiers
+ * @param ...     Arguments corresponding to format specifiers
+ * @return        Number of bytes written
+ */
 int printf(const char *format, ...) {
     va_list args;
     va_start(args, format);

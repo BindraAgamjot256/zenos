@@ -12,7 +12,7 @@ members = [
     "zenos-bootloader/common/config",
     "zenos-bootloader/uefi",
     "zenos-init", "syscall-macro",
-    "zenos-fuzz", "zenos-test-dumper-1",
+    "zenos-fuzz",
 ]
 
 [workspace.package]

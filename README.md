@@ -8,19 +8,19 @@ An experimental x86_64 operating system written in Rust.
 ## Overview
 
 Zenos is a bare-metal operating system that demonstrates modern OS development techniques using Rust's memory safety and
-zero-cost abstractions. The project includes a custom UEFI bootloader and implements core kernel functionality including
-memory management, interrupt handling, and hardware abstraction.
+zero-cost abstractions. The project includes a custom UEFI bootloader, kernel, and a minimal C standard library for userspace programs.
 
 ## Features
 
 - **Memory Management**: Custom page and slab allocators with O(1) allocation
-- **Process Management**: ~~Preemptive multitasking with~~ process isolation ~~and scheduling~~
+- **Process Management**: Process isolation with Ring 3 userspace execution
 - **File System**: Virtual file system with support for file handles and standard I/O
 - **System Calls**: Standardized syscall interface for user-space interaction
 - **Graphics**: Framebuffer-based graphics output using embedded-graphics
 - **Hardware Support**: ACPI parsing, APIC initialization, PCI enumeration, and UART serial I/O
+- **C Library**: Minimal freestanding libc for userspace C programs
 - **Testing**: Comprehensive test suite that runs in QEMU
-- **Modular Design**: Clean separation between bootloader and kernel components
+- **Modular Design**: Clean separation between bootloader, kernel, and userspace components
 
 ## Quick Start
 
@@ -28,6 +28,7 @@ memory management, interrupt handling, and hardware abstraction.
 
 - Rust nightly toolchain with required components
 - QEMU (`qemu-system-x86_64`) for emulation
+- NASM assembler (for libc's crt0)
 
 ### Installation
 
@@ -92,7 +93,9 @@ zenos/
 │   ├── api/               # Bootloader API
 │   ├── common/            # Shared utilities
 │   └── uefi/              # UEFI implementation
-├── libc/                   # Minimal C standard library
+├── libc/                   # Minimal C standard library for userspace
+│   ├── include/           # Header files (stdio.h, string.h, etc.)
+│   └── src/               # Implementation (printf, syscalls, math, etc.)
 ├── syscall-macro/          # System call definition macros
 ├── iso/                    # Bootable disk image assets
 └── build.rs               # Build orchestration
@@ -103,10 +106,9 @@ zenos/
 ### Kernel Design
 
 - **No Standard Library**: Runs in a `no_std` environment with custom allocators
-- **Memory Safety**: Leverages Rust's ownership system for safe~~er~~ low-level programming
+- **Memory Safety**: Leverages Rust's ownership system for safer low-level programming
 - **Higher-Half Kernel**: Uses virtual memory mapping at high addresses
 - **Interrupt-Safe**: Careful interrupt management throughout the codebase
-- ~~**Preemptive Multitasking**: Round-robin scheduler with context switching~~
 
 ### Memory Management
 
@@ -119,6 +121,19 @@ zenos/
 - **Isolation**: Ring 3 user-space execution with separate page tables
 - **Scheduling**: Basic round-robin scheduler for concurrent execution
 - **IPC**: System call interface for kernel services
+
+### Userspace (libc)
+
+The `libc/` directory contains a minimal C standard library for writing userspace programs:
+
+- **crt0.asm**: C runtime startup (sets up argc/argv/envp and calls main)
+- **syscall.c**: Raw syscall interface using the x86_64 `syscall` instruction
+- **stdio.c**: printf with basic format specifiers
+- **string.c**: String and memory functions (strlen, memcpy, etc.)
+- **unistd.c**: POSIX-like I/O (read, write, fork, execve, exit)
+- **math.c**: Software-implemented math functions
+
+See [libc/README.md](libc/README.md) for details.
 
 ### Hardware Support
 
@@ -141,6 +156,9 @@ cargo build -p zenos-kernel
 
 # Release build
 cargo build --release
+
+# Build libc
+cd libc && make
 ```
 
 ### Code Quality
@@ -170,6 +188,6 @@ MIT License—see LICENSE file for details.
 ## Acknowledgments
 
 - Built with the [bootloader](https://github.com/rust-osdev/bootloader) ecosystem, forked in our
-  own [zenos_bootloader](./zenos-bootloader/) directory
+  own [zenos_bootloader](./zenos-bootloader) directory
 - Uses [x86_64](https://github.com/rust-osdev/x86_64) for low-level hardware access
 - Inspired by the [Writing an OS in Rust](https://os.phil-opp.com/) blog series

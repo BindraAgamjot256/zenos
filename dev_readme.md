@@ -61,6 +61,20 @@ We use the ~~`syscall`~~ `int 0x80` instruction because ~~software interrupts ar
 - **The Handler**: It takes values from registers, casts them to types that might be correct, and calls kernel
   functions. Security? What's that?
 
+**Current syscall numbers** (Linux-compatible where possible):
+
+| #  | Name   | What it does          |
+|----|--------|-----------------------|
+| 0  | read   | Read from fd          |
+| 1  | write  | Write to fd           |
+| 2  | open   | Open a file           |
+| 3  | close  | Close fd              |
+| 8  | lseek  | Seek in file          |
+| 34 | pause  | Wait for signal (lol) |
+| 57 | fork   | Create child process  |
+| 59 | execve | Replace process       |
+| 60 | exit   | Die gracefully        |
+
 ### Build System - A Beautiful Disaster
 
 Our build process is an unholy marriage of:
@@ -182,8 +196,19 @@ Our custom bootloader because apparently I hate myself:
 
 ### libc/
 
-A minimal C library because we needed to run C code and didn't want to port glibc. It has `printf` ~~and `malloc`~~,
-what else do you need?
+A minimal C library because we needed to run C code and didn't want to port glibc. Contains:
+
+- `crt0.asm`: C runtime startup—entry point that sets up argc/argv/envp and calls main()
+- `syscall.c`: Raw syscall wrapper using x86_64 `syscall` instruction
+- `stdio.c`: printf() with %d, %u, %x, %p, %s, %c, %% (no buffering, writes directly to fd 1)
+- `string.c`: The usual suspects—strlen, strcpy, memcpy, memset, etc.
+- `unistd.c`: POSIX-ish wrappers—read, write, close, lseek, fork, execve, exit
+- `fcntl.c`: open() with flags (O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC)
+- `math.c`: Software math functions (sin, cos, sqrt, exp, log, etc.)—no FPU required!
+
+Build with `cd libc && make`. Link with `crt0.o` FIRST, then your objects, then `-lc`.
+
+See [libc/README.md](libc/README.md) for the full API reference.
 
 ### syscall-macro/
 
