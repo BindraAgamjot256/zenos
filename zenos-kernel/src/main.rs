@@ -14,7 +14,6 @@ extern crate alloc;
 
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
-use log::LevelFilter;
 use zenos_kernel::memory::PAGE_4K;
 use zenos_kernel::{kinit, kprintln, serial_println};
 
@@ -122,6 +121,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
 #[cfg(feature = "run-kunittest")]
 fn ktest_main(bi: &'static mut BootInfo) -> ! {
     use crate::testing_stuff::{QemuExitCode, exit_qemu};
+    use log::LevelFilter;
     use zenos_kernel::serial_println;
     use zenos_kernel::testing::Testable;
     kinit(bi); // idk if i should do this... seems fine i guess...

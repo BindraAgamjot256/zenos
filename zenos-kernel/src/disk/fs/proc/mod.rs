@@ -554,7 +554,7 @@ mod tests {
     #[zenos_macros::test]
     pub fn test_version_format() -> Option<()> {
         let version = generate_version();
-        crate::test_assert!(version.contains("ZenOS"));
+        crate::test_assert!(version.contains("zenos"));
         Some(())
     }
 

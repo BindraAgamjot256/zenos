@@ -4,7 +4,8 @@ use crate::process::PROCESSES;
 use crate::syscall::copy_from_user;
 use crate::syscall::errors::{EINVAL, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
-use core::ffi::CStr;
+use alloc::string::ToString;
+use alloc::vec::Vec;
 use core::mem::size_of;
 use log::info;
 use zenos_macros::syscall;
@@ -59,7 +60,7 @@ fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     }
 
     // ---- copy argv strings ----
-    let mut kargv: alloc::vec::Vec<alloc::vec::Vec<u8>> = alloc::vec::Vec::new();
+    let mut kargv: Vec<Vec<u8>> = Vec::new();
     let mut total_bytes = 0usize;
 
     for arg_ptr in argv_ptrs {
@@ -82,13 +83,13 @@ fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
             return -EINVAL as u64;
         }
 
-        kargv.push(arg_buf[..arg_len].to_vec());
+        kargv.push(arg_buf.to_vec());
     }
 
     exec_inner(path, &kargv)
 }
 
-fn exec_inner(path: &str, argv: &[alloc::vec::Vec<u8>]) -> u64 {
+fn exec_inner(path: &str, argv: &[Vec<u8>]) -> u64 {
     let fs = FS.lock();
 
     let mut file = match fs.open_file(path) {
@@ -114,13 +115,19 @@ fn exec_inner(path: &str, argv: &[alloc::vec::Vec<u8>]) -> u64 {
         None => return -EINVAL as u64,
     };
 
-    let argc = argv.len();
-    let argv: alloc::vec::Vec<*const u8> = argv
+    let args: Vec<*const u8> = argv
         .iter()
         .map(|arg| arg.as_ptr())
         .chain(core::iter::once(core::ptr::null()))
         .collect();
 
+    let mut argv = Vec::new();
+    let mut pth = path.to_string();
+    pth.push(0 as char);
+    argv.push(pth.as_ptr());
+    argv.extend(args);
+    let argc = argv.len();
+    info!("exec: path={}, argc={}, argv={:?}", path, argc, argv);
     proc.exec_replace(path, argc, argv.as_ptr(), core::ptr::null());
     proc.load(&file_buf);
 
@@ -128,6 +135,7 @@ fn exec_inner(path: &str, argv: &[alloc::vec::Vec<u8>]) -> u64 {
         Some(v) => (v.0, v.1, proc.pid),
         None => return -EINVAL as u64,
     };
+    info!("proc: {:?}", proc);
 
     {
         let mut sched = process::SCHEDULER.lock();

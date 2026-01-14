@@ -351,7 +351,11 @@ impl<'fb> FrameBufferWriter<'fb> {
     /// - Italic (simulated by drawing character with horizontal shear)
     fn write_character(&mut self, c: char) {
         let binding = [c as u8];
-        let str: &str = str::from_utf8(&binding).unwrap();
+        let str = str::from_utf8(&binding);
+        if str.is_err() {
+            self.write_character('?');
+        }
+        let str = str.unwrap();
 
         if c == '\n' {
             // Move cursor to next line

@@ -68,9 +68,6 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
     println!("panic occurred: {}", _info);
     loop {}
 }
-unsafe extern "C" {
-    fn _start() -> !;
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> ! {
@@ -159,16 +156,13 @@ pub extern "C" fn main() -> ! {
         // Child
         println!("Hello from the child process!, fork returned: {}", err);
 
-        // Build argv array: ["dump.elf", "hello", "from", "init", NULL]
-        let arg0 = "dump.elf\0";
-        let arg1 = "hello\0";
-        let arg2 = "from\0";
-        let arg3 = "init\0";
-        let argv: [*const u8; 5] = [
-            arg0.as_ptr(),
-            arg1.as_ptr(),
-            arg2.as_ptr(),
-            arg3.as_ptr(),
+        let arg1 = c"hello";
+        let arg2 = c"from";
+        let arg3 = c"init";
+        let argv: [*const u8; 4] = [
+            arg1.as_ptr() as *const u8,
+            arg2.as_ptr() as *const u8,
+            arg3.as_ptr() as *const u8,
             core::ptr::null(),
         ];
 

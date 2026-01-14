@@ -16,10 +16,7 @@ fn lseek(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         fd, offset, whence
     );
 
-    match seek_inner(fd, offset, whence) {
-        Ok(pos) => pos,
-        Err(errno) => errno,
-    }
+    seek_inner(fd, offset, whence).unwrap_or_else(|errno| errno)
 }
 
 fn seek_inner(fd: u64, offset: i64, whence: u64) -> Result<u64, u64> {

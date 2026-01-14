@@ -19,13 +19,12 @@ use crate::{
     process::file_handles::{FileHandle, FileOpenOptions, Stderr, Stdin, Stdout},
     process::isolation::new_user_address_space,
 };
-use alloc::string::ToString;
-use alloc::{boxed::Box, format, string::String, vec::Vec};
-use core::ffi::CStr;
-use core::sync::atomic::AtomicBool;
+use alloc::{boxed::Box, format, string::String, string::ToString, vec::Vec};
 use core::{
     arch::asm,
+    ffi::CStr,
     mem::offset_of,
+    sync::atomic::AtomicBool,
     sync::atomic::{AtomicU64, Ordering},
 };
 use hashbrown::HashMap;
@@ -414,42 +413,43 @@ impl Process {
             return None;
         }
 
+        // 1. Switch Address Space
         let new_cr3 = PhysFrame::containing_address(self.cr3);
         unsafe {
             Cr3::write(new_cr3, x86_64::registers::control::Cr3Flags::empty());
-        }
-
-        unsafe {
             CURRENT_PID.write(self.pid);
         }
 
-        // Allocate stack once
+        // 2. Setup Stack (only once)
         if self.user_stack_top == 0 {
-            let max_end = self.end;
-
-            let stack_gap = 0x20_000; // 128 KiB gap
-            let stack_size = 0x4000; // 16 KiB stack
-
-            let user_stack_top = (self.load_bias + max_end + stack_gap + (PAGE_4K as u64 - 1))
-                & !((PAGE_4K as u64) - 1);
-
+            info!("Preparing user stack for process {}", self.pid);
+            let stack_gap = 0x20_000;
+            let stack_size = 0x4000; // 16 KiB
+            let user_stack_top = (self.load_bias + self.end + stack_gap + 0xFFF) & !0xFFF;
             let stack_start = user_stack_top - stack_size;
+
+            // Map the stack
             let mut addr = stack_start;
             while addr < user_stack_top {
                 ualloc_page(VirtAddr::new(addr), PageType::Arbitrary).unwrap();
-                addr += PAGE_4K as u64;
+                addr += 4096;
             }
 
-            // ----- BUILD USER STACK -----
             let mut sp = user_stack_top;
+            assert!(sp > stack_start, "stack grows downwards");
+            info!(
+                "User stack allocated at {:#x}-{:#x}",
+                stack_start, user_stack_top
+            );
+            info!(
+                "Preparing user stack for process {}, sp:{:#x}",
+                self.pid, sp
+            );
 
-            // Store addresses of envp strings
-            let mut envp_ptrs: Vec<u64> = Vec::new();
-
-            // Copy envp strings onto stack (reverse order)
+            // Phase 1: Copy Strings
+            let mut envp_ptrs = Vec::new();
             for env in self.envp.iter().rev() {
-                let len = env.len() + 1; // include NULL terminator
-                sp -= len as u64;
+                sp -= (env.len() + 1) as u64; // +1 for null terminator
                 unsafe {
                     core::ptr::copy_nonoverlapping(env.as_ptr(), sp as *mut u8, env.len());
                     *(sp as *mut u8).add(env.len()) = 0;
@@ -457,15 +457,14 @@ impl Process {
                 envp_ptrs.push(sp);
             }
 
-            envp_ptrs.reverse();
-
-            // Store addresses of argv strings
-            let mut argv_ptrs: Vec<u64> = Vec::new();
-
-            // Copy argv strings onto stack (reverse order)
+            let mut argv_ptrs = Vec::new();
             for arg in self.argv.iter().rev() {
-                let len = arg.len() + 1; // include NULL terminator
-                sp -= len as u64;
+                sp -= (arg.len() + 1) as u64; // +1 for null terminator
+                info!(
+                    "Pushing arg '{}' at {:#x}",
+                    String::from_utf8_lossy(arg),
+                    sp
+                );
                 unsafe {
                     core::ptr::copy_nonoverlapping(arg.as_ptr(), sp as *mut u8, arg.len());
                     *(sp as *mut u8).add(arg.len()) = 0;
@@ -473,50 +472,61 @@ impl Process {
                 argv_ptrs.push(sp);
             }
 
-            argv_ptrs.reverse();
+            while sp % 16 != 0 {
+                sp -= 1; // Align to 16 bytes
+            }
+            // --- PHASE 2: Alignment and Pointers ---
+            // Calculate how many 8-byte entries we will push
+            // argc (1) + argv ptrs (N) + envp ptrs (M) + null (1) + auxv null (2)
+            let pointer_entries = 0 +
+                    1 +                    // argc
+                    self.argv.len() +      // argv pointers
+                    self.envp.len() +      // envp pointers
+                    2; // AT_NULL (type, value)
+            let total_pointer_size = (pointer_entries * 8) as u64;
 
-            // Align stack to 16-byte boundary before pushing pointers
-            sp &= !0xF;
-
-            // Push envp NULL terminator
-            sp -= 8;
-            unsafe { *(sp as *mut u64) = 0 };
-
-            // Push envp pointers (in reverse order so they appear in order on stack)
-            for ptr in envp_ptrs.iter().rev() {
-                sp -= 8;
-                unsafe { *(sp as *mut u64) = *ptr };
+            // Align sp such that after pushing all pointers, sp is 16-byte aligned
+            let temp_sp = sp - total_pointer_size;
+            if temp_sp % 16 != 0 {
+                sp -= 8; // Adjust for 16-byte alignment
             }
 
-            // Push argv NULL terminator
-            sp -= 8;
-            unsafe { *(sp as *mut u64) = 0 };
+            unsafe {
+                let push = |val: u64, stack_ptr: &mut u64| {
+                    *stack_ptr -= 8;
+                    *(*stack_ptr as *mut u64) = val;
+                };
 
-            // Push argv pointers (in reverse order so they appear in order on stack)
-            for ptr in argv_ptrs.iter().rev() {
-                sp -= 8;
-                unsafe { *(sp as *mut u64) = *ptr };
+                // 1. Auxiliary Vector (Minimal: AT_NULL)
+                push(0, &mut sp); // AT_NULL value
+                push(0, &mut sp); // AT_NULL type
+
+                // 2. Envp
+                push(0, &mut sp); // Env terminator
+                for ptr in envp_ptrs {
+                    push(ptr, &mut sp);
+                }
+
+                // 3. Argv
+                push(0, &mut sp); // Arg terminator
+                for ptr in argv_ptrs {
+                    push(ptr, &mut sp);
+                }
+
+                // 4. Argc
+                push(self.argv.len() as u64, &mut sp);
             }
 
-            // Push argc
-            sp -= 8;
-            unsafe { *(sp as *mut u64) = self.argv.len() as u64 };
-
-            // Ensure final stack pointer is 16-byte aligned as per ABI
-            // argc is at sp, argv starts at sp+8, which is correct
-            // The ABI requires (%rsp + 8) to be 16-byte aligned on function entry,
-            // but for _start, %rsp itself should be 16-byte aligned
-            if sp % 16 != 0 {
-                sp -= 8;
-            }
+            // Ensure we didn't overflow our allocated stack
+            assert!(sp >= stack_start, "User stack overflow during preparation!");
 
             self.state.rsp = sp;
             self.state.rip = self.entry_point + self.load_bias;
             self.user_stack_top = user_stack_top;
+            assert_eq!(self.state.rsp % 16, 0, "User stack not 16-byte aligned!");
         }
 
         self.status = ProcessStatus::Running;
-
         Some((self.state.rip, self.state.rsp))
     }
 

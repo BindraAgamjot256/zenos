@@ -450,9 +450,6 @@ impl SlabAllocator {
             trace!("Slab removed from allocator");
         }
     }
-    fn total_slabs(&self) -> usize {
-        self.slabs.len()
-    }
 }
 
 struct LockedAllocator {

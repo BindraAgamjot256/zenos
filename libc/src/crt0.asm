@@ -30,8 +30,6 @@ _start:
     shl rax, 3              ; rax = (argc + 1) * 8
     lea rdx, [rsi + rax]    ; envp -> rdx (3rd arg)
 
-    ; Align stack to 16 bytes (ABI requirement)
-    and rsp, -16
 
     ; Call main(argc, argv, envp)
     call main

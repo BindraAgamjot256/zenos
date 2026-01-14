@@ -7,7 +7,7 @@
 #![no_main]
 #![feature(format_args_nl)]
 #![allow(unsafe_op_in_unsafe_fn)]
-use core::arch::{asm, global_asm};
+use core::arch::asm;
 use core::fmt::{self, Write};
 
 unsafe extern "C" {

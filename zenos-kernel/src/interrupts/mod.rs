@@ -282,7 +282,7 @@ extern "x86-interrupt" fn page_fault_handler(
     error!("stack frame: {ist:#?}");
     let cr2 = x86_64::registers::control::Cr2::read();
     error!("cr2: {cr2:#?}");
-    panic!("Page fault occurred, error code: {:?}", error_code);
+    panic!("Page fault occurred, error code: {:?}", error_code.bits());
 }
 
 fn my_general_handler(stack_frame: InterruptStackFrame, index: u8, error_code: Option<u64>) {

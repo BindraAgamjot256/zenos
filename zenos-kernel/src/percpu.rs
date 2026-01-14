@@ -24,7 +24,7 @@ pub struct PerCpuData {
     pub kernel_stack_ptr: u64,
     /// Scratch space for use during interrupts
     pub scratch: [u64; 4],
-
+    /// Currently running process ID on this CPU
     pub curr_pid: u64,
 }
 
