@@ -18,15 +18,18 @@ int main(int argc, char *argv[]) {
     printf("==============================\n");
     printf("\n");
 
+    for (int i = 0; i < 50000; i++) {
+        __asm("pause");
+    }
     // List of files we want to dump
     const char *files[] = {
-        "/proc/cpuinfo",
         "/proc/meminfo",
         "/proc/version",
         "/proc/uptime",
         "/proc/1/cmdline",
         "/proc/1/status",
         "/proc/1/stat",
+        "/proc/cpuinfo",
     };
     int num_files = sizeof(files) / sizeof(files[0]);
 

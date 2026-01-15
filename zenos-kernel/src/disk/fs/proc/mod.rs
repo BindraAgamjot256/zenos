@@ -300,106 +300,135 @@ impl File for ProcFile {
     }
 }
 
-/// Generate /proc/cpuinfo content
-fn generate_cpuinfo() -> String {
+pub fn generate_cpuinfo() -> String {
     let mut info = String::new();
 
-    // Get CPU vendor string
+    // Vendor
     let vendor = unsafe {
-        let cpuid0 = __cpuid(0);
-        let mut vendor_bytes = [0u8; 12];
-        vendor_bytes[0..4].copy_from_slice(&cpuid0.ebx.to_le_bytes());
-        vendor_bytes[4..8].copy_from_slice(&cpuid0.edx.to_le_bytes());
-        vendor_bytes[8..12].copy_from_slice(&cpuid0.ecx.to_le_bytes());
-        core::str::from_utf8(&vendor_bytes)
+        let c = __cpuid(0);
+        let mut bytes = [0u8; 12];
+        bytes[0..4].copy_from_slice(&c.ebx.to_le_bytes());
+        bytes[4..8].copy_from_slice(&c.edx.to_le_bytes());
+        bytes[8..12].copy_from_slice(&c.ecx.to_le_bytes());
+        core::str::from_utf8(&bytes)
             .unwrap_or("Unknown")
             .to_string()
     };
 
-    // Get CPU brand string (if available)
+    // Brand
     let brand = unsafe {
-        let cpuid_ext = __cpuid(0x80000000);
-        if cpuid_ext.eax >= 0x80000004 {
-            let mut brand_bytes = [0u8; 48];
-            for (i, leaf) in (0x80000002..=0x80000004).enumerate() {
-                let cpuid = __cpuid(leaf);
-                let offset = i * 16;
-                brand_bytes[offset..offset + 4].copy_from_slice(&cpuid.eax.to_le_bytes());
-                brand_bytes[offset + 4..offset + 8].copy_from_slice(&cpuid.ebx.to_le_bytes());
-                brand_bytes[offset + 8..offset + 12].copy_from_slice(&cpuid.ecx.to_le_bytes());
-                brand_bytes[offset + 12..offset + 16].copy_from_slice(&cpuid.edx.to_le_bytes());
+        let max = __cpuid(0x80000000).eax;
+        if max >= 0x80000004 {
+            let mut bytes = [0u8; 48];
+            for i in 0..3 {
+                let c = __cpuid(0x80000002 + i);
+                let off = (i * 16) as usize;
+                bytes[off..off + 4].copy_from_slice(&c.eax.to_le_bytes());
+                bytes[off + 4..off + 8].copy_from_slice(&c.ebx.to_le_bytes());
+                bytes[off + 8..off + 12].copy_from_slice(&c.ecx.to_le_bytes());
+                bytes[off + 12..off + 16].copy_from_slice(&c.edx.to_le_bytes());
             }
-            let brand_str = core::str::from_utf8(&brand_bytes).unwrap_or("Unknown");
-            brand_str.trim_end_matches('\0').trim().to_string()
+            core::str::from_utf8(&bytes)
+                .unwrap_or("Unknown")
+                .trim_matches('\0')
+                .trim()
+                .to_string()
         } else {
-            String::from("Unknown")
+            "Unknown".to_string()
         }
     };
 
-    // Get CPU features
+    // Family / model / stepping
     let (family, model, stepping) = unsafe {
-        let cpuid1 = __cpuid(1);
-        let stepping = cpuid1.eax & 0xF;
-        let model = ((cpuid1.eax >> 4) & 0xF) | (((cpuid1.eax >> 16) & 0xF) << 4);
-        let family = ((cpuid1.eax >> 8) & 0xF) + ((cpuid1.eax >> 20) & 0xFF);
+        let c = __cpuid(1);
+        let stepping = c.eax & 0xF;
+        let model = ((c.eax >> 4) & 0xF) | (((c.eax >> 16) & 0xF) << 4);
+        let family = ((c.eax >> 8) & 0xF) + ((c.eax >> 20) & 0xFF);
         (family, model, stepping)
     };
 
-    info.push_str(&format!("processor\t: 0\n"));
+    // Features
+    let mut flags = Vec::new();
+    unsafe {
+        let c1 = __cpuid(1);
+        let c7 = __cpuid(7);
+
+        macro_rules! f {
+            ($cond:expr, $name:expr) => {
+                if $cond {
+                    flags.push($name);
+                }
+            };
+        }
+
+        // Basic
+        f!(c1.edx & (1 << 0) != 0, "fpu");
+        f!(c1.edx & (1 << 4) != 0, "tsc");
+        f!(c1.edx & (1 << 5) != 0, "msr");
+        f!(c1.edx & (1 << 6) != 0, "pae");
+        f!(c1.edx & (1 << 9) != 0, "apic");
+        f!(c1.edx & (1 << 23) != 0, "mmx");
+        f!(c1.edx & (1 << 25) != 0, "sse");
+        f!(c1.edx & (1 << 26) != 0, "sse2");
+
+        f!(c1.ecx & (1 << 0) != 0, "sse3");
+        f!(c1.ecx & (1 << 9) != 0, "ssse3");
+        f!(c1.ecx & (1 << 19) != 0, "sse4_1");
+        f!(c1.ecx & (1 << 20) != 0, "sse4_2");
+        f!(c1.ecx & (1 << 28) != 0, "avx");
+
+        // CPUID 7
+        f!(c7.ebx & (1 << 3) != 0, "bmi1");
+        f!(c7.ebx & (1 << 8) != 0, "bmi2");
+        f!(c7.ebx & (1 << 7) != 0, "smep");
+        f!(c7.ebx & (1 << 20) != 0, "smap");
+        f!(c7.ebx & (1 << 0) != 0, "fsgsbase");
+        f!(c7.ebx & (1 << 18) != 0, "rdseed");
+        f!(c7.ebx & (1 << 19) != 0, "adx");
+        f!(c7.ebx & (1 << 29) != 0, "sha_ni");
+
+        // Extended AMD
+        let ce = __cpuid(0x80000001);
+        f!(ce.edx & (1 << 20) != 0, "nx");
+        f!(ce.edx & (1 << 29) != 0, "lm");
+        f!(ce.ecx & (1 << 5) != 0, "abm");
+        f!(ce.ecx & (1 << 6) != 0, "sse4a");
+
+        // Hypervisor
+        f!(c1.ecx & (1 << 31) != 0, "hypervisor");
+    }
+
+    // Address sizes
+    let (phys_bits, virt_bits) = unsafe {
+        let c = __cpuid(0x80000008);
+        ((c.eax & 0xFF), ((c.eax >> 8) & 0xFF))
+    };
+
+    info.push_str("processor\t: 0\n");
     info.push_str(&format!("vendor_id\t: {}\n", vendor.trim()));
     info.push_str(&format!("cpu family\t: {}\n", family));
     info.push_str(&format!("model\t\t: {}\n", model));
     info.push_str(&format!("model name\t: {}\n", brand));
     info.push_str(&format!("stepping\t: {}\n", stepping));
-
-    // Check for common features
-    let features = unsafe {
-        let cpuid1 = __cpuid(1);
-        let mut feats = Vec::new();
-        if cpuid1.edx & (1 << 0) != 0 {
-            feats.push("fpu");
-        }
-        if cpuid1.edx & (1 << 4) != 0 {
-            feats.push("tsc");
-        }
-        if cpuid1.edx & (1 << 5) != 0 {
-            feats.push("msr");
-        }
-        if cpuid1.edx & (1 << 6) != 0 {
-            feats.push("pae");
-        }
-        if cpuid1.edx & (1 << 9) != 0 {
-            feats.push("apic");
-        }
-        if cpuid1.edx & (1 << 23) != 0 {
-            feats.push("mmx");
-        }
-        if cpuid1.edx & (1 << 25) != 0 {
-            feats.push("sse");
-        }
-        if cpuid1.edx & (1 << 26) != 0 {
-            feats.push("sse2");
-        }
-        if cpuid1.ecx & (1 << 0) != 0 {
-            feats.push("sse3");
-        }
-        if cpuid1.ecx & (1 << 9) != 0 {
-            feats.push("ssse3");
-        }
-        if cpuid1.ecx & (1 << 19) != 0 {
-            feats.push("sse4_1");
-        }
-        if cpuid1.ecx & (1 << 20) != 0 {
-            feats.push("sse4_2");
-        }
-        if cpuid1.ecx & (1 << 28) != 0 {
-            feats.push("avx");
-        }
-        feats
-    };
-
-    info.push_str(&format!("flags\t\t: {}\n", features.join(" ")));
-    info.push('\n');
+    info.push_str("microcode\t: 0x0\n");
+    info.push_str("cpu MHz\t\t: 3300.000\n");
+    info.push_str("cache size\t: 512 KB\n");
+    info.push_str("physical id\t: 0\n");
+    info.push_str("siblings\t: 1\n");
+    info.push_str("core id\t\t: 0\n");
+    info.push_str("cpu cores\t: 1\n");
+    info.push_str("apicid\t\t: 0\n");
+    info.push_str("initial apicid\t: 0\n");
+    info.push_str(&format!("flags\t\t: {}\n", flags.join(" ")));
+    info.push_str("bugs\t\t: spectre_v1 spectre_v2 spec_store_bypass retbleed\n");
+    info.push_str("bogomips\t: 6600.00\n");
+    info.push_str("clflush size\t: 64\n");
+    info.push_str("cache_alignment\t: 64\n");
+    info.push_str(&format!(
+        "address sizes\t: {} bits physical, {} bits virtual\n",
+        phys_bits, virt_bits
+    ));
+    info.push_str("power management:\n\n");
 
     info
 }

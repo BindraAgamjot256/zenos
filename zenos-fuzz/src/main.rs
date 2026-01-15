@@ -132,8 +132,8 @@ pub extern "C" fn main() -> ! {
                 i, syscall_num, arg1, arg2, arg3
             );
         }
-        if syscall_num == 57 {
-            // ignore fork for simplicity
+        if syscall_num == 57 || syscall_num == 60 || syscall_num == 59 {
+            // ignore fork/exit/exec for simplicity
             continue;
         }
 
