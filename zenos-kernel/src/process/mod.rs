@@ -28,6 +28,7 @@ use core::{
     sync::atomic::{AtomicU64, Ordering},
 };
 use hashbrown::HashMap;
+use heapless::Vec as HeaplessVec;
 use log::{LevelFilter, error, info, trace, warn};
 use spin::{Lazy, Mutex};
 use x86_64::{
@@ -629,6 +630,27 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
     unreachable!();
 }
 
+/// Switch to the next ready process immediately.
+/// Used by exit syscall to avoid busy-waiting.
+/// Never returns if a process is found to switch to.
+pub fn schedule_next() -> ! {
+    // Force the scheduler to pick a new process on the next timer tick
+    {
+        let mut sched = SCHEDULER.lock();
+        sched.force_reschedule();
+    }
+
+    // Enable interrupts and halt - the next timer tick will context switch
+    unsafe {
+        asm!("sti", "hlt", options(nomem, nostack),);
+    }
+
+    // Loop halting until timer reschedules us away
+    loop {
+        unsafe { asm!("hlt") };
+    }
+}
+
 pub fn block_current_process(lock: &'static AtomicBool) {
     let curr_pid = current_pid();
     let mut procs = PROCESSES.lock();
@@ -700,8 +722,10 @@ impl Default for FxSaveArea {
 }
 
 impl FxSaveArea {
-    pub const fn new() -> Self {
-        FxSaveArea { _data: [0; 512] }
+    pub fn new() -> Self {
+        let mut area = FxSaveArea { _data: [0; 512] };
+        area.save();
+        area
     }
     pub fn save(&mut self) {
         unsafe {
@@ -714,7 +738,7 @@ impl FxSaveArea {
     }
 }
 
-pub static PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
+pub static PROCESSES: Mutex<HeaplessVec<Process, 256>> = Mutex::new(HeaplessVec::new());
 static NEXT_PID: AtomicU64 = AtomicU64::new(2);
 
 pub fn init_process() -> &'static [u8] {
@@ -790,7 +814,7 @@ pub fn init_process() -> &'static [u8] {
         envp: Vec::new(),
         argv: Vec::new(),
     };
-    PROCESSES.lock().push(process);
+    PROCESSES.lock().push(process).unwrap();
     buf
 }
 

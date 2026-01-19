@@ -69,110 +69,106 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
+/// Spawn a child process to run the given binary with optional arguments
+fn spawn(path: &[u8], args: &[&[u8]]) -> i64 {
+    let pid = unsafe { fork() };
+    if pid == 0 {
+        // Child: exec the binary
+        // Build argv array (max 8 args + null terminator)
+        let mut argv_ptrs: [*const u8; 9] = [core::ptr::null(); 9];
+        for (i, arg) in args.iter().enumerate().take(8) {
+            argv_ptrs[i] = arg.as_ptr();
+        }
+
+        let ret = unsafe { execve(path.as_ptr(), argv_ptrs.as_ptr(), core::ptr::null()) };
+        // If we get here, execve failed
+        println!(
+            "execve failed for {:?}: {}",
+            core::str::from_utf8(path),
+            -ret
+        );
+        unsafe {
+            // exit syscall directly since we can't use exit() in no_std context easily
+            core::arch::asm!(
+                "syscall",
+                in("rax") 60u64,  // SYS_exit
+                in("rdi") 1u64,
+                options(noreturn)
+            );
+        }
+    }
+    pid
+}
+
+/// Stress test binaries to run (8.3 FAT filenames)
+static STRESS_TESTS: &[(&[u8], &[&[u8]])] = &[
+    (b"/bin/forkstrm\0", &[b"forkstrm\0"]),
+    (b"/bin/rapidspn\0", &[b"rapidspn\0"]),
+    (b"/bin/schedfar\0", &[b"schedfar\0"]),
+    (b"/bin/memexhst\0", &[b"memexhst\0"]),
+    (b"/bin/orphzomb\0", &[b"orphzomb\0"]),
+    (b"/bin/fsconcrn\0", &[b"fsconcrn\0"]),
+    (b"/bin/sysclabs\0", &[b"sysclabs\0"]),
+];
+
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> ! {
-    // File test
-    let path = "/chksum.txt\0";
-    let fd = unsafe {
-        open(
-            path.as_ptr(),
-            (FileOpenOptions::CREATE | FileOpenOptions::READ_WRITE).bits(),
-        )
-    };
+    println!("=== Zenos Init: Stress Test Launcher ===");
 
-    if fd >= 0 {
-        // Move cursor back to start of file
-        let fd = fd as u64;
-        unsafe { lseek(fd, 0, 0) };
-        let mut buffer = [0u8; 32];
-        let read_len = unsafe { read(fd, buffer.as_mut_ptr(), buffer.len()) };
-
-        if read_len > 0 {
-            println!(
-                "File says: {}",
-                core::str::from_utf8(&buffer[..read_len as usize]).unwrap_or("?")
-            );
-        } else {
-            panic!("file_read failed. reality is pain");
-        }
-        unsafe { lseek(fd, 0, 0) };
-        let msg = "hello, world\n";
-        unsafe { write(fd, msg.as_ptr(), msg.len()) };
-
-        // Move cursor back to start of file
-        unsafe { lseek(fd, 0, 0) };
-        let mut buffer = [0u8; 32];
-        let read_len = unsafe { read(fd, buffer.as_mut_ptr(), buffer.len()) };
-
-        if read_len > 0 {
-            println!(
-                "File says: {}",
-                core::str::from_utf8(&buffer[..read_len as usize]).unwrap_or("?")
-            );
-        } else {
-            panic!("file_read failed. reality is pain");
-        }
-
-        // Move cursor back to start of file
-        unsafe { lseek(fd, 0, 0) };
-        let buf = "Goodbye, world\n";
-        unsafe { write(fd, buf.as_ptr(), buf.len()) };
-        unsafe { lseek(fd, 0, 0) };
-        let mut buffer = [0u8; 32];
-        let read_len = unsafe { read(fd, buffer.as_mut_ptr(), buffer.len()) };
-        if read_len > 0 {
-            println!(
-                "File says: {}",
-                core::str::from_utf8(&buffer[..read_len as usize]).unwrap_or("?")
-            );
-        } else {
-            panic!("file_read failed. reality is pain, err:{}", -read_len);
-        }
-        let ret = unsafe { close(fd) };
-        if ret != 0 {
-            panic!("close failed. reality is pain");
-        }
-        println!("File closed.")
-    } else {
-        println!("file_open failed. reality is pain, err:{}", fd);
+    // First, run the original dump test
+    println!("[init] Launching dump.elf...");
+    let dump_pid = 0; //spawn(b"/bin/dump.elf\0", &[b"dump\0", b"from\0", b"init\0"]);
+    if dump_pid > 0 {
+        println!("[init] dump.elf started with PID {}", dump_pid);
+    } else if dump_pid < 0 {
+        println!("[init] Failed to fork for dump.elf: {}", dump_pid);
     }
-    let mut stdin_buf = [0u8; 64];
-    let ret = unsafe { read(0, stdin_buf.as_mut_ptr(), stdin_buf.len()) };
-    if ret > 0 {
-        println!(
-            "Read {} bytes from stdin: {}",
-            ret,
-            core::str::from_utf8(&stdin_buf[..ret as usize]).unwrap_or("?")
-        );
-    } else {
-        println!("stdin read failed. reality is pain");
+
+    // Brief delay before stress tests
+    for _ in 0..1000000u32 {
+        core::hint::spin_loop();
     }
-    let err = unsafe { fork() };
-    if err > 0 {
-        // Parent
-        println!("Hello from the parent process! Child PID: {}", err);
-        loop {}
-    } else if err == 0 {
-        // Child
-        println!("Hello from the child process!, fork returned: {}", err);
 
-        let arg1 = c"hello";
-        let arg2 = c"from";
-        let arg3 = c"init";
-        let argv: [*const u8; 4] = [
-            arg1.as_ptr() as *const u8,
-            arg2.as_ptr() as *const u8,
-            arg3.as_ptr() as *const u8,
-            core::ptr::null(),
-        ];
+    // Launch all stress tests
+    println!("[init] Launching stress tests...");
 
-        let ret = unsafe { execve("/bin/dump.elf\0".as_ptr(), argv.as_ptr(), core::ptr::null()) };
-        if ret != 0 {
-            panic!("execve failed. reality is pain, err:{}", -ret);
+    let mut launched = 0i32;
+    for (path, args) in STRESS_TESTS.iter() {
+        let pid = spawn(*path, *args);
+        if pid > 0 {
+            println!(
+                "[init] Started {:?} with PID {}",
+                core::str::from_utf8(&path[..path.len() - 1]).unwrap_or("?"),
+                pid
+            );
+            launched += 1;
+        } else if pid < 0 {
+            println!(
+                "[init] Failed to spawn {:?}: {}",
+                core::str::from_utf8(&path[..path.len() - 1]).unwrap_or("?"),
+                pid
+            );
         }
-        unreachable!()
-    } else {
-        println!("Fork failed with error code: {}", err);
+
+        // Small delay between launches to avoid overwhelming the kernel
+        for _ in 0..10000u32 {
+            unsafe { core::arch::asm!("pause") };
+        }
     }
-    unreachable!()
+
+    println!("[init] Launched {} stress tests", launched);
+    println!("[init] Init process entering idle loop");
+
+    // Init should never exit - it's PID 1
+    // Just loop forever, periodically printing status
+    let mut heartbeat = 0u64;
+    loop {
+        for _ in 0..1000000u32 {
+            unsafe { core::arch::asm!("pause") };
+        }
+        heartbeat += 1;
+        if heartbeat % 10 == 0 {
+            println!("[init] Heartbeat {}", heartbeat);
+        }
+    }
 }

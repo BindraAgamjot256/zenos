@@ -157,5 +157,6 @@ tmp/
 temp/
 WARP.md
 **/*.elf
+iso/bin/**/*
 *.img
 **/*.bin

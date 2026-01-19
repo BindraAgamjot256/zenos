@@ -79,7 +79,10 @@ fn fork(_rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     // Add child to process list
     {
         let mut procs = PROCESSES.lock();
-        procs.push(child_process);
+        let err = procs.push(child_process).map_err(|_| -ENOMEM);
+        if err.is_err() {
+            return err.err().unwrap() as u64;
+        }
     }
 
     info!(

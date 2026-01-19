@@ -55,6 +55,7 @@ fn main() {
     build_init(args);
     build_fuzz(args);
     build_test_1(args);
+    build_stress_tests(args);
 
     // 2. Image Construction Phase
     let kernel_binding = build_kernel(args);
@@ -325,6 +326,8 @@ fn build_test_1(_args: Args) {
     println!("[BUILD] Building libc...");
     let libc_status = std::process::Command::new("make")
         .current_dir("libc")
+        .env("CC", "clang --target=x86_64-unknown-none-elf")
+        .env("LD", "ld.lld")
         .status()
         .expect("Failed to run make for libc");
     if !libc_status.success() {
@@ -336,6 +339,8 @@ fn build_test_1(_args: Args) {
     println!("[BUILD] Compiling test-dumper...");
     let compile_status = std::process::Command::new("make")
         .current_dir("zenos-test-dumper-c")
+        .env("CC", "clang --target=x86_64-unknown-none-elf")
+        .env("LD", "ld.lld")
         .status();
     if !compile_status.unwrap().success() {
         eprintln!("[ERROR] test-dumper build failed.");
@@ -348,4 +353,51 @@ fn build_test_1(_args: Args) {
 
     std::fs::copy(build_dir.join("test-dumper"), &out_path).expect("Failed to stage dumper binary");
     println!("[BUILD] Staged test-dumper to {:?}", out_path);
+}
+
+/// Builds all stress test programs and copies them to iso/bin/
+fn build_stress_tests(_args: Args) {
+    println!("[BUILD] Compiling stress tests...");
+
+    let stress_dir = Path::new("zenos-stress-tests");
+    let build_dir = stress_dir.join("build");
+
+    // Build stress tests (libc should already be built from build_test_1)
+    let compile_status = std::process::Command::new("make")
+        .current_dir(stress_dir)
+        .env("CC", "clang --target=x86_64-unknown-none-elf")
+        .env("LD", "ld.lld")
+        .status()
+        .expect("Failed to run make for stress tests");
+
+    if !compile_status.success() {
+        eprintln!("[ERROR] stress tests build failed.");
+        exit(1);
+    }
+
+    // Copy all stress test binaries to iso/bin/
+    let out_dir = Path::new("iso").join("bin");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let stress_tests = [
+        ("fork_storm", "forkstrm"),
+        ("rapid_spawn", "rapidspn"),
+        ("sched_fairness", "schedfar"),
+        ("mem_exhaust", "memexhst"),
+        ("orphan_zombie", "orphzomb"),
+        ("fs_concurrent", "fsconcrn"),
+        ("procfs_churn", "procfsch"),
+        ("syscall_abuse", "sysclabs"),
+    ];
+
+    for (src_name, dst_name) in stress_tests {
+        let src = build_dir.join(src_name);
+        let dst = out_dir.join(dst_name);
+        if src.exists() {
+            std::fs::copy(&src, &dst).expect(&format!("Failed to stage {}", src_name));
+            println!("[BUILD] Staged {} -> {:?}", src_name, dst);
+        } else {
+            eprintln!("[WARN] Stress test binary not found: {:?}", src);
+        }
+    }
 }

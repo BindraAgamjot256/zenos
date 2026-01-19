@@ -33,7 +33,7 @@ macro_rules! meta_ptr_from_user {
 const PAGE_SIZE: usize = super::constants::PAGE_4K;
 const MAX_SLAB_PAGES: usize = 10; // 40 KiB per slab.
 
-const SLAB_SIZE_CLASSES: [usize; 9] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048];
+const SLAB_SIZE_CLASSES: [usize; 10] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
 
 // Metadata for each block; forms a doubly linked free list
 #[repr(C, align(16))]
@@ -309,7 +309,7 @@ impl Slab {
 
 #[derive(Default)]
 pub struct SlabAllocator {
-    slabs: Vec<Mutex<Slab>, 9>,
+    slabs: Vec<Mutex<Slab>, 10>,
     base_addr: AtomicUsize,
 }
 impl SlabAllocator {
@@ -518,7 +518,7 @@ pub fn init() {
     trace!("Initializing slab slab_allocator");
     // map pages for large allocator.
     let mut addr = LARGE_ALLOC_BASE_ADDR;
-    let pages = (super::PAGE_2M * 5) / super::PAGE_4K;
+    let pages = (super::PAGE_2M * 10) / super::PAGE_4K;
     for _ in 0..pages {
         kalloc_page(VirtAddr::new(addr), PageType::Arbitrary).unwrap();
         addr += super::PAGE_4K as u64;
@@ -527,7 +527,7 @@ pub fn init() {
         ALLOCATOR
             .large_allocator
             .lock()
-            .init(LARGE_ALLOC_BASE_ADDR as *mut u8, super::PAGE_2M * 5);
+            .init(LARGE_ALLOC_BASE_ADDR as *mut u8, super::PAGE_2M * 10);
     }
     trace!("Slab allocator initialized with base address 0x{SLAB_BASE_ADDR:x}",);
 }

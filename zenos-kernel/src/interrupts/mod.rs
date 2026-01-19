@@ -128,6 +128,11 @@ pub struct InterruptContext {
     pub ss: u64,
 }
 
+#[macro_export]
+macro_rules! kernel_busy_wait {
+    () => {};
+}
+
 /// Rust timer interrupt handler called from assembly
 /// Returns 1 if context switch occurred, 0 otherwise
 #[unsafe(no_mangle)]
@@ -146,7 +151,6 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
 
     // Check if we came from userspace (for preemption)
     let context = &mut *ctx;
-
     // Build ProcessState from interrupt context
     let mut fxsave = FxSaveArea::new();
     fxsave.save();
@@ -282,7 +286,7 @@ extern "x86-interrupt" fn page_fault_handler(
     error!("stack frame: {ist:#?}");
     let cr2 = x86_64::registers::control::Cr2::read();
     error!("cr2: {cr2:#?}");
-    panic!("Page fault occurred, error code: {:?}", error_code.bits());
+    panic!("Page fault occurred, error code: {:?}", error_code);
 }
 
 fn my_general_handler(stack_frame: InterruptStackFrame, index: u8, error_code: Option<u64>) {

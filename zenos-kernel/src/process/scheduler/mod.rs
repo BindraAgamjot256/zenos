@@ -1,11 +1,11 @@
-use crate::process::{PROCESSES, Process, ProcessState, ProcessStatus, set_current_pid};
+use crate::process::{PROCESSES, ProcessState, ProcessStatus, set_current_pid};
 use log::{debug, info, trace};
 
 /// Round-robin scheduler for preemptive multitasking
 pub struct Scheduler {
     cursor: usize,
     /// PID of the currently running process (if any)
-    current_pid: Option<u64>,
+    current_pid: CurrentProcessAction,
     #[cfg(debug_assertions)]
     times_scheduled: u64,
     /// Time quantum in milliseconds
@@ -14,32 +14,52 @@ pub struct Scheduler {
     time: u64,
 }
 
+#[derive(Debug, Copy, Clone)]
+enum CurrentProcessAction {
+    SaveAndSwitch(u64),
+    SwitchOnly(u64),
+    None,
+}
+impl CurrentProcessAction {
+    fn unwrap_or(&self, default: u64) -> u64 {
+        match self {
+            CurrentProcessAction::SaveAndSwitch(pid) => *pid,
+            CurrentProcessAction::SwitchOnly(pid) => *pid,
+            CurrentProcessAction::None => default,
+        }
+    }
+}
 impl Scheduler {
     pub const fn new() -> Self {
         Scheduler {
             cursor: 0,
-            current_pid: None,
+            current_pid: CurrentProcessAction::None,
             times_scheduled: 0,
             quantum: 50, // milliseconds
             time: 0,
         }
     }
-
-    /// Add a new process to the scheduler
-    pub fn add_proc(&mut self, proc: Process) {
-        PROCESSES.lock().push(proc);
-    }
-
     /// Get the PID of the currently running process
     pub fn current_pid(&self) -> Option<u64> {
-        self.current_pid
+        let pid = self.current_pid;
+        if let CurrentProcessAction::SaveAndSwitch(pid) = pid {
+            return Some(pid);
+        };
+        None
     }
 
     /// Set the currently running process
     /// This updates both the scheduler's internal state and the per-CPU data
     pub fn set_current(&mut self, pid: u64) {
-        self.current_pid = Some(pid);
+        self.current_pid = CurrentProcessAction::SaveAndSwitch(pid);
         set_current_pid(pid);
+    }
+
+    /// Force the scheduler to switch on the next timer tick
+    pub fn force_reschedule(&mut self) {
+        self.time = self.quantum;
+        // switch to pid 1 (init) on next schedule
+        self.current_pid = CurrentProcessAction::SwitchOnly(1);
     }
 
     /// Schedule: save current process state and switch to next
@@ -51,7 +71,7 @@ impl Scheduler {
             let mut procs = PROCESSES.try_lock()?;
 
             // Save state of current process if there is one
-            if let Some(current_pid) = self.current_pid {
+            if let CurrentProcessAction::SaveAndSwitch(current_pid) = self.current_pid {
                 if let Some(current_proc) = procs.iter_mut().find(|p| p.pid == current_pid) {
                     if current_proc.status == ProcessStatus::Running {
                         current_proc.save_context(current_state);
@@ -59,7 +79,7 @@ impl Scheduler {
                         trace!("Saved context for pid {}", current_pid);
                     }
                 }
-            } else {
+            } else if let CurrentProcessAction::None = self.current_pid {
                 debug!("schedule: no current_pid set in scheduler!");
             }
 
@@ -83,7 +103,7 @@ impl Scheduler {
                     let next_cr3 = next_proc.cr3.as_u64();
                     let next_state = next_proc.state;
                     let curr = self.current_pid.unwrap_or(0);
-                    self.current_pid = Some(next_pid);
+                    self.current_pid = CurrentProcessAction::SaveAndSwitch(next_pid);
 
                     // Move cursor to next for future calls
                     self.cursor = (self.cursor + 1) % len;
@@ -113,7 +133,7 @@ impl Scheduler {
                     let next_cr3 = next_proc.cr3.as_u64();
                     let next_state = next_proc.state;
                     let curr = self.current_pid.unwrap_or(0);
-                    self.current_pid = Some(next_pid);
+                    self.current_pid = CurrentProcessAction::SaveAndSwitch(next_pid);
 
                     // Move cursor to next for future calls
                     self.cursor = (self.cursor + 1) % len;

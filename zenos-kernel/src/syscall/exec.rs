@@ -4,7 +4,7 @@ use crate::process::PROCESSES;
 use crate::syscall::copy_from_user;
 use crate::syscall::errors::{EINVAL, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
-use alloc::string::ToString;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::mem::size_of;
 use log::info;
@@ -17,6 +17,7 @@ const MAX_ARG_BYTES: usize = 128 * 1024;
 
 #[syscall(0x3b)]
 fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
+    log::set_max_level(log::LevelFilter::Trace);
     info!("exec rdi {:#x} rsi {:#x}", rdi, rsi);
 
     let path_ptr = rdi as *const u8;
@@ -35,12 +36,13 @@ fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 
     let path = &path_buf[..path_len];
     let path = match core::str::from_utf8(path) {
-        Ok(s) => s,
+        Ok(s) => s.to_string(),
         Err(_) => return -EINVAL as u64,
     };
 
     // ---- copy argv pointer array ----
-    let mut argv_ptrs: alloc::vec::Vec<*const u8> = alloc::vec::Vec::new();
+    let mut argv_ptrs: Vec<*const u8> = Vec::new();
+    drop(path_buf);
 
     for i in 0..MAX_ARGC {
         let ptr_addr = unsafe { argv_ptr.add(i) };
@@ -58,7 +60,6 @@ fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 
         argv_ptrs.push(arg_ptr);
     }
-
     // ---- copy argv strings ----
     let mut kargv: Vec<Vec<u8>> = Vec::new();
     let mut total_bytes = 0usize;
@@ -83,16 +84,17 @@ fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
             return -EINVAL as u64;
         }
 
-        kargv.push(arg_buf.to_vec());
+        kargv.push(arg_buf[..=arg_len].to_vec().clone());
+        drop(arg_buf);
     }
 
     exec_inner(path, &kargv)
 }
 
-fn exec_inner(path: &str, argv: &[Vec<u8>]) -> u64 {
+fn exec_inner(path: String, argv: &[Vec<u8>]) -> u64 {
     let fs = FS.lock();
 
-    let mut file = match fs.open_file(path) {
+    let mut file = match fs.open_file(&path) {
         Ok(f) => f,
         Err(e) => return file_error_to_errno(&e),
     };
@@ -128,7 +130,7 @@ fn exec_inner(path: &str, argv: &[Vec<u8>]) -> u64 {
     argv.extend(args);
     let argc = argv.len();
     info!("exec: path={}, argc={}, argv={:?}", path, argc, argv);
-    proc.exec_replace(path, argc, argv.as_ptr(), core::ptr::null());
+    proc.exec_replace(&path, argc, argv.as_ptr(), core::ptr::null());
     proc.load(&file_buf);
 
     let (entry, stack, pid) = match proc.prepare_run() {
@@ -144,6 +146,7 @@ fn exec_inner(path: &str, argv: &[Vec<u8>]) -> u64 {
 
     drop(fs);
     drop(procs);
+    drop(file);
 
     process::enter_user_mode(entry, stack);
 }

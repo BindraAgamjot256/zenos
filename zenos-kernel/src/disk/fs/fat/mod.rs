@@ -144,6 +144,10 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             let root_dir_sector =
                 bpb.reserved_sector_count as u32 + (bpb.num_fats as u32 * bpb.fat_size());
             let root_dir_size = bpb.root_entry_count as usize * FatDirEntry::SIZE;
+            trace!(
+                "FatDirectory: reading FAT12/16 root directory at sector {}, size:{}",
+                root_dir_sector, root_dir_size
+            );
 
             let mut buf = vec![0u8; root_dir_size];
             let offset = root_dir_sector as u64 * bpb.bytes_per_sector as u64;
