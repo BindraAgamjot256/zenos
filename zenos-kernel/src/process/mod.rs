@@ -9,8 +9,10 @@ use crate::{
     disk::FileError,
     disk::get_len,
     disk::vfs::File,
+    framebuffer::FRAMEBUFFER,
     interrupts::gdt::GDT,
     kprintln,
+    memory::ALLOCATOR,
     memory::change_flags,
     memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},
     percpu::PerCpuData,
@@ -53,6 +55,8 @@ pub enum ProcessStatus<'a> {
     Exited,
     /// Process is blocked/waiting(e.g., on a lock. The AtomicBool indicates the lock(true = locked))
     Blocked(&'a AtomicBool),
+    /// Process is waiting for another process to exit (stores target pid)
+    WaitingFor(u64),
 }
 
 impl Default for ProcessStatus<'_> {
@@ -73,6 +77,7 @@ impl PartialEq<ProcessStatus<'_>> for ProcessStatus<'_> {
                 let b = b.load(Ordering::SeqCst);
                 a == b
             }
+            (ProcessStatus::WaitingFor(a), ProcessStatus::WaitingFor(b)) => a == b,
             _ => false,
         }
     }
@@ -638,6 +643,16 @@ pub fn schedule_next() -> ! {
     {
         let mut sched = SCHEDULER.lock();
         sched.force_reschedule();
+        let proc = PROCESSES.lock().len();
+        info!("schedule_next: {} processes in the system", proc);
+        drop(sched);
+    }
+
+    unsafe {
+        PROCESSES.force_unlock();
+        FS.force_unlock();
+        FRAMEBUFFER.force_unlock();
+        ALLOCATOR.force_unlock();
     }
 
     // Enable interrupts and halt - the next timer tick will context switch

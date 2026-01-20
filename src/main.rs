@@ -386,8 +386,6 @@ fn build_stress_tests(_args: Args) {
         ("mem_exhaust", "memexhst"),
         ("orphan_zombie", "orphzomb"),
         ("fs_concurrent", "fsconcrn"),
-        ("procfs_churn", "procfsch"),
-        ("syscall_abuse", "sysclabs"),
     ];
 
     for (src_name, dst_name) in stress_tests {

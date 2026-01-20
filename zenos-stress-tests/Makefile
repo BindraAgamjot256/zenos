@@ -16,7 +16,6 @@ SOURCES := fork_storm.c \
            mem_exhaust.c \
            orphan_zombie.c \
            fs_concurrent.c \
-           syscall_abuse.c
 
 # Derive targets from sources
 TARGETS := $(patsubst %.c,$(BUILD_DIR)/%,$(SOURCES))

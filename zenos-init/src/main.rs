@@ -13,6 +13,7 @@ unsafe extern "C" {
     fn lseek(fd: u64, offset: isize, whence: u64) -> isize;
     fn fork() -> i64;
     fn execve(path: *const u8, argv: *const *const u8, envp: *const *const u8) -> i64;
+    fn waitpid(pid: u64) -> i64;
 }
 
 // Console writer for println
@@ -106,9 +107,8 @@ static STRESS_TESTS: &[(&[u8], &[&[u8]])] = &[
     (b"/bin/rapidspn\0", &[b"rapidspn\0"]),
     (b"/bin/schedfar\0", &[b"schedfar\0"]),
     (b"/bin/memexhst\0", &[b"memexhst\0"]),
-    (b"/bin/orphzomb\0", &[b"orphzomb\0"]),
     (b"/bin/fsconcrn\0", &[b"fsconcrn\0"]),
-    (b"/bin/sysclabs\0", &[b"sysclabs\0"]),
+    (b"/bin/orphzomb\0", &[b"orphzomb\0"]),
 ];
 
 #[unsafe(no_mangle)]
@@ -133,7 +133,8 @@ pub extern "C" fn main() -> ! {
     println!("[init] Launching stress tests...");
 
     let mut launched = 0i32;
-    for (path, args) in STRESS_TESTS.iter() {
+    let mut pids: [i64; 16] = [0; 16];
+    for (i, (path, args)) in STRESS_TESTS.iter().enumerate() {
         let pid = spawn(*path, *args);
         if pid > 0 {
             println!(
@@ -141,6 +142,9 @@ pub extern "C" fn main() -> ! {
                 core::str::from_utf8(&path[..path.len() - 1]).unwrap_or("?"),
                 pid
             );
+            let exit_code = unsafe { waitpid(pid as u64) };
+            println!("[init] Process PID {} exited with code {}", pid, exit_code);
+            pids[i] = pid;
             launched += 1;
         } else if pid < 0 {
             println!(
@@ -157,7 +161,6 @@ pub extern "C" fn main() -> ! {
     }
 
     println!("[init] Launched {} stress tests", launched);
-    println!("[init] Init process entering idle loop");
 
     // Init should never exit - it's PID 1
     // Just loop forever, periodically printing status

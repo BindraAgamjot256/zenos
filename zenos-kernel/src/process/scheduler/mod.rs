@@ -1,5 +1,5 @@
 use crate::process::{PROCESSES, ProcessState, ProcessStatus, set_current_pid};
-use log::{debug, info, trace};
+use log::{debug, error, info, trace};
 
 /// Round-robin scheduler for preemptive multitasking
 pub struct Scheduler {
@@ -93,76 +93,141 @@ impl Scheduler {
                 self.cursor = 0;
             }
 
-            let proc = procs.get_mut(self.cursor);
-            if let Some(next_proc) = proc {
-                if let ProcessStatus::Blocked(flag) = next_proc.status
-                    && !flag.load(core::sync::atomic::Ordering::SeqCst)
-                {
-                    // Found next process to run
-                    let next_pid = next_proc.pid;
-                    let next_cr3 = next_proc.cr3.as_u64();
-                    let next_state = next_proc.state;
-                    let curr = self.current_pid.unwrap_or(0);
-                    self.current_pid = CurrentProcessAction::SaveAndSwitch(next_pid);
+            // Iterate through all processes to find one that's ready
+            let start_cursor = self.cursor;
 
-                    // Move cursor to next for future calls
-                    self.cursor = (self.cursor + 1) % len;
-                    next_proc.status = ProcessStatus::Running;
-                    self.set_current(next_pid);
-                    if next_pid == curr {
-                        info!(
-                            "Scheduler chose the same process (pid {}) to run again",
-                            next_pid
-                        );
-                        return None; // early return if switching to the same process
-                    }
+            // Debug: log all processes and their states
+            debug!("Schedule: {} processes, cursor={}", len, start_cursor);
 
-                    #[cfg(debug_assertions)]
-                    {
-                        self.times_scheduled += 1;
-                        debug!(
-                            "Scheduling switch to pid {} (times scheduled: {})",
-                            next_pid, self.times_scheduled
-                        );
-                    }
-                    self.time = 0; // reset time for new process
-                    return Some((next_pid, next_cr3, next_state));
-                } else if next_proc.status == ProcessStatus::Ready {
-                    // Found next process to run
-                    let next_pid = next_proc.pid;
-                    let next_cr3 = next_proc.cr3.as_u64();
-                    let next_state = next_proc.state;
-                    let curr = self.current_pid.unwrap_or(0);
-                    self.current_pid = CurrentProcessAction::SaveAndSwitch(next_pid);
-
-                    // Move cursor to next for future calls
-                    self.cursor = (self.cursor + 1) % len;
-                    next_proc.status = ProcessStatus::Running;
-                    self.set_current(next_pid);
-                    if next_pid == curr {
-                        info!(
-                            "Scheduler chose the same process (pid {}) to run again",
-                            next_pid
-                        );
-                        return None; // early return if switching to the same process
-                    }
-
-                    #[cfg(debug_assertions)]
-                    {
-                        self.times_scheduled += 1;
-                        debug!(
-                            "Scheduling switch to pid {} (times scheduled: {})",
-                            next_pid, self.times_scheduled
-                        );
-                    }
-                    self.time = 0; // reset time for new process
-                    return Some((next_pid, next_cr3, next_state));
+            loop {
+                if self.cursor >= len {
+                    self.cursor = 0;
                 }
-                // Move cursor to next for future calls
+
+                // Pre-check for WaitingFor status and get target exit info
+                let waiting_info: Option<(u64, Option<u64>, Option<usize>)> =
+                    procs.get(self.cursor).and_then(|p| {
+                        if let ProcessStatus::WaitingFor(target_pid) = p.status {
+                            let target_idx = procs.iter().position(|t| t.pid == target_pid);
+                            let exit_code = target_idx.and_then(|idx| procs[idx].exit_code);
+                            if exit_code.is_some() || target_idx.is_none() {
+                                Some((target_pid, exit_code, target_idx))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    });
+
+                let proc = procs.get_mut(self.cursor);
+                if let Some(next_proc) = proc {
+                    if let ProcessStatus::Blocked(flag) = next_proc.status
+                        && !flag.load(core::sync::atomic::Ordering::SeqCst)
+                    {
+                        // Blocked process became unblocked
+                        let next_pid = next_proc.pid;
+                        let next_cr3 = next_proc.cr3.as_u64();
+                        let next_state = next_proc.state;
+                        let curr = self.current_pid.unwrap_or(0);
+                        self.current_pid = CurrentProcessAction::SaveAndSwitch(next_pid);
+
+                        self.cursor = (self.cursor + 1) % len;
+                        next_proc.status = ProcessStatus::Running;
+                        self.set_current(next_pid);
+                        if next_pid == curr {
+                            info!(
+                                "Scheduler chose the same process (pid {}) to run again",
+                                next_pid
+                            );
+                            return None;
+                        }
+
+                        #[cfg(debug_assertions)]
+                        {
+                            self.times_scheduled += 1;
+                            debug!(
+                                "Scheduling switch to pid {} (times scheduled: {})",
+                                next_pid, self.times_scheduled
+                            );
+                        }
+                        self.time = 0;
+                        return Some((next_pid, next_cr3, next_state));
+                    } else if let ProcessStatus::WaitingFor(_target_pid) = next_proc.status {
+                        // Use pre-computed waiting_info to avoid borrow conflicts
+                        if let Some((target_pid, maybe_exit_code, target_idx)) = waiting_info {
+                            let exit_code = maybe_exit_code.unwrap_or(u64::MAX);
+                            next_proc.state.rax = exit_code;
+
+                            let next_pid = next_proc.pid;
+                            let next_cr3 = next_proc.cr3.as_u64();
+                            let next_state = next_proc.state;
+                            self.current_pid = CurrentProcessAction::SaveAndSwitch(next_pid);
+
+                            self.cursor = (self.cursor + 1) % len;
+                            next_proc.status = ProcessStatus::Running;
+                            self.set_current(next_pid);
+
+                            // Reap the zombie process
+                            if let Some(idx) = target_idx {
+                                debug!("Reaping zombie process pid {}", target_pid);
+                                procs.remove(idx);
+                            }
+
+                            #[cfg(debug_assertions)]
+                            {
+                                self.times_scheduled += 1;
+                                debug!(
+                                    "Scheduling switch to pid {} (wait completed, exit_code={}, times scheduled: {})",
+                                    next_pid, exit_code, self.times_scheduled
+                                );
+                            }
+                            self.time = 0;
+                            return Some((next_pid, next_cr3, next_state));
+                        }
+                        // Target hasn't exited yet, try next process
+                    } else if next_proc.status == ProcessStatus::Ready {
+                        // Found a ready process
+                        let next_pid = next_proc.pid;
+                        let next_cr3 = next_proc.cr3.as_u64();
+                        let next_state = next_proc.state;
+                        let curr = self.current_pid.unwrap_or(0);
+                        self.current_pid = CurrentProcessAction::SaveAndSwitch(next_pid);
+
+                        self.cursor = (self.cursor + 1) % len;
+                        next_proc.status = ProcessStatus::Running;
+                        self.set_current(next_pid);
+                        if next_pid == curr {
+                            info!(
+                                "Scheduler chose the same process (pid {}) to run again",
+                                next_pid
+                            );
+                            return None;
+                        }
+
+                        #[cfg(debug_assertions)]
+                        {
+                            self.times_scheduled += 1;
+                            debug!(
+                                "Scheduling switch to pid {} (times scheduled: {})",
+                                next_pid, self.times_scheduled
+                            );
+                        }
+                        self.time = 0;
+                        return Some((next_pid, next_cr3, next_state));
+                    }
+                }
+
+                // Move to next process
                 self.cursor = (self.cursor + 1) % len;
+
+                // If we've checked all processes, no one is ready
+                if self.cursor == start_cursor {
+                    break;
+                }
             }
 
-            // No other process ready, continue with current if it exists
+            // No process ready
             None
         } else {
             self.time += 1;

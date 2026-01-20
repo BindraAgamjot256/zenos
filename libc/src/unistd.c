@@ -48,3 +48,7 @@ void exit(int code){
     syscall1(SYS_exit, code);
     __builtin_unreachable();
 }
+
+int waitpid(int pid) {
+    return (int) syscall1(SYS_waitpid, pid);
+}

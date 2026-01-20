@@ -492,6 +492,7 @@ fn generate_process_stat(pid: u64) -> String {
         crate::process::ProcessStatus::Blocked(_) => 'D',
         crate::process::ProcessStatus::Created => 'S',
         crate::process::ProcessStatus::Exited => 'Z',
+        crate::process::ProcessStatus::WaitingFor(_) => 'S', // Sleeping (waiting)
     };
 
     // Sanitize name to avoid breaking parsers
@@ -533,6 +534,7 @@ fn generate_process_status(pid: u64) -> String {
             crate::process::ProcessStatus::Blocked(_) => "D (disk sleep)",
             crate::process::ProcessStatus::Created => "T (stopped)",
             crate::process::ProcessStatus::Exited => "Z (zombie)",
+            crate::process::ProcessStatus::WaitingFor(_) => "S (sleeping)", // Waiting for child
         };
 
         let mut info = String::new();

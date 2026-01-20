@@ -17,3 +17,5 @@ int pause(void);
 int execve(const char *filename, char *const argv[], char *const envp[]);
 
 void exit(int code);
+
+int waitpid(int pid);

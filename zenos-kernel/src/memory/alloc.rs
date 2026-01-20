@@ -465,6 +465,9 @@ impl LockedAllocator {
             }
         }
     }
+    pub unsafe fn force_unlock(&self) {
+        self.large_allocator.force_unlock();
+    }
 }
 
 unsafe impl GlobalAlloc for LockedAllocator {

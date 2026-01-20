@@ -9,6 +9,7 @@ mod open;
 mod pause;
 mod read;
 mod table;
+mod wait;
 mod write;
 
 use crate::{
@@ -23,6 +24,7 @@ use core::ptr;
 use log::{debug, error, info};
 use x86_64::VirtAddr;
 
+use crate::memory::HIGHER_HALF_BASE;
 use crate::process::FxSaveArea;
 use core::arch::global_asm;
 
@@ -220,6 +222,10 @@ pub fn init() {
 /// current page tables. This avoids taking a page fault when copying.
 pub(crate) fn user_range_is_mapped(user_ptr: *const u8, len: usize) -> bool {
     if user_ptr.is_null() || len == 0 {
+        return false;
+    }
+
+    if user_ptr as u64 >= HIGHER_HALF_BASE {
         return false;
     }
 

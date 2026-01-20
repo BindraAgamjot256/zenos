@@ -50,11 +50,11 @@ We implemented preemptive multitasking because single-threaded execution was too
 - **Scheduler**: A round-robin scheduler that switches tasks whenever it feels like it (or when the timer interrupt
   fires).
 - **Isolation**: We put users in Ring 3 so they can't hurt us. They still find ways.
-- ~~**Context Switching**: We save all the registers, swap the stack, and pray the new process knows what it's doing.~~
+- **Context Switching**: We save all the registers, swap the stack, and pray the new process knows what it's doing.
 
 ### System Calls—The Doorway to Hell
 
-We use the ~~`syscall`~~ `int 0x80` instruction because ~~software interrupts are so 1990s~~ syscalls are hard.
+We use the `syscall` ~~`int 0x80`~~ instruction because software interrupts are so 1990s ~~syscalls are hard~~.
 
 - **The Macro**: We have a `#[syscall]` macro that puts function pointers into a special linker section. It's basically
   linker magic abuse.
@@ -63,17 +63,18 @@ We use the ~~`syscall`~~ `int 0x80` instruction because ~~software interrupts ar
 
 **Current syscall numbers** (Linux-compatible where possible):
 
-| #  | Name   | What it does          |
-|----|--------|-----------------------|
-| 0  | read   | Read from fd          |
-| 1  | write  | Write to fd           |
-| 2  | open   | Open a file           |
-| 3  | close  | Close fd              |
-| 8  | lseek  | Seek in file          |
-| 34 | pause  | Wait for signal (lol) |
-| 57 | fork   | Create child process  |
-| 59 | execve | Replace process       |
-| 60 | exit   | Die gracefully        |
+| #  | Name   | What it does               |
+|----|--------|----------------------------|
+| 0  | read   | Read from fd               |
+| 1  | write  | Write to fd                |
+| 2  | open   | Open a file                |
+| 3  | close  | Close fd                   |
+| 8  | lseek  | Seek in file               |
+| 34 | pause  | Wait for signal (lol)      |
+| 57 | fork   | Create child process       |
+| 59 | execve | Replace process            |
+| 60 | exit   | Die gracefully             |
+| 61 | wait   | Wait for child (hopefully) |
 
 ### Build System - A Beautiful Disaster
 

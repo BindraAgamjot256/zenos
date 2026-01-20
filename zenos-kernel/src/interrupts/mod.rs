@@ -1,14 +1,14 @@
 pub(crate) mod gdt;
 
-use crate::process::FxSaveArea;
+use crate::process::{FxSaveArea, PROCESSES, ProcessStatus};
 use crate::{
     hardware::idt_vectors::*,
     interrupts::gdt::DOUBLE_FAULT_IST_INDEX,
-    kprintln,
+    kprint, kprintln,
     process::{ProcessState, SCHEDULER},
     serial::SERIAL,
 };
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
 use log::{error, info, warn};
 use spin::Lazy;
 use x86_64::instructions::tlb;
@@ -286,6 +286,35 @@ extern "x86-interrupt" fn page_fault_handler(
     error!("stack frame: {ist:#?}");
     let cr2 = x86_64::registers::control::Cr2::read();
     error!("cr2: {cr2:#?}");
+    if error_code.contains(PageFaultErrorCode::USER_MODE) {
+        let current_pid = {
+            let sched = SCHEDULER.lock();
+            let cpid = sched.current_pid();
+            if cpid.is_none() {
+                // already rescheduled, proc is a living zombie. I have no idea how to fix it, but I will when I know how. return early for now
+                return;
+            }
+            cpid.unwrap()
+        };
+        let mut procs = PROCESSES.lock();
+        let proc = procs.iter_mut().find(|p| p.pid == current_pid).unwrap();
+        error!("Faulting process PID: {}", proc.pid);
+        // Mark as exited (zombie) instead of removing - parent needs to wait() to reap
+        proc.exit_code = Some(u64::MAX);
+        proc.status = ProcessStatus::Exited;
+        let pid = proc.pid;
+        // I know that technically this should have no effect, but it's done so that I can
+        // re-borrow procs mutably again, which is needed to reparent children.
+        #[allow(dropping_references)]
+        drop(proc); // release the mutable borrow
+        // Reparent children to init
+        for child in procs.iter_mut().filter(|p| p.parent_pid == pid) {
+            child.parent_pid = 1;
+        }
+        kprint!("segmentation fault. core not dumped\n");
+        SCHEDULER.lock().force_reschedule();
+        return; // return, don't panic the kernel, will reschedule next timer interrupt.
+    }
     panic!("Page fault occurred, error code: {:?}", error_code);
 }
 
