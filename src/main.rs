@@ -1,50 +1,83 @@
 extern crate alloc; // only for shutting up cargo check --target x86_64-unknown-zenos.json and co...
 use alloc::format;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use core::cfg;
 use core::convert::From;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
-#[derive(Parser, Clone, Copy)]
+#[derive(Parser)]
 #[command(author, version, about = "Build and run the Zenos Operating System")]
-struct Args {
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Enable color output in the kernel
-    #[arg(long, short = 'c', default_value = "false")]
+    #[arg(long, short = 'c', global = true)]
     color: bool,
 
-    /// Only check/build components without launching QEMU
-    #[arg(long, short = 'C', default_value = "false", group = "mode")]
-    check: bool,
-
-    /// Build with the test stub enabled
-    #[arg(long, short = 's', default_value = "false", group = "mode")]
-    test_stub: bool,
-
-    /// Start QEMU in paused mode and open a GDB stub (port 1234)
-    #[arg(long, short = 'd', default_value = "false", group = "mode")]
-    debugger: bool,
-
-    /// Run kernel unit tests and exit via isa-debug-exit
-    #[arg(long, short = 't', default_value = "false", group = "mode")]
-    test: bool,
-
     /// Build and run the kernel fuzzer (replaces init process)
-    #[arg(long, short = 'f', default_value = "false")]
+    #[arg(long, short = 'f', global = true)]
     fuzz: bool,
 }
 
-fn main() {
-    let args = Args::parse();
+#[derive(Subcommand, Clone, Copy, Default)]
+enum Command {
+    /// Build and run the kernel (default)
+    #[default]
+    Run,
+    /// Only check/build components without launching QEMU
+    Check,
+    /// Build with the test stub enabled
+    Stub,
+    /// Start QEMU in paused mode and open a GDB stub (port 1234)
+    Debug,
+    /// Run kernel unit tests and exit via isa-debug-exit
+    Test,
+    /// Rerun the previous kernel build without rebuilding (skips disk image too)
+    Rerun,
+}
 
-    // 1. Component Compilation Phase
-    if args.check {
-        println!("[CHECK] Verification mode: building components...");
-        build_kernel(args);
-        build_init(args);
-        println!("[CHECK] All components compiled successfully.");
-        return;
+/// Internal args used by build functions
+#[derive(Clone, Copy)]
+struct BuildArgs {
+    color: bool,
+    fuzz: bool,
+    test_stub: bool,
+    test: bool,
+}
+
+fn main() {
+    let cli = Cli::parse();
+    let command = cli.command.unwrap_or_default();
+
+    let build_args = BuildArgs {
+        color: cli.color,
+        fuzz: cli.fuzz,
+        test_stub: matches!(command, Command::Stub),
+        test: matches!(command, Command::Test),
+    };
+
+    match command {
+        Command::Check => {
+            println!("[CHECK] Verification mode: building components...");
+            build_kernel(build_args);
+            build_init(build_args);
+            println!("[CHECK] All components compiled successfully.");
+            return;
+        }
+        Command::Rerun => {
+            println!("[RERUN] Skipping build, using existing uefi.img...");
+            let uefi_path = PathBuf::from("uefi.img");
+            if !uefi_path.exists() {
+                eprintln!("[ERROR] No existing uefi.img found. Run a full build first.");
+                exit(1);
+            }
+            run_qemu(&uefi_path, false, false);
+            return;
+        }
+        _ => {}
     }
 
     println!("[BUILD] Starting full system build...");
@@ -52,13 +85,13 @@ fn main() {
     if path.exists() {
         std::fs::remove_dir_all(&path).expect("Could not clean iso/bin directory");
     }
-    build_init(args);
-    build_fuzz(args);
-    build_test_1(args);
-    build_stress_tests(args);
+    build_init(build_args);
+    build_fuzz(build_args);
+    build_test_1(build_args);
+    build_stress_tests(build_args);
 
     // 2. Image Construction Phase
-    let kernel_binding = build_kernel(args);
+    let kernel_binding = build_kernel(build_args);
     let kernel_path = kernel_binding.as_path();
 
     println!("[DISK] Creating bootable UEFI image...");
@@ -68,7 +101,12 @@ fn main() {
     println!("[INFO] Kernel binary: {}", kernel_path.display());
     println!("[INFO] UEFI Image:    {}", uefi_path.display());
 
-    // 3. Emulation Phase (QEMU)
+    let debugger = matches!(command, Command::Debug);
+    let test = matches!(command, Command::Test);
+    run_qemu(uefi_path, debugger, test);
+}
+
+fn run_qemu(uefi_path: &Path, debugger: bool, test: bool) {
     println!("[RUN] Launching QEMU...");
     let mut cmd = std::process::Command::new("qemu-system-x86_64");
 
@@ -93,13 +131,13 @@ fn main() {
     cmd.arg("-device").arg("ide-hd,drive=disk0,bus=ahci.0");
 
     // Debugging and Testing Logic
-    if args.debugger {
+    if debugger {
         cmd.arg("-s"); // Shorthand for -gdb tcp::1234
         cmd.arg("-S"); // Freeze CPU at startup
         println!("[DEBUG] QEMU paused. Attach debugger to port 1234 (target remote :1234)");
     }
 
-    if args.test {
+    if test {
         // Use nographic and isa-debug-exit for CI/automated testing
         cmd.arg("-nographic");
         cmd.arg("-device")
@@ -120,7 +158,7 @@ fn main() {
 
 /// Invokes Cargo to build the core OS kernel.
 /// Includes nightly-only flags for building core/alloc from source.
-fn build_kernel(args: Args) -> PathBuf {
+fn build_kernel(args: BuildArgs) -> PathBuf {
     println!("[BUILD] Compiling kernel...");
     let mut cmd = std::process::Command::new("cargo");
     cmd.arg("+nightly");
@@ -174,7 +212,7 @@ fn build_kernel(args: Args) -> PathBuf {
 
 /// Builds the 'init' process (the first userspace program).
 /// Copies the resulting ELF to the 'iso/bin' staging directory.
-fn build_init(_args: Args) {
+fn build_init(_args: BuildArgs) {
     println!("[BUILD] Compiling userspace init...");
     let mut cmd = std::process::Command::new("cargo");
     cmd.arg("+nightly");
@@ -267,7 +305,7 @@ fn add_files_recursively(
 
 /// Builds the fuzzer. If --fuzz is enabled, this binary is renamed to 'init.elf'
 /// to hijack the boot sequence and start fuzzing immediately.
-fn build_fuzz(args: Args) {
+fn build_fuzz(args: BuildArgs) {
     println!("[BUILD] Compiling fuzzer...");
     let mut cmd = std::process::Command::new("cargo");
     cmd.arg("+nightly");
@@ -315,7 +353,7 @@ fn build_fuzz(args: Args) {
     std::fs::copy(&fuzz_bin, &out_path).expect("Failed to stage fuzzer binary");
 }
 
-fn build_test_1(_args: Args) {
+fn build_test_1(_args: BuildArgs) {
     println!("[BUILD] Compiling procfs dumper (C version)...");
 
     let dumper_dir = Path::new("zenos-test-dumper-c");
@@ -356,7 +394,7 @@ fn build_test_1(_args: Args) {
 }
 
 /// Builds all stress test programs and copies them to iso/bin/
-fn build_stress_tests(_args: Args) {
+fn build_stress_tests(_args: BuildArgs) {
     println!("[BUILD] Compiling stress tests...");
 
     let stress_dir = Path::new("zenos-stress-tests");
