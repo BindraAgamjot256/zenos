@@ -1,9 +1,13 @@
+use crate::disk::vfs::File;
 use crate::disk::{FS, get_len};
 use crate::process;
 use crate::process::PROCESSES;
 use crate::syscall::copy_from_user;
-use crate::syscall::errors::{EINVAL, file_error_to_errno};
+use crate::syscall::errors::{
+    E2BIG, EFAULT, EINVAL, EIO, ENAMETOOLONG, ENOEXEC, ESRCH, file_error_to_errno,
+};
 use crate::syscall::table::SyscallPtr;
+use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::mem::size_of;
@@ -17,7 +21,6 @@ const MAX_ARG_BYTES: usize = 128 * 1024;
 
 #[syscall(0x3b)]
 fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
-    log::set_max_level(log::LevelFilter::Trace);
     info!("exec rdi {:#x} rsi {:#x}", rdi, rsi);
 
     let path_ptr = rdi as *const u8;
@@ -26,18 +29,18 @@ fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     // ---- copy path ----
     let path_buf = match copy_from_user(path_ptr, MAX_PATH_LEN) {
         Ok(b) => b,
-        Err(_) => return -EINVAL as u64,
+        Err(_) => return (-EFAULT) as u64,
     };
 
     let path_len = match path_buf.iter().position(|&b| b == 0) {
         Some(p) => p,
-        None => return -EINVAL as u64,
+        None => return (-ENAMETOOLONG) as u64,
     };
 
     let path = &path_buf[..path_len];
     let path = match core::str::from_utf8(path) {
         Ok(s) => s.to_string(),
-        Err(_) => return -EINVAL as u64,
+        Err(_) => return (-EINVAL) as u64,
     };
 
     // ---- copy argv pointer array ----
@@ -49,7 +52,7 @@ fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 
         let ptr_bytes = match copy_from_user(ptr_addr as *const u8, size_of::<*const u8>()) {
             Ok(b) => b,
-            Err(_) => return -EINVAL as u64,
+            Err(_) => return (-EFAULT) as u64,
         };
 
         let arg_ptr = unsafe { *(ptr_bytes.as_ptr() as *const *const u8) };
@@ -71,37 +74,38 @@ fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 
         let arg_buf = match copy_from_user(arg_ptr, MAX_ARG_LEN) {
             Ok(b) => b,
-            Err(_) => return -EINVAL as u64,
+            Err(_) => return (-EFAULT) as u64,
         };
 
         let arg_len = match arg_buf.iter().position(|&b| b == 0) {
             Some(p) => p,
-            None => return -EINVAL as u64,
+            None => return (-E2BIG) as u64,
         };
 
         total_bytes += arg_len + 1;
         if total_bytes > MAX_ARG_BYTES {
-            return -EINVAL as u64;
+            return (-E2BIG) as u64;
         }
 
         kargv.push(arg_buf[..=arg_len].to_vec().clone());
         drop(arg_buf);
     }
 
-    exec_inner(path, &kargv)
-}
-
-fn exec_inner(path: String, argv: &[Vec<u8>]) -> u64 {
     let fs = FS.lock();
 
-    let mut file = match fs.open_file(&path) {
+    let file = match fs.open_file(&path) {
         Ok(f) => f,
         Err(e) => return file_error_to_errno(&e),
     };
 
+    drop(fs);
+    exec_inner(file, &*path, &kargv)
+}
+
+fn exec_inner(mut file: Box<dyn File>, path: &str, argv: &[Vec<u8>]) -> u64 {
     let file_len = match get_len(file.as_mut()) {
         Ok(l) => l,
-        Err(_) => return -EINVAL as u64,
+        Err(_) => return (-EIO) as u64,
     };
 
     let mut file_buf = alloc::vec![0u8; file_len as usize];
@@ -114,7 +118,7 @@ fn exec_inner(path: String, argv: &[Vec<u8>]) -> u64 {
 
     let proc = match procs.iter_mut().find(|p| p.pid == parent_pid) {
         Some(p) => p,
-        None => return -EINVAL as u64,
+        None => return (-ESRCH) as u64,
     };
 
     let args: Vec<*const u8> = argv
@@ -135,7 +139,7 @@ fn exec_inner(path: String, argv: &[Vec<u8>]) -> u64 {
 
     let (entry, stack, pid) = match proc.prepare_run() {
         Some(v) => (v.0, v.1, proc.pid),
-        None => return -EINVAL as u64,
+        None => return (-ENOEXEC) as u64,
     };
     info!("proc: {:?}", proc);
 
@@ -144,7 +148,6 @@ fn exec_inner(path: String, argv: &[Vec<u8>]) -> u64 {
         sched.set_current(pid);
     }
 
-    drop(fs);
     drop(procs);
     drop(file);
 

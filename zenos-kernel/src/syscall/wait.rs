@@ -1,37 +1,66 @@
 use crate::process::{PROCESSES, ProcessStatus, current_pid};
+use crate::syscall::errors::{ECHILD, ESRCH};
 use crate::syscall::table::SyscallPtr;
 use log::info;
 use zenos_macros::syscall;
 
 #[syscall(61)]
 fn wait(rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
-    let target_pid = rdi;
+    let mut target_pid = rdi as i64; // -1 means wait for any child
     let caller_pid = current_pid();
+
     info!(
         "wait syscall: pid {} waiting for pid {}",
         caller_pid, target_pid
     );
 
-    {
+    loop {
         let mut procs = PROCESSES.lock();
 
-        // Find target process and check if already exited
-        let target_idx = procs.iter().position(|p| p.pid == target_pid);
-
-        if let Some(idx) = target_idx {
-            if let Some(exit_code) = procs[idx].exit_code {
-                // Target already exited - reap the zombie and return
-                info!(
-                    "wait: pid {} already finished with exit code {}, reaping",
-                    target_pid, exit_code
-                );
+        // If wait(-1), try to find any exited child
+        if target_pid == -1 {
+            if let Some(idx) = procs
+                .iter()
+                .position(|p| p.parent_pid == caller_pid && p.exit_code.is_some())
+            {
+                let exit_code = procs[idx].exit_code.unwrap();
+                let pid_reaped = procs[idx].pid;
                 procs.remove(idx);
+                info!(
+                    "wait: pid {} reaped child pid {} with exit code {}",
+                    caller_pid, pid_reaped, exit_code
+                );
                 return exit_code;
             }
 
-            // Target exists but hasn't exited - mark ourselves as waiting
+            // No exited child, pick any child to wait for
+            if let Some(child) = procs.iter().find(|p| p.parent_pid == caller_pid) {
+                target_pid = child.pid as i64;
+            } else {
+                // No children at all
+                info!("wait: pid {} has no children", caller_pid);
+                return (-ECHILD) as u64;
+            }
+        }
+
+        // Try to reap the specific target
+        if let Some(idx) = procs
+            .iter()
+            .position(|p| p.pid == target_pid as u64 && p.exit_code.is_some())
+        {
+            let exit_code = procs[idx].exit_code.unwrap();
+            procs.remove(idx);
+            info!(
+                "wait: pid {} reaped child pid {} with exit code {}",
+                caller_pid, target_pid, exit_code
+            );
+            return exit_code;
+        }
+
+        // If target exists but hasn't exited, mark as waiting
+        if procs.iter().any(|p| p.pid == target_pid as u64) {
             if let Some(caller) = procs.iter_mut().find(|p| p.pid == caller_pid) {
-                caller.status = ProcessStatus::WaitingFor(target_pid);
+                caller.status = ProcessStatus::WaitingFor(target_pid as u64);
                 info!(
                     "wait: pid {} now waiting for pid {}",
                     caller_pid, target_pid
@@ -40,10 +69,10 @@ fn wait(rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         } else {
             // Target doesn't exist
             info!("wait: target pid {} doesn't exist", target_pid);
-            return u64::MAX; // -1
+            return (-ESRCH) as u64;
         }
-    }
 
-    // Yield to scheduler - it will wake us when target exits
-    crate::process::schedule_next();
+        drop(procs); // unlock before yielding
+        crate::process::schedule_next();
+    }
 }
