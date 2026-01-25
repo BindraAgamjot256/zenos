@@ -6,11 +6,7 @@ use bitflags::bitflags;
 use core::fmt::{self, Write};
 
 unsafe extern "C" {
-    fn open(path: *const u8, flags: u64) -> isize;
-    fn close(fd: u64) -> u64;
-    fn read(fd: u64, buf: *mut u8, count: usize) -> isize;
     fn write(fd: u64, buf: *const u8, count: usize) -> isize;
-    fn lseek(fd: u64, offset: isize, whence: u64) -> isize;
     fn fork() -> i64;
     fn execve(path: *const u8, argv: *const *const u8, envp: *const *const u8) -> i64;
     fn waitpid(pid: u64) -> i64;

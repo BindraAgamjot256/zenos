@@ -8,7 +8,7 @@ use crate::syscall::errors::{
 };
 use crate::syscall::table::SyscallPtr;
 use alloc::boxed::Box;
-use alloc::string::{String, ToString};
+use alloc::string::ToString;
 use alloc::vec::Vec;
 use core::mem::size_of;
 use log::info;

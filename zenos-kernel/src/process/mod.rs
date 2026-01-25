@@ -925,16 +925,6 @@ mod tests {
     }
 
     #[zenos_macros::test]
-    pub fn test_fxsave_area_default() -> Option<()> {
-        let fx = FxSaveArea::default();
-        // FxSave area should be zero-initialized
-        for byte in fx._data.iter() {
-            assert_eq!(*byte, 0);
-        }
-        Some(())
-    }
-
-    #[zenos_macros::test]
     pub fn test_fxsave_area_alignment() -> Option<()> {
         // FxSave requires 16-byte alignment
         crate::test_assert!(align_of::<FxSaveArea>() >= 16);

@@ -8,7 +8,7 @@ use crate::{
     process::{ProcessState, SCHEDULER},
     serial::SERIAL,
 };
-use core::arch::{asm, global_asm};
+use core::arch::global_asm;
 use log::{error, info, warn};
 use spin::Lazy;
 use x86_64::instructions::tlb;

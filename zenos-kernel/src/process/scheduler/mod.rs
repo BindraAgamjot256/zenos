@@ -1,5 +1,5 @@
 use crate::process::{PROCESSES, ProcessState, ProcessStatus, set_current_pid};
-use log::{debug, error, info, trace};
+use log::{debug, info, trace};
 
 /// Round-robin scheduler for preemptive multitasking
 pub struct Scheduler {

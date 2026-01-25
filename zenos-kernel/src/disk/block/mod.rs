@@ -5,7 +5,9 @@
 #![allow(dead_code)]
 use crate::disk::vfs::SeekFrom;
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use log::trace;
+use spin::Mutex;
 
 pub mod ahci;
 
@@ -93,5 +95,31 @@ impl BlockDeviceDriver {
 
     pub fn flush(&mut self) -> Result<(), BlockError> {
         self.device.flush()
+    }
+}
+
+// in preparation for a future with block devices accessible through /dev/**
+impl<T> BlockDevice for Arc<Mutex<T>>
+where
+    T: BlockDevice,
+{
+    fn block_size(&self) -> u64 {
+        self.lock().block_size()
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, BlockError> {
+        self.lock().read(buf)
+    }
+
+    fn write(&mut self, buf: &[u8]) -> Result<usize, BlockError> {
+        self.lock().write(buf)
+    }
+
+    fn seek(&mut self, pos: SeekFrom) -> Result<u64, BlockError> {
+        self.lock().seek(pos)
+    }
+
+    fn flush(&mut self) -> Result<(), BlockError> {
+        self.lock().flush()
     }
 }
