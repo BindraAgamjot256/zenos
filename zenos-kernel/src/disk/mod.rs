@@ -1,12 +1,22 @@
-//! Disk subsystem: block devices (AHCI SATA) + VFS + FAT filesystem.
+//! Disk subsystem: block devices (AHCI SATA) + VFS + filesystems.
 //!
-//! This module wires together three layers:
-//! - Block layer ([`block`]): low-level access to storage controllers. We currently
-//!   implement an AHCI driver that can read/write SATA drives using DMA.
-//! - VFS layer ([`vfs`]): abstract filesystem traits (FileSystem, Directory, File)
-//!   that can be implemented by multiple filesystem backends.
-//! - Filesystem layer ([`fs`]): high-level file and directory access. Currently, only
-//!   implements FAT12/16/32 natively.
+//! This module provides the complete storage stack for the kernel, wiring together
+//! multiple layers of abstraction from raw hardware access to high-level file operations.
+//!
+//! # Layers
+//!
+//! - **Block layer** ([`block`]): Low-level sector-addressable storage abstraction.
+//!   Provides the [`BlockDevice`](block::BlockDevice) trait and concrete drivers.
+//!   Currently implements an AHCI driver ([`block::ahci`]) for SATA drives using DMA.
+//!
+//! - **VFS layer** ([`vfs`]): Virtual File System abstraction providing unified
+//!   filesystem traits ([`FileSystem`](vfs::FileSystem), [`Directory`](vfs::Directory),
+//!   [`File`](File)) that can be implemented by multiple backends. Handles
+//!   mount point management and path resolution across mounted filesystems.
+//!
+//! - **Filesystem layer** ([`fs`]): Concrete filesystem implementations:
+//!   - [`fs::fat`]: Native FAT12/FAT16/FAT32 implementation for persistent storage.
+//!   - [`fs::proc`]: Virtual procfs exposing kernel and process information at `/proc`.
 //!
 //! # Architecture
 //!
@@ -17,28 +27,35 @@
 //!                              │
 //!                              ▼
 //! ┌─────────────────────────────────────────────────────────────┐
-//! │                     VFS Traits (vfs.rs)                     │
-//! │        FileSystem, Directory, File, Metadata, etc.          │
+//! │                        VFS (vfs.rs)                         │
+//! │   Mount management, path resolution, unified file access    │
+//! └─────────────────────────────────────────────────────────────┘
+//!                    │                     │
+//!                    ▼                     ▼
+//! ┌──────────────────────────┐  ┌──────────────────────────────┐
+//! │   FAT Filesystem (fs/fat)│  │    ProcFS (fs/proc)          │
+//! │   FatFileSystem          │  │    Virtual /proc filesystem  │
+//! │   FatDirectory, FatFile  │  │    cpuinfo, meminfo, etc.    │
+//! └──────────────────────────┘  └──────────────────────────────┘
+//!              │
+//!              ▼
+//! ┌─────────────────────────────────────────────────────────────┐
+//! │              Block Device Layer (block/mod.rs)              │
+//! │         BlockDevice trait, BlockDeviceDriver wrapper        │
 //! └─────────────────────────────────────────────────────────────┘
 //!                              │
 //!                              ▼
 //! ┌─────────────────────────────────────────────────────────────┐
-//! │                  FAT Filesystem (fs/fat/)                   │
-//! │         FatFileSystem, FatDirectory, FatFile                │
-//! └─────────────────────────────────────────────────────────────┘
-//!                              │
-//!                              ▼
-//! ┌─────────────────────────────────────────────────────────────┐
-//! │                 Block Device (block/mod.rs)                 │
-//! │            BlockDevice trait, BlockDeviceDriver             │
-//! └─────────────────────────────────────────────────────────────┘
-//!                              │
-//!                              ▼
-//! ┌─────────────────────────────────────────────────────────────┐
-//! │                    AHCI Driver (block/ahci.rs)              │
-//! │              AhciBlockDevice, DMA operations                │
+//! │                 AHCI Driver (block/ahci.rs)                 │
+//! │    AhciBlockDevice: SATA access via DMA command submission  │
 //! └─────────────────────────────────────────────────────────────┘
 //! ```
+//!
+//! # Global Filesystem
+//!
+//! The kernel provides a global [`FS`] instance that mounts:
+//! - FAT filesystem from AHCI port 0 at `/`
+//! - ProcFS at `/proc`
 //!
 //! # Usage Example
 //!
@@ -69,6 +86,11 @@
 //! let mut buf = [0u8; 1024];
 //! let n = file.read(&mut buf).expect("Read failed");
 //! ```
+//!
+//! # Error Handling
+//!
+//! All operations return [`FileError`] variants for consistent error handling
+//! across the storage stack.
 
 pub(crate) mod block;
 pub mod fs;

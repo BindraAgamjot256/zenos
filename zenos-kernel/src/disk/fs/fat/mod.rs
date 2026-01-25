@@ -1,7 +1,50 @@
 //! FAT filesystem implementation (FAT12/FAT16/FAT32).
 //!
 //! This module provides a native FAT filesystem implementation that integrates
-//! with the VFS traits defined in `disk::vfs`.
+//! with the VFS traits defined in [`crate::disk::vfs`].
+//!
+//! # Overview
+//!
+//! The FAT (File Allocation Table) filesystem is a simple, widely-supported
+//! filesystem used on removable media and EFI system partitions. This
+//! implementation supports all three FAT variants:
+//!
+//! - **FAT12**: For small volumes (< 4085 clusters), rarely used today
+//! - **FAT16**: For medium volumes (< 65525 clusters)
+//! - **FAT32**: For large volumes, supports long filenames (not implemented)
+//!
+//! # Architecture
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────┐
+//! │                      Boot Sector (BPB)                      │
+//! ├─────────────────────────────────────────────────────────────┤
+//! │                    FAT Table(s)                             │
+//! │              (cluster allocation chain)                     │
+//! ├─────────────────────────────────────────────────────────────┤
+//! │              Root Directory (FAT12/16 only)                 │
+//! ├─────────────────────────────────────────────────────────────┤
+//! │                       Data Region                           │
+//! │              (files and directories in clusters)            │
+//! └─────────────────────────────────────────────────────────────┘
+//! ```
+//!
+//! # Components
+//!
+//! - [`FatFileSystem`]: Main filesystem handle, created via `mount()`. Provides
+//!   access to the root directory and manages the underlying block device.
+//!
+//! - [`FatDirectory`]: Directory handle implementing [`Directory`](crate::disk::vfs::Directory).
+//!   Supports listing, creating, and removing files and subdirectories.
+//!
+//! - [`FatFile`]: File handle implementing [`File`](crate::disk::vfs::File).
+//!   Supports read, write, seek, and flush with automatic cluster allocation.
+//!
+//! # Limitations
+//!
+//! - Only 8.3 short filenames are supported (no VFAT long filenames)
+//! - Timestamps are not fully implemented
+//! - No filesystem-level caching (relies on block device)
 //!
 //! # Usage Example
 //!
@@ -9,7 +52,6 @@
 //! use crate::disk::fs::fat::FatFileSystem;
 //! use crate::disk::block::ahci::AhciBlockDevice;
 //! use crate::disk::vfs::{FileSystem, Directory, File, SeekFrom};
-//! use alloc::boxed::Box;
 //!
 //! // Create a block device
 //! let device = AhciBlockDevice::new(0).expect("No disk found");
@@ -20,10 +62,8 @@
 //! // Get root directory
 //! let mut root = fs.root_dir().expect("Failed to get root");
 //!
-//! // Open a file
+//! // Open and read a file
 //! let mut file = root.open_file("README.TXT").expect("File not found");
-//!
-//! // Read file contents
 //! let mut buf = [0u8; 256];
 //! let bytes_read = file.read(&mut buf).expect("Read failed");
 //!

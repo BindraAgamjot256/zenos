@@ -1,23 +1,49 @@
 //! Virtual File System (VFS) abstraction layer.
 //!
-//! This module provides a unified interface for file system operations, allowing
-//! multiple file system implementations to be mounted and accessed through a
+//! This module provides a unified interface for filesystem operations, allowing
+//! multiple filesystem implementations to be mounted and accessed through a
 //! single API. The VFS handles path resolution, mount point management, and
-//! dispatches operations to the appropriate underlying file system.
+//! dispatches operations to the appropriate underlying filesystem.
 //!
 //! # Architecture
 //!
 //! The VFS uses a trait-based design with three core abstractions:
-//! - [`FileSystem`]: Represents a mountable file system (e.g., FAT32, ext4)
-//! - [`Directory`]: Provides directory operations (list, create, remove entries)
-//! - [`File`]: Provides file I/O operations (read, write, seek)
+//!
+//! - [`FileSystem`]: Represents a mountable filesystem (e.g., FAT32, procfs).
+//!   Implementations provide access to their root directory.
+//!
+//! - [`Directory`]: Provides directory operations including listing entries,
+//!   opening/creating files and subdirectories, and removing entries.
+//!
+//! - [`File`]: Provides file I/O operations (read, write, seek, flush) with
+//!   cursor-based access similar to standard Unix file descriptors.
+//!
+//! # Mount Points
+//!
+//! The VFS supports multiple mount points with longest-prefix matching. When
+//! resolving a path like `/proc/cpuinfo`, the VFS finds the most specific
+//! mount point (`/proc`) and delegates to that filesystem.
+//!
+//! # Path Normalization
+//!
+//! All paths are normalized before resolution:
+//! - `.` components are removed
+//! - `..` components navigate to parent directories
+//! - Multiple slashes are collapsed
+//! - Relative paths are treated as absolute (prefixed with `/`)
 //!
 //! # Example
 //!
 //! ```ignore
 //! let mut vfs = VFS::new();
-//! vfs.mount("/", my_filesystem)?;
+//!
+//! // Mount filesystems
+//! vfs.mount("/", fat_filesystem)?;
+//! vfs.mount("/proc", proc_filesystem)?;
+//!
+//! // Access files through unified interface
 //! let file = vfs.open_file("/path/to/file.txt")?;
+//! let proc_file = vfs.open_file("/proc/cpuinfo")?;
 //! ```
 
 use super::FileError;

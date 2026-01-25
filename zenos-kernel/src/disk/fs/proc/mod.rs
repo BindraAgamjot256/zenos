@@ -1,14 +1,38 @@
-//! Procfs - A virtual filesystem exposing kernel and process information.
+//! Procfs — Virtual filesystem exposing kernel and process information.
 //!
-//! This module implements a Linux-like /proc filesystem that provides:
-//! - `/proc/cpuinfo` - CPU information
-//! - `/proc/meminfo` - Memory statistics
-//! - `/proc/version` - OS version string
-//! - `/proc/uptime` - System uptime in seconds
-//! - `/proc/<pid>/` - Per-process directories containing:
-//!   - `stat` - Process statistics
-//!   - `status` - Human-readable process status
-//!   - `cmdline` - Process command line/name
+//! This module implements a Linux-compatible `/proc` filesystem that provides
+//! runtime information about the system and running processes. All files are
+//! virtual (generated on read) and read-only.
+//!
+//! # Available Files
+//!
+//! ## System Information
+//!
+//! | Path | Description |
+//! |------|-------------|
+//! | `/proc/cpuinfo` | CPU vendor, model, features, and capabilities |
+//! | `/proc/meminfo` | Memory statistics (total, free, used) |
+//! | `/proc/version` | Kernel version string |
+//! | `/proc/uptime` | System uptime in seconds |
+//!
+//! ## Per-Process Information (`/proc/<pid>/`)
+//!
+//! | File | Description |
+//! |------|-------------|
+//! | `stat` | Process statistics in Linux-compatible format (52 fields) |
+//! | `status` | Human-readable process status (name, state, PID, etc.) |
+//! | `cmdline` | Process name/command line (NUL-terminated) |
+//!
+//! ## Special Entries
+//!
+//! - `/proc/self` — Symlink-like behavior redirecting to current process
+//!
+//! # Implementation Notes
+//!
+//! - File contents are generated lazily on first read
+//! - The [`TICK_COUNT`] atomic is incremented by the timer interrupt (10ms/tick)
+//! - CPU information is obtained via `CPUID` instruction
+//! - Process information is read from the global [`PROCESSES`](crate::process::PROCESSES) table
 
 use crate::disk::FileError;
 use crate::disk::vfs::{DirEntry, Directory, File, FileSystem, FileType, Metadata, SeekFrom};

@@ -1,48 +1,74 @@
-//! AHCI (SATA) block device driver.
+//! AHCI (Advanced Host Controller Interface) SATA block device driver.
 //!
 //! This module provides a minimal AHCI implementation sufficient for sector
 //! reads/writes via DMA, exposing a [`BlockDevice`] implementation
 //! ([`AhciBlockDevice`]) that can be consumed by the filesystem layer.
 //!
+//! # Overview
+//!
+//! AHCI is the standard interface for SATA host controllers, providing a
+//! hardware abstraction that allows software to communicate with SATA devices
+//! without dealing with legacy IDE/ATA register-level programming.
+//!
 //! # Theory of Operation
 //!
-//! AHCI (Advanced Host Controller Interface) acts as a bridge between the system memory
-//! and SATA devices. Communication happens via **Command Lists** and **Command Tables**
-//! located in system memory, which the HBA (Host Bus Adapter) reads via DMA.
+//! AHCI acts as a bridge between system memory and SATA devices. Communication
+//! happens via memory-resident data structures that the HBA (Host Bus Adapter)
+//! accesses via DMA:
 //!
-//! The flow of a single IO operation is:
-//! 1. **Preparation**: The CPU builds a Command Table containing a FIS (Frame Information Structure)
-//!    and a PRDT (Physical Region Descriptor Table). The PRDT points to the data buffer.
-//! 2. **Submission**: The CPU updates the Command List Header to point to this table and
-//!    sets a bit in the Port's Command Issue (`CI`) register (the "doorbell").
-//! 3. **Execution**: The HBA detects the set bit, fetches the command via DMA, transmits
-//!    it to the drive, transfers data, and updates the status.
-//! 4. **Completion**: The HBA clears the bit in the `CI` register (and optionally raises an interrupt).
-//!    The CPU detects this (via polling in this driver) to mark the IO as complete.
+//! ```text
+//! ┌──────────────────┐     DMA      ┌─────────────────┐
+//! │   System Memory  │◄────────────►│   AHCI HBA      │
+//! │                  │              │                 │
+//! │  ┌────────────┐  │              │  ┌───────────┐  │
+//! │  │Command List│  │              │  │  Port 0   │──┼──► SATA Drive
+//! │  └────────────┘  │              │  └───────────┘  │
+//! │  ┌────────────┐  │              │  ┌───────────┐  │
+//! │  │Command Tbl │  │              │  │  Port 1   │──┼──► SATA Drive
+//! │  └────────────┘  │              │  └───────────┘  │
+//! │  ┌────────────┐  │              └─────────────────┘
+//! │  │ DMA Buffer │  │
+//! │  └────────────┘  │
+//! └──────────────────┘
+//! ```
 //!
-//! # Memory Layout
+//! ## I/O Flow
 //!
-//! AHCI requires several distinct memory structures for every port:
-//! - **Command List**: Array of 32 headers (one per slot).
-//! - **FIS Receive Area**: Buffer where the HBA writes incoming status FIS.
-//! - **Command Tables**: One per slot. Contains the actual ATA command and scatter/gather list.
+//! 1. **Preparation**: Build a Command Table containing:
+//!    - FIS (Frame Information Structure): The ATA command packet
+//!    - PRDT (Physical Region Descriptor Table): Scatter/gather list for DMA
 //!
-//! Design highlights:
-//! - We map the AHCI HBA MMIO BAR and a small set of per-port structures
-//!   at fixed virtual addresses.
-//! - Only a single port is initialized and exposed (first detected with a
-//!   drive). Multi-port/NCQ are not implemented yet.
-//! - I/O is synchronous: we submit a command and busy-wait for completion with
-//!   a timeout.
+//! 2. **Submission**: Update the Command List Header to point to the table,
+//!    then set the corresponding bit in the Port's Command Issue (`CI`) register.
+//!
+//! 3. **Execution**: The HBA detects the doorbell, fetches the command via DMA,
+//!    transmits it to the drive, and transfers data.
+//!
+//! 4. **Completion**: The HBA clears the `CI` bit. This driver polls for
+//!    completion with a timeout.
+//!
+//! # Memory Structures
+//!
+//! Per-port memory requirements:
+//! - **Command List**: 32 command headers (1 KB, 1 KB aligned)
+//! - **FIS Receive Area**: Incoming FIS buffer (256 bytes, 256 byte aligned)
+//! - **Command Tables**: One per slot, contains FIS + PRDT (128 byte aligned)
+//!
+//! # Limitations
+//!
+//! - Single port support (first detected drive only)
+//! - No NCQ (Native Command Queuing) - commands are serialized
+//! - Synchronous I/O with busy-wait polling
+//! - Maximum single transfer limited to 4 KB (one DMA page)
 //!
 //! # Safety
 //!
-//! This module is heavily `unsafe` as it deals with:
-//! - Raw MMIO pointers.
-//! - Physical memory addresses (for DMA).
-//! - Volatile reads/writes to hardware registers.
+//! This module uses `unsafe` extensively for:
+//! - Raw MMIO register access via volatile operations
+//! - Physical memory addresses for DMA buffers
+//! - Hardware register manipulation
 //!
-//! The safe interface is provided via [`AhciBlockDevice`].
+//! The safe public interface is provided via [`AhciBlockDevice`].
 
 use crate::disk::block::{BlockDevice, BlockError};
 use crate::disk::vfs::SeekFrom;

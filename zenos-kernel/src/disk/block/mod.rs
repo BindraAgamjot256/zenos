@@ -1,7 +1,24 @@
 //! Block device abstraction and drivers.
 //!
-//! This module defines a minimal [`BlockDevice`] trait and concrete drivers.
-//! Concrete implementations live in submodules (e.g., [`ahci`]).
+//! This module provides the low-level storage abstraction layer, defining
+//! the [`BlockDevice`] trait for sector-addressable storage devices.
+//!
+//! # Overview
+//!
+//! Block devices provide byte-level access with an internal cursor, abstracting
+//! away the underlying sector-based nature of storage hardware. The trait
+//! supports read, write, seek, and flush operations.
+//!
+//! # Components
+//!
+//! - [`BlockDevice`]: Core trait for storage devices with cursor-based I/O.
+//! - [`BlockDeviceDriver`]: Wrapper that boxes a concrete [`BlockDevice`]
+//!   implementation for use as a trait object.
+//! - [`BlockError`]: Error type for block-level operations.
+//!
+//! # Implementations
+//!
+//! - [`ahci::AhciBlockDevice`]: SATA storage via AHCI controller using DMA.
 #![allow(dead_code)]
 use crate::disk::vfs::SeekFrom;
 use alloc::boxed::Box;

@@ -1,7 +1,27 @@
-//! FAT filesystem internals — low-level FAT logic, disk access, caching.
+//! FAT filesystem internals — low-level structures and operations.
 //!
-//! This module contains the internal implementation details for FAT12/16/32.
-//! External code should use the public API in `mod.rs`.
+//! This module contains the internal implementation details for FAT12/16/32
+//! filesystems. External code should use the public API in [`super`].
+//!
+//! # Contents
+//!
+//! - [`BiosParameterBlock`]: Boot sector parsing and filesystem geometry
+//! - [`FatDirEntry`]: 32-byte directory entry structure (8.3 filenames)
+//! - [`FatTable`]: FAT cluster chain operations (read, write, allocate, free)
+//! - [`FatType`]: Filesystem variant detection (FAT12/16/32)
+//!
+//! # Cluster Chains
+//!
+//! Files and directories are stored as linked lists of clusters. The FAT
+//! (File Allocation Table) maps each cluster to the next cluster in the chain,
+//! or to a special end-of-chain marker.
+//!
+//! ```text
+//! FAT Entry Values:
+//! - 0x00000000: Free cluster
+//! - 0x00000002 - 0x0FFFFFEF: Next cluster in chain
+//! - 0x0FFFFFF8 - 0x0FFFFFFF: End of chain (EOC)
+//! ```
 #![allow(dead_code)]
 
 use crate::disk::FileError;
