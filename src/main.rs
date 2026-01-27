@@ -37,6 +37,8 @@ enum Command {
     Test,
     /// Rerun the previous kernel build without rebuilding (skips disk image too)
     Rerun,
+    /// Run stress tests instead of shell
+    Stress,
 }
 
 /// Internal args used by build functions
@@ -46,6 +48,7 @@ struct BuildArgs {
     fuzz: bool,
     test_stub: bool,
     test: bool,
+    stress: bool,
 }
 
 fn main() {
@@ -57,6 +60,7 @@ fn main() {
         fuzz: cli.fuzz,
         test_stub: matches!(command, Command::Stub),
         test: matches!(command, Command::Test),
+        stress: matches!(command, Command::Stress),
     };
 
     match command {
@@ -88,6 +92,7 @@ fn main() {
     build_init(build_args);
     build_fuzz(build_args);
     build_test_1(build_args);
+    build_shell(build_args);
     build_stress_tests(build_args);
 
     // 2. Image Construction Phase
@@ -212,7 +217,7 @@ fn build_kernel(args: BuildArgs) -> PathBuf {
 
 /// Builds the 'init' process (the first userspace program).
 /// Copies the resulting ELF to the 'iso/bin' staging directory.
-fn build_init(_args: BuildArgs) {
+fn build_init(args: BuildArgs) {
     println!("[BUILD] Compiling userspace init...");
     let mut cmd = std::process::Command::new("cargo");
     cmd.arg("+nightly");
@@ -227,6 +232,11 @@ fn build_init(_args: BuildArgs) {
     cmd.arg("-Z").arg("build-std=core,alloc");
     cmd.arg("-Z")
         .arg("build-std-features=compiler-builtins-mem");
+
+    // Enable stress feature if running stress tests
+    if args.stress {
+        cmd.arg("-F").arg("stress");
+    }
 
     #[cfg(debug_assertions)]
     cmd.env("RUSTFLAGS", "-Cforce-frame-pointers=yes");
@@ -391,6 +401,41 @@ fn build_test_1(_args: BuildArgs) {
 
     std::fs::copy(build_dir.join("test-dumper"), &out_path).expect("Failed to stage dumper binary");
     println!("[BUILD] Staged test-dumper to {:?}", out_path);
+}
+
+/// Builds the shell and copies it to iso/bin/
+fn build_shell(_args: BuildArgs) {
+    println!("[BUILD] Compiling shell...");
+
+    let shell_dir = Path::new("zenos-shell");
+    let build_dir = shell_dir.join("build");
+
+    // Build shell (libc should already be built from build_test_1)
+    let compile_status = std::process::Command::new("make")
+        .current_dir(shell_dir)
+        .env("CC", "clang --target=x86_64-unknown-none-elf")
+        .env("LD", "ld.lld")
+        .status()
+        .expect("Failed to run make for shell");
+
+    if !compile_status.success() {
+        eprintln!("[ERROR] shell build failed.");
+        exit(1);
+    }
+
+    // Copy shell binary to iso/bin/
+    let out_dir = Path::new("iso").join("bin");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let src = build_dir.join("shell");
+    let dst = out_dir.join("shell");
+    if src.exists() {
+        std::fs::copy(&src, &dst).expect("Failed to stage shell");
+        println!("[BUILD] Staged shell -> {:?}", dst);
+    } else {
+        eprintln!("[ERROR] Shell binary not found: {:?}", src);
+        exit(1);
+    }
 }
 
 /// Builds all stress test programs and copies them to iso/bin/

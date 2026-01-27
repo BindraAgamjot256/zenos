@@ -98,6 +98,7 @@ fn spawn(path: &[u8], args: &[&[u8]]) -> i64 {
 }
 
 /// Stress test binaries to run (8.3 FAT filenames)
+#[cfg(feature = "stress")]
 static STRESS_TESTS: &[(&[u8], &[&[u8]])] = &[
     (b"/bin/forkstrm\0", &[b"forkstrm\0"]),
     (b"/bin/rapidspn\0", &[b"rapidspn\0"]),
@@ -107,18 +108,10 @@ static STRESS_TESTS: &[(&[u8], &[&[u8]])] = &[
     (b"/bin/orphzomb\0", &[b"orphzomb\0"]),
 ];
 
+#[cfg(feature = "stress")]
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> ! {
     println!("=== Zenos Init: Stress Test Launcher ===");
-
-    // First, run the original dump test
-    println!("[init] Launching dump.elf...");
-    let dump_pid = 0; //spawn(b"/bin/dump.elf\0", &[b"dump\0", b"from\0", b"init\0"]);
-    if dump_pid > 0 {
-        println!("[init] dump.elf started with PID {}", dump_pid);
-    } else if dump_pid < 0 {
-        println!("[init] Failed to fork for dump.elf: {}", dump_pid);
-    }
 
     // Brief delay before stress tests
     for _ in 0..1000000u32 {
@@ -169,5 +162,31 @@ pub extern "C" fn main() -> ! {
         if heartbeat % 10 == 0 {
             println!("[init] Heartbeat {}", heartbeat);
         }
+    }
+}
+
+#[cfg(not(feature = "stress"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn main() -> ! {
+    println!("=== Zenos Init ===");
+
+    // Launch the shell
+    println!("[init] Launching shell...");
+    let shell_pid = spawn(b"/bin/shell\0", &[b"shell\0"]);
+
+    if shell_pid > 0 {
+        println!("[init] Shell started with PID {}", shell_pid);
+        // Wait for shell to exit
+        let exit_code = unsafe { waitpid(shell_pid as u64) };
+        println!("[init] Shell exited with code {}", exit_code);
+    } else if shell_pid < 0 {
+        println!("[init] Failed to fork for shell: {}", shell_pid);
+    }
+
+    // Init should never exit - it's PID 1
+    // If shell exits, just loop forever
+    println!("[init] Shell terminated, entering idle loop...");
+    loop {
+        unsafe { core::arch::asm!("pause") };
     }
 }
