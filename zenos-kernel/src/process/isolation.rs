@@ -4,7 +4,7 @@ use crate::memory::{
 };
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use hashbrown::HashMap;
-use log::{error, trace};
+use log::trace;
 use spin::{Lazy, Mutex};
 use x86_64::structures::paging::{PageTable, PageTableFlags, PhysFrame};
 use x86_64::{PhysAddr, VirtAddr};
@@ -282,4 +282,73 @@ pub(crate) unsafe fn new_user_address_space() -> Result<PhysAddr, ()> {
     );
 
     Ok(new_l4_phys)
+}
+
+/// Free a page table recursively, freeing all user pages and intermediate page tables.
+/// level: 3 = L3 (PDPT), 2 = L2 (PD), 1 = L1 (PT)
+unsafe fn free_page_table_recursive(table_phys: PhysAddr, level: u8) {
+    use crate::memory::free_phys_page;
+
+    let table = phys_to_page_table_mut(table_phys);
+
+    for i in 0..512 {
+        let entry = &table[i];
+        if !entry.flags().contains(PageTableFlags::PRESENT) {
+            continue;
+        }
+
+        let entry_phys = entry.addr();
+        let flags = entry.flags();
+
+        // Skip huge pages (typically kernel mappings shared across processes)
+        if flags.contains(PageTableFlags::HUGE_PAGE) {
+            continue;
+        }
+
+        if level == 1 {
+            // L1 (PT) entries point to 4K pages - free them
+            // Check if this is a COW page with shared references
+            if flags.contains(COW_FLAG) {
+                // Decrement refcount; only free if we're the last reference
+                if refcount_dec(entry_phys) {
+                    let _ = free_phys_page(entry_phys);
+                }
+            } else {
+                // Not COW, we own this page exclusively
+                let _ = free_phys_page(entry_phys);
+            }
+        } else {
+            // Recurse into lower level tables
+            free_page_table_recursive(entry_phys, level - 1);
+        }
+    }
+
+    // Free this page table itself
+    let _ = free_phys_page(table_phys);
+}
+
+/// Teardown an address space, freeing all user pages and page tables.
+/// Must NOT be the currently active address space.
+pub unsafe fn teardown_address_space(cr3: PhysAddr) {
+    let l4 = phys_to_page_table_mut(cr3);
+
+    // Only free user space mappings (entries 0-255)
+    // Kernel mappings (256-511) are shared and must not be freed
+    for i in 0..256 {
+        let entry = &l4[i];
+        if !entry.flags().contains(PageTableFlags::PRESENT) {
+            continue;
+        }
+
+        let entry_phys = entry.addr();
+
+        // Free the L3 table and everything below it
+        free_page_table_recursive(entry_phys, 3);
+    }
+
+    // Free the L4 page table itself
+    use crate::memory::free_phys_page;
+    let _ = free_phys_page(cr3);
+
+    trace!("teardown_address_space: freed address space at {:?}", cr3);
 }

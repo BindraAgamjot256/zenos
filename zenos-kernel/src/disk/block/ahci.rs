@@ -392,10 +392,6 @@ impl Port {
         header.flags = (fis_size & 0x1F) | if write { flags::CMD_WRITE } else { 0 };
         header.prdtl = 0; // Will be set to 1 after PRDT is ready
         header.prdbc = 0; // Reset byte count status
-        info!(
-            "Using slot {} for command, FIS size {} DWORDS",
-            slot, fis_size
-        );
 
         // 4. Access the specific Command Table for this slot
         //    (Calculated offset: Base + Slot * 4K)
@@ -463,7 +459,6 @@ impl Port {
             error!("Port command engine not running!");
             return Err(());
         }
-        info!("Port command engine is running");
         // 9. Issue Command (Ring the doorbell)
         self.write_reg(reg::CI, 1 << slot);
         trace!("Command issued on slot {}", slot);
