@@ -133,6 +133,18 @@ pub extern "C" fn main() -> ! {
             );
             let exit_code = unsafe { waitpid(pid as u64) };
             println!("[init] Process PID {} exited with code {}", pid, exit_code);
+            if exit_code < 0 {
+                println!("[init] Process PID {} crashed!", pid);
+                if path == b"/bin/memexhst\0" {
+                    println!("[init] memexhst crashed");
+                    println!("       feature, not bug")
+                } else {
+                    panic!(
+                        "init, stress test, {} crashed",
+                        core::str::from_utf8(&path[..path.len() - 1]).unwrap_or("?")
+                    );
+                }
+            }
             pids[i] = pid;
             launched += 1;
         } else if pid < 0 {

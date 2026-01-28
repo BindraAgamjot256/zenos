@@ -108,10 +108,8 @@ int main(int argc, char *argv[]) {
     printf("[grandparent] Zombies created, checking procfs...\n");
     
     /* More delay to observe zombie behavior */
-    for (volatile int i = 0; i < 200000; i++) {
-        __asm__("pause");
-    }
-    
+     while (waitpid(-1) > 0);
+
     printf("[grandparent] Test complete\n");
     exit(0);
     return 0;

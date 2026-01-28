@@ -392,6 +392,10 @@ impl Port {
         header.flags = (fis_size & 0x1F) | if write { flags::CMD_WRITE } else { 0 };
         header.prdtl = 0; // Will be set to 1 after PRDT is ready
         header.prdbc = 0; // Reset byte count status
+        info!(
+            "Using slot {} for command, FIS size {} DWORDS",
+            slot, fis_size
+        );
 
         // 4. Access the specific Command Table for this slot
         //    (Calculated offset: Base + Slot * 4K)
@@ -429,7 +433,6 @@ impl Port {
         let dma_page_virt = VirtAddr::from_ptr(dma_page_ptr);
         let dma_page_phys =
             crate::memory::virt_to_phys(dma_page_virt).expect("Failed to map DMA page");
-
         // Zero buffer for safety
         core::ptr::write_bytes(dma_page_virt.as_mut_ptr::<u8>(), 0, PAGE_4K);
 
@@ -443,7 +446,6 @@ impl Port {
         prdt.set_data_addr(dma_page_phys); // HBA needs Physical Address
         let dbc_masked = Self::prdt_mask_bytecount((total_bytes as u32).wrapping_sub(1));
         prdt.dbc = dbc_masked | flags::PRDT_IOC; // Interrupt on Completion
-
         // Finalize header
         header.prdtl = 1; // We used 1 PRDT entry
 
@@ -461,7 +463,7 @@ impl Port {
             error!("Port command engine not running!");
             return Err(());
         }
-
+        info!("Port command engine is running");
         // 9. Issue Command (Ring the doorbell)
         self.write_reg(reg::CI, 1 << slot);
         trace!("Command issued on slot {}", slot);
@@ -489,7 +491,6 @@ impl Port {
             self.write_reg(reg::SERR, serr);
             return Err(());
         }
-
         res
     }
 
@@ -594,8 +595,8 @@ pub(crate) unsafe fn init() {
         // --- Memory Allocation & Mapping ---
 
         // 1. Assign Virtual Addresses
-        let virt_cmd_list = VirtAddr::new(AHCI_VIRT_BASE + port_num as u64 * PAGE_4K as u64);
-        let virt_fis = VirtAddr::new(AHCI_VIRT_BASE + 0x1000 + port_num as u64 * PAGE_4K as u64);
+        let virt_cmd_list = VirtAddr::new(AHCI_VIRT_BASE + (port_num as u64 * PAGE_4K as u64));
+        let virt_fis = VirtAddr::new(AHCI_VIRT_BASE + 0x1000 + (port_num as u64 * PAGE_4K as u64));
 
         // 2. Allocate Physical Memory & Map to Virtual
         // `kalloc_page` here allocates a physical page and maps it to `virt_addr`.

@@ -2,7 +2,7 @@ use crate::disk::vfs::File;
 use crate::syscall::copy_from_user;
 use crate::syscall::errors::{EBADF, EFAULT, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
-use log::debug;
+use log::{debug, info};
 use zenos_macros::syscall;
 
 #[syscall(1)]
@@ -32,6 +32,12 @@ pub(crate) fn write_inner(buf: &[u8], fd: u64) -> Result<u64, u64> {
         .iter_mut()
         .find(|p| p.pid == curr_pid)
         .ok_or((-ESRCH) as u64)?;
+    info!(
+        "write_inner: pid={}, fd={}, len={}",
+        curr_pid,
+        fd,
+        buf.len()
+    );
     let file_handle = process.get_file_handle(fd).ok_or((-EBADF) as u64)?;
     let handle = &mut *file_handle.descriptor();
     let written = File::write(handle, buf).map_err(|e| file_error_to_errno(&e))?;

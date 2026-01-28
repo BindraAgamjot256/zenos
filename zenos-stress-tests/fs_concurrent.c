@@ -24,7 +24,7 @@
 
 #define NUM_READERS 4
 #define NUM_WRITERS 2
-#define TEST_FILE "/test_concurrent.txt"
+#define TEST_FILE "/tst-conc.txt"
 
 int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
@@ -32,10 +32,11 @@ int main(int argc, char *argv[]) {
     printf("[fs_concurrent] Starting concurrent filesystem test\n");
     
     /* Create test file */
-    int fd = open(TEST_FILE, O_WRONLY | O_CREAT | O_TRUNC);
+    int fd = open(TEST_FILE, FILE_CREATE | FILE_READ_WRITE);
     if (fd < 0) {
         printf("[fs_concurrent] Failed to create test file\n");
-        exit(1);
+        printf("[fs_concurrent] error: %d", fd);
+        exit(-1);
     }
     
     /* Write initial content */
@@ -59,7 +60,7 @@ int main(int argc, char *argv[]) {
             for (int j = 0; j < 10; j++) {
                 /* Open file fresh each time */
                 /* BUG CHECK: Does concurrent open() work? */
-                int rfd = open(TEST_FILE, O_RDONLY);
+                int rfd = open(TEST_FILE, FILE_READ_ONLY);
                 if (rfd < 0) {
                     printf("[reader %d] open() failed on iteration %d\n", i, j);
                     continue;
@@ -108,7 +109,7 @@ int main(int argc, char *argv[]) {
             
             for (int j = 0; j < 5; j++) {
                 /* BUG CHECK: Concurrent open with O_TRUNC? */
-                int wfd = open(TEST_FILE, O_WRONLY);
+                int wfd = open(TEST_FILE, FILE_WRITE_ONLY);
                 if (wfd < 0) {
                     printf("[writer %d] open() failed\n", i);
                     continue;
@@ -142,7 +143,7 @@ int main(int argc, char *argv[]) {
     /* Parent: Test file descriptor inheritance behavior */
     printf("[fs_concurrent] Testing fd inheritance after fork...\n");
     
-    int parent_fd = open(TEST_FILE, O_RDONLY);
+    int parent_fd = open(TEST_FILE, FILE_READ_ONLY);
     if (parent_fd >= 0) {
         /* Read to move offset */
         char buf[8];
@@ -167,12 +168,10 @@ int main(int argc, char *argv[]) {
     }
     
     /* Wait for children */
-    for (volatile int i = 0; i < 300000; i++) {
-        __asm__("pause");
-    }
+    while (waitpid(-1) > 0);
     
     /* Final read to check file state */
-    int final_fd = open(TEST_FILE, O_RDONLY);
+    int final_fd = open(TEST_FILE, FILE_WRITE_ONLY);
     if (final_fd >= 0) {
         char final_buf[128];
         ssize_t n = read(final_fd, final_buf, sizeof(final_buf) - 1);
@@ -184,6 +183,5 @@ int main(int argc, char *argv[]) {
     }
     
     printf("[fs_concurrent] Test complete\n");
-    exit(0);
     return 0;
 }

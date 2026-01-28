@@ -752,6 +752,8 @@ fn map_page(
                     Err(x86_64::structures::paging::mapper::MapToError::PageAlreadyMapped(e)) => {
                         // page is already mapped... ignore but warn
                         warn!("Page already mapped {e:#?}, page: {:#x}", virtaddr.as_u64());
+                        // Flush TLB for this page in case flags changed
+                        x86_64::instructions::tlb::flush(*virtaddr);
                     }
                     Err(e) => {
                         error!("err: {e:#?}");

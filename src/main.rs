@@ -90,11 +90,13 @@ fn main() {
         std::fs::remove_dir_all(&path).expect("Could not clean iso/bin directory");
     }
     build_init(build_args);
-    build_fuzz(build_args);
-    build_test_1(build_args);
-    build_shell(build_args);
-    build_stress_tests(build_args);
-
+    if build_args.stress {
+        build_stress_tests(build_args);
+    } else if cli.fuzz {
+        build_fuzz(build_args);
+    } else {
+        build_shell(build_args);
+    }
     // 2. Image Construction Phase
     let kernel_binding = build_kernel(build_args);
     let kernel_path = kernel_binding.as_path();
@@ -154,7 +156,7 @@ fn run_qemu(uefi_path: &Path, debugger: bool, test: bool) {
 
     println!("[RUN] Command: {cmd:#?}");
     std::io::stdout().flush().unwrap();
-
+    cmd.stdout(std::io::stdout());
     let mut child = cmd.spawn().expect("Failed to launch QEMU");
     let status = child.wait().expect("Failed to wait on QEMU process");
 
@@ -361,46 +363,6 @@ fn build_fuzz(args: BuildArgs) {
     };
 
     std::fs::copy(&fuzz_bin, &out_path).expect("Failed to stage fuzzer binary");
-}
-
-fn build_test_1(_args: BuildArgs) {
-    println!("[BUILD] Compiling procfs dumper (C version)...");
-
-    let dumper_dir = Path::new("zenos-test-dumper-c");
-    let build_dir = dumper_dir.join("build");
-    std::fs::create_dir_all(&build_dir).expect("Failed to create build directory");
-
-    // Build libc first
-    println!("[BUILD] Building libc...");
-    let libc_status = std::process::Command::new("make")
-        .current_dir("libc")
-        .env("CC", "clang --target=x86_64-unknown-none-elf")
-        .env("LD", "ld.lld")
-        .status()
-        .expect("Failed to run make for libc");
-    if !libc_status.success() {
-        eprintln!("[ERROR] libc build failed.");
-        exit(1);
-    }
-
-    // Compile main.c to build/main.o
-    println!("[BUILD] Compiling test-dumper...");
-    let compile_status = std::process::Command::new("make")
-        .current_dir("zenos-test-dumper-c")
-        .env("CC", "clang --target=x86_64-unknown-none-elf")
-        .env("LD", "ld.lld")
-        .status();
-    if !compile_status.unwrap().success() {
-        eprintln!("[ERROR] test-dumper build failed.");
-        exit(1);
-    }
-    // Copy to iso/bin
-    let out_dir = Path::new("iso").join("bin");
-    std::fs::create_dir_all(&out_dir).unwrap();
-    let out_path = out_dir.join("dump.elf");
-
-    std::fs::copy(build_dir.join("test-dumper"), &out_path).expect("Failed to stage dumper binary");
-    println!("[BUILD] Staged test-dumper to {:?}", out_path);
 }
 
 /// Builds the shell and copies it to iso/bin/

@@ -283,9 +283,27 @@ extern "x86-interrupt" fn page_fault_handler(
     ist: InterruptStackFrame,
     error_code: PageFaultErrorCode,
 ) {
-    error!("stack frame: {ist:#?}");
     let cr2 = x86_64::registers::control::Cr2::read();
-    error!("cr2: {cr2:#?}");
+
+    // Check if this is a write fault with protection violation - potential COW
+    // This can happen either from user mode OR kernel mode writing to a COW user page
+    if error_code.contains(PageFaultErrorCode::CAUSED_BY_WRITE)
+        && error_code.contains(PageFaultErrorCode::PROTECTION_VIOLATION)
+    {
+        // Try to handle as COW fault
+        if let Ok(fault_addr) = cr2 {
+            // Only handle COW for user-space addresses (below HIGHER_HALF_BASE)
+            if fault_addr.as_u64() < crate::memory::HIGHER_HALF_BASE {
+                if unsafe { crate::process::isolation::handle_cow_fault(fault_addr) } {
+                    return; // COW handled successfully(the cow went moo)
+                } else {
+                    error!("COW handling failed for address: {fault_addr:#x}"); // the cow went baa
+                }
+            }
+        }
+        // Not a COW page, fall through to normal handling
+    }
+
     if error_code.contains(PageFaultErrorCode::USER_MODE) {
         let current_pid = {
             let sched = SCHEDULER.lock();
@@ -315,7 +333,12 @@ extern "x86-interrupt" fn page_fault_handler(
         SCHEDULER.lock().force_reschedule();
         return; // return, don't panic the kernel, will reschedule next timer interrupt.
     }
-    panic!("Page fault occurred, error code: {:?}", error_code);
+    error!("stack frame: {ist:#?}");
+    error!("cr2: {cr2:#?}");
+    panic!(
+        "Page fault occurred, error code: 0b{:06b}",
+        error_code.bits()
+    );
 }
 
 fn my_general_handler(stack_frame: InterruptStackFrame, index: u8, error_code: Option<u64>) {

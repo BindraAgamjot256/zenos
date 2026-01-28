@@ -334,6 +334,9 @@ impl Process {
                         log::set_max_level(LevelFilter::Debug);
                         addr += PAGE_4K as u64;
                     }
+                    // Flush entire TLB after mapping all pages for this segment
+                    flush_all();
+
                     let src = unsafe { bytes.as_ptr().add(segment.offset() as usize) };
                     let dst =
                         ((segment.virtual_addr() as *mut u8) as u64 + self.load_bias) as *mut u8;
@@ -359,7 +362,7 @@ impl Process {
                     }
                     // dump page tables for debugging
                     #[cfg(debug_assertions)]
-                    dump_pte(VirtAddr::new(0x200000));
+                    dump_pte(VirtAddr::new(dst as u64));
                     unsafe {
                         core::ptr::copy(src, dst, len);
                     }
@@ -374,6 +377,8 @@ impl Process {
                     if flags.is_write() {
                         ptf |= PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE
                     }
+                    // Keep pages writable during loading (will be set to final permissions later)
+                    ptf |= PageTableFlags::WRITABLE;
                     let mut addr = page_start;
                     while addr < page_end {
                         change_flags(addr, ptf).unwrap();

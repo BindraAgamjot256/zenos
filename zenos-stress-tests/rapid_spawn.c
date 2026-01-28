@@ -56,10 +56,7 @@ int main(int argc, char *argv[]) {
     printf("[rapid_spawn] Test complete, spawned %d short-lived processes\n", ITERATIONS);
     
     /* Give kernel time to reap zombies (if it does) */
-    for (volatile int i = 0; i < 50000; i++) {
-        __asm__("pause");
-    }
-    
+     while (waitpid(-1) > 0);
     exit(0);
     return 0;
 }
