@@ -203,7 +203,6 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
     debug!("Enabling syscalls");
     syscall::init();
 
-    //todo: add support for sse saving/restoring on context switch. we do still enable them for -O2 builds to work
     unsafe {
         use x86_64::registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags};
 

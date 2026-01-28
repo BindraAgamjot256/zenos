@@ -774,14 +774,6 @@ pub fn kfree_page(virtaddr: VirtAddr, ptype: PageType) -> Result<(), MapErr> {
         _ => PageSize::Size4KiB,
     };
 
-    // TODO: In a real implementation, you would:
-    // 1. Look up the physical address from the page table
-    // 2. Unmap the virtual address
-    // 3. Then free the physical page
-    // But this isn't a real implementation. so... 🖕
-
-    // Future me here: I implemented something... hope it works:
-
     let mut ptable = get_page_tables!();
 
     let phys = ptable.translate_addr(virtaddr).ok_or(MapErr::NotMapped)?;
