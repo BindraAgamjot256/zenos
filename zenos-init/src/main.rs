@@ -100,12 +100,12 @@ fn spawn(path: &[u8], args: &[&[u8]]) -> i64 {
 /// Stress test binaries to run (8.3 FAT filenames)
 #[cfg(feature = "stress")]
 static STRESS_TESTS: &[(&[u8], &[&[u8]])] = &[
-    (b"/bin/forkstrm\0", &[b"forkstrm\0"]),
-    (b"/bin/rapidspn\0", &[b"rapidspn\0"]),
-    (b"/bin/schedfar\0", &[b"schedfar\0"]),
-    (b"/bin/memexhst\0", &[b"memexhst\0"]),
+    (b"/bin/forkstrm.elf\0", &[b"forkstrm\0"]),
+    (b"/bin/rapidspn.elf\0", &[b"rapidspn\0"]),
+    (b"/bin/schedfar.elf\0", &[b"schedfar\0"]),
+    (b"/bin/memexhst.elf\0", &[b"memexhst\0"]),
     //(b"/bin/fsconcrn\0", &[b"fsconcrn\0"]),
-    (b"/bin/orphzomb\0", &[b"orphzomb\0"]),
+    (b"/bin/orphzomb.elf\0", &[b"orphzomb\0"]),
 ];
 
 #[cfg(feature = "stress")]
@@ -135,7 +135,7 @@ pub extern "C" fn main() -> ! {
             println!("[init] Process PID {} exited with code {}", pid, exit_code);
             if exit_code < 0 {
                 println!("[init] Process PID {} crashed!", pid);
-                if path == b"/bin/memexhst\0" {
+                if path == b"/bin/memexhst.elf\0" {
                     println!("[init] memexhst crashed");
                     println!("       feature, not bug")
                 } else {

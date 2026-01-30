@@ -498,12 +498,12 @@ fn build_stress_tests(_args: BuildArgs) {
     std::fs::create_dir_all(&out_dir).unwrap();
 
     let stress_tests = [
-        ("fork_storm", "forkstrm"),
-        ("rapid_spawn", "rapidspn"),
-        ("sched_fairness", "schedfar"),
-        ("mem_exhaust", "memexhst"),
-        ("orphan_zombie", "orphzomb"),
-        ("fs_concurrent", "fsconcrn"),
+        ("fork_storm", "forkstrm.elf"),
+        ("rapid_spawn", "rapidspn.elf"),
+        ("sched_fairness", "schedfar.elf"),
+        ("mem_exhaust", "memexhst.elf"),
+        ("orphan_zombie", "orphzomb.elf"),
+        ("fs_concurrent", "fsconcrn.elf"),
     ];
 
     for (src_name, dst_name) in stress_tests {
