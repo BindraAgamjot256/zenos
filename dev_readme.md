@@ -70,7 +70,6 @@ We use the `syscall` ~~`int 0x80`~~ instruction because software interrupts are 
 | 2  | open   | Open a file                |
 | 3  | close  | Close fd                   |
 | 8  | lseek  | Seek in file               |
-| 34 | pause  | Wait for signal (lol)      |
 | 57 | fork   | Create child process       |
 | 59 | execve | Replace process            |
 | 60 | exit   | Die gracefully             |
