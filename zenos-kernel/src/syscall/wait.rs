@@ -27,7 +27,7 @@ fn wait(rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
                 let exit_code = procs[idx].exit_code.unwrap();
                 let pid_reaped = procs[idx].pid;
                 let cr3 = procs[idx].cr3;
-                procs.remove(idx);
+                procs.swap_remove(idx);
                 info!(
                     "wait: pid {} reaped child pid {} with exit code {}",
                     caller_pid, pid_reaped, exit_code
@@ -54,7 +54,7 @@ fn wait(rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         {
             let exit_code = procs[idx].exit_code.unwrap();
             let cr3 = procs[idx].cr3;
-            procs.remove(idx);
+            procs.swap_remove(idx);
             info!(
                 "wait: pid {} reaped child pid {} with exit code {}",
                 caller_pid, target_pid, exit_code
