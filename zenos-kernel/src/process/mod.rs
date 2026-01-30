@@ -1,4 +1,4 @@
-mod debug;
+pub(crate) mod debug;
 pub(crate) mod file_handles;
 pub(crate) mod isolation;
 pub(crate) mod scheduler;

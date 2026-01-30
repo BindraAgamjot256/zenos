@@ -88,7 +88,6 @@ pub use crate::testing::{TESTS, Test};
 /// # Note
 ///
 /// This function expects to be called only once during system initialization.
-#[track_caller]
 pub fn kinit(boot_info: &'static mut BootInfo) {
     log::set_logger(&serial::LOGGER).expect("PANIC");
 
@@ -117,6 +116,7 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
         );
         fb_writer.clear(Rgb888::new(0, 0, 0)).unwrap();
         framebuffer::FRAMEBUFFER.lock().replace(fb_writer);
+        kprintln!("fb_writer initialized");
     } else {
         warn!("Framebuffer is absent, falling back to serial logging");
     }

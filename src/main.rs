@@ -20,6 +20,10 @@ struct Cli {
     /// Build and run the kernel fuzzer (replaces init process)
     #[arg(long, short = 'f', global = true)]
     fuzz: bool,
+
+    /// Run using Bochs instead of QEMU
+    #[arg(long, global = true)]
+    bochs: bool,
 }
 
 #[derive(Subcommand, Clone, Copy, Default)]
@@ -78,7 +82,11 @@ fn main() {
                 eprintln!("[ERROR] No existing uefi.img found. Run a full build first.");
                 exit(1);
             }
-            run_qemu(&uefi_path, false, false);
+            if cli.bochs {
+                run_bochs(&uefi_path, false, false);
+            } else {
+                run_qemu(&uefi_path, false, false);
+            }
             return;
         }
         _ => {}
@@ -110,7 +118,11 @@ fn main() {
 
     let debugger = matches!(command, Command::Debug);
     let test = matches!(command, Command::Test);
-    run_qemu(uefi_path, debugger, test);
+    if cli.bochs {
+        run_bochs(uefi_path, debugger, test);
+    } else {
+        run_qemu(uefi_path, debugger, test);
+    }
 }
 
 fn run_qemu(uefi_path: &Path, debugger: bool, test: bool) {
@@ -161,6 +173,67 @@ fn run_qemu(uefi_path: &Path, debugger: bool, test: bool) {
     let status = child.wait().expect("Failed to wait on QEMU process");
 
     println!("[DONE] QEMU exited with status: {}", status);
+}
+
+fn run_bochs(uefi_path: &Path, debugger: bool, _test: bool) {
+    println!("[RUN] Launching Bochs...");
+
+    // Use OVMF firmware (same as QEMU) to enable UEFI booting in Bochs
+    let ovmf_src = ovmf_prebuilt::ovmf_pure_efi();
+
+    // Copy OVMF firmware locally so Bochs can open it reliably
+    let ovmf_dir = std::path::Path::new(".ovmf");
+    if !ovmf_dir.exists() {
+        std::fs::create_dir_all(ovmf_dir).expect("Failed to create .ovmf directory");
+    }
+    let ovmf_dst = ovmf_dir.join("OVMF-pure-efi.fd");
+    if !ovmf_dst.exists() {
+        if ovmf_src.exists() {
+            std::fs::copy(&ovmf_src, &ovmf_dst).expect("Failed to copy OVMF firmware to .ovmf/");
+        } else {
+            eprintln!(
+                "[WARN] OVMF firmware not found at {}. Bochs may fail.",
+                ovmf_src.display()
+            );
+        }
+    }
+
+    // Generate a .bochsrc that points to the generated uefi image and local OVMF firmware
+    let bochsrc = format!(
+        r#"# Auto-generated .bochsrc to boot uefi.img with OVMF
+megs: 512
+boot: disk
+ata0-master: type=disk, path="{}", mode=flat
+romimage: file="{}"
+vga: extension=cirrus
+pci: enabled=1, chipset=i440fx, slot1=cirrus
+# Force ACPI and Power Management logic
+clock: sync=realtime, time0=local
+log: bochs.log
+display_library: sdl2
+com1: enabled=1, mode=file, dev=serial.log
+"#,
+        uefi_path.to_str().unwrap(),
+        ovmf_dst.to_str().unwrap()
+    );
+
+    std::fs::write(".bochsrc", bochsrc).expect("Failed to write .bochsrc for Bochs");
+
+    let mut cmd = std::process::Command::new("bochs");
+    cmd.arg("-f").arg(".bochsrc");
+
+    // Skip interactive menus unless debugger requested
+    if !debugger {
+        cmd.arg("-q");
+    }
+
+    println!("[RUN] Command: {cmd:#?}");
+    std::io::stdout().flush().unwrap();
+    cmd.stdout(std::io::stdout());
+    let mut child = cmd.spawn().expect("Failed to launch Bochs");
+    let status = child.wait().expect("Failed to wait on Bochs process");
+
+    println!("[DONE] Bochs exited with status: {}", status);
 }
 
 /// Invokes Cargo to build the core OS kernel.

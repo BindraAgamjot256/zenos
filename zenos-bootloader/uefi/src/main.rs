@@ -157,12 +157,23 @@ fn main_inner(image: Handle, mut st: SystemTable<Boot>) -> Status {
         framebuffer,
         rsdp_addr: {
             use uefi::table::cfg;
-            let mut config_entries = system_table.config_table().iter();
+            let config_entries = system_table.config_table();
+
+            log::info!("UEFI Config Table has {} entries", config_entries.len());
+            for entry in config_entries.iter() {
+                log::info!("  GUID: {:?}, Address: {:p}", entry.guid, entry.address);
+            }
+
             // look for an ACPI2 RSDP first
-            let acpi2_rsdp = config_entries.find(|entry| matches!(entry.guid, cfg::ACPI2_GUID));
+            let acpi2_rsdp = config_entries
+                .iter()
+                .find(|entry| matches!(entry.guid, cfg::ACPI2_GUID));
             // if no ACPI2 RSDP is found, look for a ACPI1 RSDP
-            let rsdp = acpi2_rsdp
-                .or_else(|| config_entries.find(|entry| matches!(entry.guid, cfg::ACPI_GUID)));
+            let rsdp = acpi2_rsdp.or_else(|| {
+                config_entries
+                    .iter()
+                    .find(|entry| matches!(entry.guid, cfg::ACPI_GUID))
+            });
             rsdp.map(|entry| PhysAddr::new(entry.address as u64))
         },
         ramdisk_addr,
@@ -466,6 +477,8 @@ fn init_logger(
     st: &SystemTable<Boot>,
     config: &BootConfig,
 ) -> Option<RawFrameBufferInfo> {
+    bootloader_x86_64_common::init_logger(config.log_level, config.serial_logging);
+
     let gop_handle = st
         .boot_services()
         .get_handle_for_protocol::<GraphicsOutput>()
@@ -527,8 +540,6 @@ fn init_logger(
         bytes_per_pixel: 4,
         stride: mode_info.stride(),
     };
-
-    bootloader_x86_64_common::init_logger(config.log_level, config.serial_logging);
 
     Some(RawFrameBufferInfo {
         addr: PhysAddr::new(framebuffer.as_mut_ptr() as u64),

@@ -13,15 +13,14 @@ int main(int argc, char *argv[]) {
     char input[MAX_INPUT];
     char *args[MAX_ARGS];
     
-    shell_register_builtins();
-    
+
     printf("\n");
     printf("=================================\n");
     printf("  Welcome to Zenos Shell v0.1.0\n");
     printf("  Type 'help' for commands\n");
     printf("=================================\n");
     printf("\n");
-    
+    shell_register_builtins();
     while (1) {
         printf("zenos> ");
         

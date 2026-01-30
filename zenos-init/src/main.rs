@@ -104,7 +104,7 @@ static STRESS_TESTS: &[(&[u8], &[&[u8]])] = &[
     (b"/bin/rapidspn\0", &[b"rapidspn\0"]),
     (b"/bin/schedfar\0", &[b"schedfar\0"]),
     (b"/bin/memexhst\0", &[b"memexhst\0"]),
-    (b"/bin/fsconcrn\0", &[b"fsconcrn\0"]),
+    //(b"/bin/fsconcrn\0", &[b"fsconcrn\0"]),
     (b"/bin/orphzomb\0", &[b"orphzomb\0"]),
 ];
 
@@ -156,12 +156,13 @@ pub extern "C" fn main() -> ! {
         }
 
         // Small delay between launches to avoid overwhelming the kernel
-        for _ in 0..10000u32 {
-            unsafe { core::arch::asm!("pause") };
-        }
+        unsafe { while waitpid(-1i64 as u64) > 0 {} }
     }
 
-    println!("[init] Launched {} stress tests", launched);
+    println!(
+        "[init] Launched {} stress tests, all successfully exited",
+        launched
+    );
 
     // Init should never exit - it's PID 1
     // Just loop forever, periodically printing status

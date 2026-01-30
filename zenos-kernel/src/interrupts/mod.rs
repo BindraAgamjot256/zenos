@@ -317,6 +317,15 @@ extern "x86-interrupt" fn page_fault_handler(
         let mut procs = PROCESSES.lock();
         let proc = procs.iter_mut().find(|p| p.pid == current_pid).unwrap();
         error!("Faulting process PID: {}", proc.pid);
+        error!("faulting address: {cr2:?}");
+        error!(
+            "faulting instruction pointer: {:#x}",
+            ist.instruction_pointer.as_u64()
+        );
+        error!(
+            "Page fault occurred, error code: 0b{:06b}",
+            error_code.bits()
+        );
         // Mark as exited (zombie) instead of removing - parent needs to wait() to reap
         proc.exit_code = Some(u64::MAX);
         proc.status = ProcessStatus::Exited;
@@ -335,6 +344,10 @@ extern "x86-interrupt" fn page_fault_handler(
     }
     error!("stack frame: {ist:#?}");
     error!("cr2: {cr2:#?}");
+    if cr2.is_ok() {
+        let virt = cr2.unwrap();
+        crate::process::debug::dump_pte(virt)
+    }
     panic!(
         "Page fault occurred, error code: 0b{:06b}",
         error_code.bits()

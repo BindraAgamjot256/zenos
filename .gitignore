@@ -160,3 +160,6 @@ WARP.md
 iso/bin/**/*
 *.img
 **/*.bin
+.bochsrc
+*.out
+.ovmf/**/*
