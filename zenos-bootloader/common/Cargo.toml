@@ -23,7 +23,7 @@ uart_16550 = "0.3.2"
 log = "0.4.17"
 
 [dependencies.noto-sans-mono-bitmap]
-version = "0.2.0"
+version = "0.3.2"
 default-features = false
 features = [
     "regular",
