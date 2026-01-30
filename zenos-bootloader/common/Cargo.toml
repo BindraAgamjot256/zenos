@@ -12,7 +12,7 @@ repository.workspace = true
 bootloader_api = { workspace = true }
 bootloader-boot-config = { workspace = true }
 conquer-once = { version = "0.4.0", default-features = false }
-spinning_top = "0.2.4"
+spinning_top = "0.3.0"
 usize_conversions = "0.2.0"
 x86_64 = { version = "0.15.2" }
 xmas-elf = "0.8.0"
