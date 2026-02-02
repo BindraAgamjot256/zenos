@@ -312,15 +312,9 @@ impl Process {
                         "Loading segment: {:#?}, start-end = {start_addr:x}-{end_addr:x}",
                         segment
                     );
-                    let mut ptf = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
-                    if flags.is_write() {
-                        ptf |= PageTableFlags::WRITABLE;
-                    }
-                    if !flags.is_execute() {
-                        ptf |= PageTableFlags::NO_EXECUTE;
-                    }
-                    // Temporarily disable W^X while bringing up userland
-                    ptf |= PageTableFlags::WRITABLE;
+                    let ptf = PageTableFlags::PRESENT
+                        | PageTableFlags::USER_ACCESSIBLE
+                        | PageTableFlags::WRITABLE;
                     let mem_size = segment.mem_size();
                     let seg_start = VirtAddr::new(segment.virtual_addr() + self.load_bias);
                     let seg_end = VirtAddr::new(segment.virtual_addr() + mem_size + self.load_bias);
@@ -334,8 +328,6 @@ impl Process {
                         log::set_max_level(LevelFilter::Debug);
                         addr += PAGE_4K as u64;
                     }
-                    // Flush entire TLB after mapping all pages for this segment
-                    flush_all();
 
                     let src = unsafe { bytes.as_ptr().add(segment.offset() as usize) };
                     let dst =
@@ -376,14 +368,17 @@ impl Process {
                     let mut ptf = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
                     if flags.is_write() {
                         ptf |= PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE
+                    } else {
+                        ptf &= !(PageTableFlags::NO_EXECUTE | PageTableFlags::WRITABLE);
                     }
-                    // Keep pages writable during loading (will be set to final permissions later)
-                    ptf |= PageTableFlags::WRITABLE;
                     let mut addr = page_start;
                     while addr < page_end {
-                        change_flags(addr, ptf).unwrap();
+                        // change_flags(addr, ptf).unwrap();
+                        // fuck w^x again, because it doesn't work in tandem with CoW.
                         addr += PAGE_4K as u64;
                     }
+                    #[cfg(debug_assertions)]
+                    dump_pte(VirtAddr::new(dst as u64));
 
                     // Verify the copy
                     let copied_bytes = unsafe { core::slice::from_raw_parts(dst, 16.min(len)) };

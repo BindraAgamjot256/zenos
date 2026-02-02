@@ -7,6 +7,7 @@ use x86_64::{
 
 /// Dump page table entries for a virtual address
 /// Requires recursive mapping to be active
+/// this function was only made so i could figure out why the fuck processes segfault 25% of the time. do not take it seriously.
 pub fn dump_pte(addr: VirtAddr) {
     let (level_4_frame, _) = Cr3::read();
     let p4_phys = level_4_frame.start_address();

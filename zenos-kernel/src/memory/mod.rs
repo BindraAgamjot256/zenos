@@ -737,10 +737,17 @@ fn map_page(
                 })?
                 .flush(),
             PageSize::Size4KiB => {
-                let result = mapper.map_to(
+                let result = mapper.map_to_with_table_flags(
                     Page::<Size4KiB>::containing_address(*virtaddr),
                     PhysFrame::containing_address(*phys),
                     flags,
+                    PageTableFlags::PRESENT
+                        | PageTableFlags::WRITABLE
+                        | (if flags.contains(PageTableFlags::USER_ACCESSIBLE) {
+                            PageTableFlags::USER_ACCESSIBLE
+                        } else {
+                            PageTableFlags::empty()
+                        }),
                     alloc,
                 );
 

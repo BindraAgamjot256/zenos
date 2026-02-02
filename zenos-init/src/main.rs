@@ -180,7 +180,7 @@ pub extern "C" fn main() -> ! {
 
 #[cfg(not(feature = "stress"))]
 #[unsafe(no_mangle)]
-pub extern "C" fn main() -> ! {
+pub extern "C" fn main() -> u64 {
     println!("=== Zenos Init ===");
 
     // Launch the shell
@@ -195,11 +195,5 @@ pub extern "C" fn main() -> ! {
     } else if shell_pid < 0 {
         println!("[init] Failed to fork for shell: {}", shell_pid);
     }
-
-    // Init should never exit - it's PID 1
-    // If shell exits, just loop forever
-    println!("[init] Shell terminated, entering idle loop...");
-    loop {
-        unsafe { core::arch::asm!("pause") };
-    }
+    -1isize as u64
 }
