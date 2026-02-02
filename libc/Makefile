@@ -14,6 +14,7 @@
 # Output:
 #   build/libc.a  - static library
 #   build/crt0.o  - C runtime startup object (link first!)
+#   build/crt1.o  - C runtime initialization (linked into libc.a)
 
 # Default compiler is clang
 CC ?= clang
@@ -76,7 +77,7 @@ $(CRT0_OBJ): $(SRC_DIR)/crt0.asm | $(BUILD_DIR)
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Create static library (does NOT include crt0.o)
+# Create static library (includes crt1.o but NOT crt0.o)
 $(OUTPUT): $(OBJS)
 	$(AR) rcs $@ $^
 	@echo "Built $(OUTPUT) with $(CC)"
@@ -111,4 +112,4 @@ help:
 	@echo ""
 	@echo "Output files:"
 	@echo "  build/crt0.o      - C runtime startup (link FIRST)"
-	@echo "  build/libc.a      - Static library"
+	@echo "  build/libc.a      - Static library (includes crt1.o)"

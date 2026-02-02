@@ -168,8 +168,7 @@ int main(int argc, char *argv[]) {
     }
     
     /* Wait for children */
-    while (waitpid(-1) > 0);
-    
+    while (waitpid(-1, NULL, 0) > 0);
     /* Final read to check file state */
     int final_fd = open(TEST_FILE, FILE_WRITE_ONLY);
     if (final_fd >= 0) {

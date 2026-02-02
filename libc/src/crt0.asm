@@ -13,6 +13,7 @@ section .text
 global _start
 extern main
 extern exit
+extern __libc_init
 
 _start:
     ; Clear frame pointer for debuggers
@@ -28,10 +29,21 @@ _start:
     mov rax, rdi            ; rax = argc
     add rax, 1              ; rax = argc + 1
     shl rax, 3              ; rax = (argc + 1) * 8
-    lea rdx, [rsi + rax]    ; envp -> rdx (3rd arg)
+    lea rdx, [rsi + rax]    ; envp -> rdx
 
+    ; Save argc, argv across __libc_init call
+    push rdi                ; save argc
+    push rsi                ; save argv
 
-    ; Call main(argc, argv, envp)
+    ; Initialize libc with envp
+    mov rdi, rdx            ; envp -> rdi (1st arg to __libc_init)
+    call __libc_init
+
+    ; Restore argc, argv
+    pop rsi                 ; restore argv
+    pop rdi                 ; restore argc
+
+    ; Call main(argc, argv) - no envp parameter
     call main
 
     ; Exit with return value from main

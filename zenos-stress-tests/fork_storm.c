@@ -61,7 +61,7 @@ int main(int argc, char *argv[]) {
     
     /* Spin to let children die - no wait() syscall available */
     /* BUG CHECK: Do zombie children accumulate? */
-    while (waitpid(-1) > 0);
+    while (waitpid(-1, NULL, 0) > 0);
     printf("[fork_storm] Parent exiting\n");
     exit(0);
     return 0;

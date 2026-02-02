@@ -108,7 +108,7 @@ int main(int argc, char *argv[]) {
     printf("[grandparent] Zombies created, checking procfs...\n");
     
     /* More delay to observe zombie behavior */
-     while (waitpid(-1) > 0);
+    while (waitpid(-1, NULL, 0) > 0);
 
     printf("[grandparent] Test complete\n");
     exit(0);

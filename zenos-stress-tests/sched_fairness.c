@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
     
     printf("[sched_fairness] Test complete\n");
     // reap zombies.
-    while (waitpid(-1) > 0);
+    while (waitpid(-1, NULL, 0) > 0);
     exit(0);
     return 0;
 }

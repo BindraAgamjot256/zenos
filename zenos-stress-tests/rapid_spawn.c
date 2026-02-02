@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
     printf("[rapid_spawn] Test complete, spawned %d short-lived processes\n", ITERATIONS);
     
     /* Give kernel time to reap zombies (if it does) */
-     while (waitpid(-1) > 0);
+    while (waitpid(-1, NULL, 0) > 0);
     exit(0);
     return 0;
 }
