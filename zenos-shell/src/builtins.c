@@ -3,7 +3,6 @@
  */
 
 #include "builtins.h"
-#include "shell.h"
 #include <stdio.h>
 #include <unistd.h>
 
@@ -43,4 +42,14 @@ void cmd_exit(int argc, char *argv[]) {
     (void)argv;
     printf("Goodbye!\n");
     exit(0);
+}
+
+void cmd_getpid(int argc, char *argv[]) {
+    (void)argc;
+    (void)argv;
+    pid_t pid = getpid();
+    pid_t ppid = getppid();
+    printf("zenos shell running as pid %d, parent pid %d", pid, ppid);
+    if (ppid == 1) printf(" (init process)\n");
+    else printf("\n");
 }

@@ -4,6 +4,7 @@ mod errors;
 mod exec;
 mod exit;
 mod fork;
+mod getpid;
 mod lseek;
 mod open;
 mod pause;

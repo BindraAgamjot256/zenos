@@ -13,7 +13,6 @@ use crate::{
     interrupts::gdt::GDT,
     kprintln,
     memory::ALLOCATOR,
-    memory::change_flags,
     memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},
     percpu::PerCpuData,
     percpu::PerCpuVar,

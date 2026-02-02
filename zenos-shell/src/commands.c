@@ -22,11 +22,12 @@ static void register_cmd(const char *name, const char *help, cmd_handler_t handl
 }
 
 void shell_register_builtins(void) {
-    register_cmd("echo",    "Print arguments",      cmd_echo);
-    register_cmd("help",    "Show this help",       cmd_help);
-    register_cmd("clear",   "Clear screen",         cmd_clear);
-    register_cmd("version", "Show shell version",   cmd_version);
-    register_cmd("exit",    "Exit the shell",       cmd_exit);
+    register_cmd("echo",    "Print arguments",                 cmd_echo);
+    register_cmd("help",    "Show this help",                  cmd_help);
+    register_cmd("clear",   "Clear screen",                    cmd_clear);
+    register_cmd("version", "Show shell version",              cmd_version);
+    register_cmd("exit",    "Exit the shell",                  cmd_exit);
+    register_cmd("getpid",  "get the process id of the shell", cmd_getpid);
 }
 
 int shell_exec_cmd(const char *name, int argc, char *argv[]) {
