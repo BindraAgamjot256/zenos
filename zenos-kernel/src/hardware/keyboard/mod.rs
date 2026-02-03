@@ -1,39 +1,68 @@
 use crate::kprint;
+use crate::primitives::RingBuf;
 use crate::process::block_current_process;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::SeqCst;
-use heapless::Deque;
 use log::trace;
 use pc_keyboard::{DecodedKey, HandleControl, KeyCode, Keyboard, ScancodeSet1, layouts};
 use spin::{Lazy, Mutex};
 
-static KEYBOARD: Lazy<Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>>> = Lazy::new(|| {
-    Mutex::new(Keyboard::new(
-        ScancodeSet1::new(),
-        layouts::Us104Key,
-        HandleControl::Ignore,
-    ))
-});
+const KEYBUF_SIZE: usize = 256;
 
-static KEYBUF: Lazy<Mutex<Deque<u8, 256>>> = Lazy::new(|| Mutex::new(Deque::new()));
+/// Keyboard input handler with a ring buffer for storing scancodes.
+pub struct KeyboardInput {
+    keyboard: Keyboard<layouts::Us104Key, ScancodeSet1>,
+    buffer: RingBuf<u8, KEYBUF_SIZE>,
+}
 
-pub fn joint_keyboard_handler(scancode: u8) {
-    let mut keyboard = KEYBOARD.lock();
-    if let Ok(Some(key_event)) = keyboard.add_byte(scancode)
-        && let Some(key) = keyboard.process_keyevent(key_event)
-    {
-        match key {
-            DecodedKey::Unicode(character) => {
-                // Echo the character so stdin reads appear responsive while blocking
-                kprint!("{}", character);
-                let mut kb = KEYBUF.lock();
-                if kb.push_back(character as u8).is_err() {
-                    trace!("Keyboard buffer full, dropping input");
-                }
-            }
-            DecodedKey::RawKey(key) => raw_key_handler(key),
+impl KeyboardInput {
+    pub const fn new() -> Self {
+        Self {
+            keyboard: Keyboard::new(ScancodeSet1::new(), layouts::Us104Key, HandleControl::Ignore),
+            buffer: RingBuf::new(),
         }
     }
+
+    /// Handles a scancode from the keyboard interrupt.
+    pub fn handle_scancode(&mut self, scancode: u8) {
+        if let Ok(Some(key_event)) = self.keyboard.add_byte(scancode)
+            && let Some(key) = self.keyboard.process_keyevent(key_event)
+        {
+            match key {
+                DecodedKey::Unicode(character) => {
+                    kprint!("{}", character);
+                    if self.buffer.push_back(character as u8).is_err() {
+                        trace!("Keyboard buffer full, dropping input");
+                    }
+                }
+                DecodedKey::RawKey(key) => Self::raw_key_handler(key),
+            }
+        }
+    }
+
+    /// Pops the next byte from the buffer.
+    pub fn pop(&mut self) -> Option<u8> {
+        self.buffer.pop_front()
+    }
+
+    fn raw_key_handler(key: KeyCode) {
+        match key {
+            KeyCode::LShift | KeyCode::RShift => {}
+            KeyCode::ArrowDown | KeyCode::ArrowUp => {
+                trace!("Arrow Up/Down pressed... ignoring")
+            }
+            KeyCode::ArrowLeft | KeyCode::ArrowRight => {
+                trace!("Arrow Left/Right pressed... ignoring again...")
+            }
+            _ => {}
+        }
+    }
+}
+
+static KEYBOARD_INPUT: Lazy<Mutex<KeyboardInput>> = Lazy::new(|| Mutex::new(KeyboardInput::new()));
+
+pub fn joint_keyboard_handler(scancode: u8) {
+    KEYBOARD_INPUT.lock().handle_scancode(scancode);
 }
 
 /// Reads bytes from the keyboard buffer into `buf` until newline or buffer full.
@@ -43,15 +72,13 @@ pub fn read_exact(buf: &mut [u8]) -> usize {
     let mut count = 0;
     while count < buf.len() {
         PROCESSING.store(true, SeqCst);
-        // Try to get a character, releasing lock between attempts
         let byte = loop {
             {
-                let mut kb = KEYBUF.lock();
-                if let Some(b) = kb.pop_front() {
+                let mut kb = KEYBOARD_INPUT.lock();
+                if let Some(b) = kb.pop() {
                     break Some(b);
                 }
             }
-            // Release lock while spinning to allow keyboard interrupt to add chars
             block_current_process(&PROCESSING);
             core::hint::spin_loop();
         };
@@ -61,10 +88,8 @@ pub fn read_exact(buf: &mut [u8]) -> usize {
                 PROCESSING.store(false, SeqCst);
                 break;
             } else if b == b'\r' {
-                // Ignore carriage return
                 continue;
             } else if b == b'\x08' {
-                // Backspace handling
                 if count > 0 {
                     count -= 1;
                 }
@@ -75,19 +100,4 @@ pub fn read_exact(buf: &mut [u8]) -> usize {
         }
     }
     count
-}
-
-fn raw_key_handler(key: KeyCode) {
-    // we use separate handlers for arrow keys and other keys, since arrow keys are
-    match key {
-        KeyCode::LShift | KeyCode::RShift => {}
-        KeyCode::ArrowDown | KeyCode::ArrowUp => {
-            trace!("Arrow Up/Down pressed... ignoring")
-        }
-        KeyCode::ArrowLeft | KeyCode::ArrowRight => {
-            trace!("Arrow Left/Right pressed... ignoring again...")
-        }
-        // Silence raw key debug output to avoid cluttering echoed input
-        _ => {}
-    }
 }
