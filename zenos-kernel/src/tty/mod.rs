@@ -125,7 +125,7 @@ impl TTYDevice {
             .ok();
     }
 
-    fn  newline(&mut self) {
+    fn newline(&mut self) {
         self.hide_cursor();
         self.cursor.x = 0;
         self.cursor.y += 1;
@@ -162,45 +162,54 @@ impl TTYDevice {
         }
         self.reset_ansi_state();
     }
-
     fn process_sgr(&mut self) {
         if self.ansi_params.is_empty() {
-            self.ansi_params.push(0); // Default to reset
+            self.ansi_params.push(0);
         }
 
         let mut i = 0;
         while i < self.ansi_params.len() {
             match self.ansi_params[i] {
-                0 => self.style = Style::default(), // Reset
+                0 => self.style = Style::default(),
+
                 1 => self.style.bold = true,
                 3 => self.style.ital = true,
                 4 => self.style.underline = true,
                 9 => self.style.strikethrough = true,
+
                 22 => self.style.bold = false,
                 23 => self.style.ital = false,
                 24 => self.style.underline = false,
                 29 => self.style.strikethrough = false,
-                // Foreground colors (30-37)
-                30 => self.style.fg_color = Some((0, 0, 0)), // Black
-                31 => self.style.fg_color = Some((205, 49, 49)), // Red
-                32 => self.style.fg_color = Some((13, 188, 121)), // Green
-                33 => self.style.fg_color = Some((229, 229, 16)), // Yellow
-                34 => self.style.fg_color = Some((36, 114, 200)), // Blue
-                35 => self.style.fg_color = Some((188, 63, 188)), // Magenta
-                36 => self.style.fg_color = Some((17, 168, 205)), // Cyan
-                37 => self.style.fg_color = Some((229, 229, 229)), // White
-                39 => self.style.fg_color = None,            // Default
-                // Background colors (40-47)
-                40 => self.style.bg_color = Some((0, 0, 0)), // Black
-                41 => self.style.bg_color = Some((205, 49, 49)), // Red
-                42 => self.style.bg_color = Some((13, 188, 121)), // Green
-                43 => self.style.bg_color = Some((229, 229, 16)), // Yellow
-                44 => self.style.bg_color = Some((36, 114, 200)), // Blue
-                45 => self.style.bg_color = Some((188, 63, 188)), // Magenta
-                46 => self.style.bg_color = Some((17, 168, 205)), // Cyan
-                47 => self.style.bg_color = Some((229, 229, 229)), // White
-                49 => self.style.bg_color = None,            // Default
-                // 256 color mode: 38;5;n or 48;5;n
+
+                // Standard FG 30–37 → palette 0–7
+                30..=37 => {
+                    let idx = (self.ansi_params[i] - 30) as u8;
+                    self.style.fg_color = Some(color_256(idx));
+                }
+
+                // Standard BG 40–47 → palette 0–7
+                40..=47 => {
+                    let idx = (self.ansi_params[i] - 40) as u8;
+                    self.style.bg_color = Some(color_256(idx));
+                }
+
+                // Bright FG 90–97 → palette 8–15
+                90..=97 => {
+                    let idx = (self.ansi_params[i] - 90 + 8) as u8;
+                    self.style.fg_color = Some(color_256(idx));
+                }
+
+                // Bright BG 100–107 → palette 8–15
+                100..=107 => {
+                    let idx = (self.ansi_params[i] - 100 + 8) as u8;
+                    self.style.bg_color = Some(color_256(idx));
+                }
+
+                39 => self.style.fg_color = None,
+                49 => self.style.bg_color = None,
+
+                // 256-color mode
                 38 => {
                     if i + 2 < self.ansi_params.len() && self.ansi_params[i + 1] == 5 {
                         self.style.fg_color = Some(color_256(self.ansi_params[i + 2] as u8));
@@ -213,24 +222,7 @@ impl TTYDevice {
                         i += 2;
                     }
                 }
-                // Bright foreground colors (90-97)
-                90 => self.style.fg_color = Some((128, 128, 128)),
-                91 => self.style.fg_color = Some((255, 0, 0)),
-                92 => self.style.fg_color = Some((0, 255, 0)),
-                93 => self.style.fg_color = Some((255, 255, 0)),
-                94 => self.style.fg_color = Some((0, 0, 255)),
-                95 => self.style.fg_color = Some((255, 0, 255)),
-                96 => self.style.fg_color = Some((0, 255, 255)),
-                97 => self.style.fg_color = Some((255, 255, 255)),
-                // Bright background colors (100-107)
-                100 => self.style.bg_color = Some((128, 128, 128)),
-                101 => self.style.bg_color = Some((255, 0, 0)),
-                102 => self.style.bg_color = Some((0, 255, 0)),
-                103 => self.style.bg_color = Some((255, 255, 0)),
-                104 => self.style.bg_color = Some((0, 0, 255)),
-                105 => self.style.bg_color = Some((255, 0, 255)),
-                106 => self.style.bg_color = Some((0, 255, 255)),
-                107 => self.style.bg_color = Some((255, 255, 255)),
+
                 _ => {}
             }
             i += 1;
@@ -383,7 +375,6 @@ impl TTYDevice {
         ib.read_byte();
         todo!("use this instead of the direct call done by tty_read_nonblocking.")
     }
-
 }
 
 /// Convert 256-color palette index to RGB.

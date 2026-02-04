@@ -90,7 +90,9 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("Memory used: {} KiB", used * PAGE_4K / 1024);
     #[cfg(feature = "test_stub")]
     {
-        compile_error!("Test stubs are unsupported, testing done through kunittest feature, and through stress testing.");
+        compile_error!(
+            "Test stubs are unsupported, testing done through kunittest feature, and through stress testing."
+        );
     }
 
     let buf = zenos_kernel::process::init_process();

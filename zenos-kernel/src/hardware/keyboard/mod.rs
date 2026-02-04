@@ -37,9 +37,7 @@ impl KeyboardInput {
             match key {
                 DecodedKey::Unicode(character) => {
                     kprint!("{}", character);
-                    if self.buffer.push_back(character as u8).is_err() {
-                        trace!("Keyboard buffer full, dropping input");
-                    }
+                    self.buffer.push_back(character as u8);
                     // Wake any process blocked on stdin
                     STDIN_BLOCKED.store(false, SeqCst);
                 }

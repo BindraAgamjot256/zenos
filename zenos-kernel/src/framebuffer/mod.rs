@@ -342,7 +342,6 @@ impl<'fb> FrameBufferWriter<'fb> {
             //      How we would do that is beyond me right now.
         }
     }
-
 }
 
 /// Implementation of the `DrawTarget` trait for embedded-graphics compatibility.
