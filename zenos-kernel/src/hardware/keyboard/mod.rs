@@ -1,6 +1,8 @@
 use crate::kprint;
 use crate::primitives::RingBuf;
 use crate::process::block_current_process;
+use crate::process::file_handles::STDIN_BLOCKED;
+use crate::tty::TtyInputBackend;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::SeqCst;
 use log::trace;
@@ -18,7 +20,11 @@ pub struct KeyboardInput {
 impl KeyboardInput {
     pub const fn new() -> Self {
         Self {
-            keyboard: Keyboard::new(ScancodeSet1::new(), layouts::Us104Key, HandleControl::Ignore),
+            keyboard: Keyboard::new(
+                ScancodeSet1::new(),
+                layouts::Us104Key,
+                HandleControl::Ignore,
+            ),
             buffer: RingBuf::new(),
         }
     }
@@ -34,6 +40,8 @@ impl KeyboardInput {
                     if self.buffer.push_back(character as u8).is_err() {
                         trace!("Keyboard buffer full, dropping input");
                     }
+                    // Wake any process blocked on stdin
+                    STDIN_BLOCKED.store(false, SeqCst);
                 }
                 DecodedKey::RawKey(key) => Self::raw_key_handler(key),
             }
@@ -59,7 +67,14 @@ impl KeyboardInput {
     }
 }
 
-static KEYBOARD_INPUT: Lazy<Mutex<KeyboardInput>> = Lazy::new(|| Mutex::new(KeyboardInput::new()));
+impl TtyInputBackend for KeyboardInput {
+    fn read_byte(&mut self) -> Option<u8> {
+        self.pop().map(|b| b)
+    }
+}
+
+pub(crate) static KEYBOARD_INPUT: Lazy<Mutex<KeyboardInput>> =
+    Lazy::new(|| Mutex::new(KeyboardInput::new()));
 
 pub fn joint_keyboard_handler(scancode: u8) {
     KEYBOARD_INPUT.lock().handle_scancode(scancode);

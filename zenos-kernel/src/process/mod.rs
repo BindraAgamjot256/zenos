@@ -9,9 +9,7 @@ use crate::{
     disk::FileError,
     disk::get_len,
     disk::vfs::File,
-    framebuffer::FRAMEBUFFER,
     interrupts::gdt::GDT,
-    kprintln,
     memory::ALLOCATOR,
     memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},
     percpu::PerCpuData,
@@ -19,6 +17,7 @@ use crate::{
     process::debug::dump_pte,
     process::file_handles::{FileHandle, FileOpenOptions, Stderr, Stdin, Stdout},
     process::isolation::new_user_address_space,
+    tty::TTY,
 };
 use alloc::{boxed::Box, format, string::String, string::ToString, vec::Vec};
 use core::{
@@ -120,15 +119,15 @@ impl Process {
         let mut file_handles = HashMap::new();
         file_handles.insert(
             0,
-            FileHandle::new(0, Box::new(Stdin), FileOpenOptions::READ_WRITE),
+            FileHandle::new(0, Box::new(Stdin::new(pid)), FileOpenOptions::READ_WRITE),
         );
         file_handles.insert(
             1,
-            FileHandle::new(1, Box::new(Stdout), FileOpenOptions::READ_WRITE),
+            FileHandle::new(1, Box::new(Stdout::new(pid)), FileOpenOptions::READ_WRITE),
         );
         file_handles.insert(
             2,
-            FileHandle::new(2, Box::new(Stderr), FileOpenOptions::READ_WRITE),
+            FileHandle::new(2, Box::new(Stderr::new(pid)), FileOpenOptions::READ_WRITE),
         );
         let p = Process {
             pid,
@@ -573,20 +572,6 @@ impl Process {
             .ok_or(FileError::InvalidFileDescriptor)?;
         Ok(())
     }
-
-    pub fn trace(&self) {
-        kprintln!("Process {} (pid {})", self.name, self.pid);
-        kprintln!("  Parent PID: {}", self.parent_pid);
-        kprintln!("  CR3: {:#x}", self.cr3.as_u64());
-        kprintln!("  Load Bias: {:#x}", self.load_bias);
-        kprintln!("  Entry Point: {:#x}", self.entry_point);
-        kprintln!("  End Address: {:#x}", self.end);
-        kprintln!("  State: {:?}", self.state);
-        kprintln!("  File Handles:");
-        for handle in self.file_handles.iter() {
-            kprintln!("    FD {:#?}", handle);
-        }
-    }
 }
 
 unsafe impl Send for Process {}
@@ -650,7 +635,7 @@ pub fn schedule_next() -> ! {
     unsafe {
         PROCESSES.force_unlock();
         FS.force_unlock();
-        FRAMEBUFFER.force_unlock();
+        TTY.force_unlock();
         ALLOCATOR.force_unlock();
     }
 
@@ -801,15 +786,15 @@ pub fn init_process() -> &'static [u8] {
     let mut file_handles = HashMap::new();
     file_handles.insert(
         0,
-        FileHandle::new(0, Box::new(Stdin), FileOpenOptions::all()),
+        FileHandle::new(0, Box::new(Stdin::new(1)), FileOpenOptions::all()),
     );
     file_handles.insert(
         1,
-        FileHandle::new(1, Box::new(Stdout), FileOpenOptions::all()),
+        FileHandle::new(1, Box::new(Stdout::new(1)), FileOpenOptions::all()),
     );
     file_handles.insert(
         2,
-        FileHandle::new(2, Box::new(Stderr), FileOpenOptions::all()),
+        FileHandle::new(2, Box::new(Stderr::new(1)), FileOpenOptions::all()),
     );
     let process = Process {
         pid: 1,

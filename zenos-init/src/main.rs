@@ -106,6 +106,7 @@ static STRESS_TESTS: &[(&[u8], &[&[u8]])] = &[
     (b"/bin/memexhst.elf\0", &[b"memexhst\0"]),
     //(b"/bin/fsconcrn\0", &[b"fsconcrn\0"]),
     (b"/bin/orphzomb.elf\0", &[b"orphzomb\0"]),
+    (b"/bin/ansiclrs.elf\0", &[b"ansiclrs\0"]),
 ];
 
 #[cfg(feature = "stress")]

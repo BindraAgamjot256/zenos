@@ -15,7 +15,7 @@ extern crate alloc;
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
 use zenos_kernel::memory::PAGE_4K;
-use zenos_kernel::{kinit, kprintln, serial_println};
+use zenos_kernel::{kinit, serial_println};
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -90,13 +90,8 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     serial_println!("Memory used: {} KiB", used * PAGE_4K / 1024);
     #[cfg(feature = "test_stub")]
     {
-        kprintln!("stub does not exist anymore. test it through init you idiot.");
-        panic!(
-            "never gonna give you up, never gonna let you down, never gonna run around and desert you"
-        );
+        compile_error!("Test stubs are unsupported, testing done through kunittest feature, and through stress testing.");
     }
-
-    kprintln!("loading init process");
 
     let buf = zenos_kernel::process::init_process();
 
@@ -114,7 +109,6 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         sched.set_current(pid);
     }
 
-    kprintln!("process loaded, pid: {}", pid);
     zenos_kernel::process::enter_user_mode(entry, stack);
 }
 

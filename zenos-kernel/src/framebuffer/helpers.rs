@@ -1,34 +1,12 @@
 //! Framebuffer helper functions.
 //!
-//! Provides helper functionality to safely access and write to the framebuffer,
-//! as well as other helpers, such as to update the cursor.
+//! Provides helper functionality for printing to the TTY.
 
-use crate::framebuffer::{FRAMEBUFFER, FrameBufferWriter};
 use crate::serial_print;
+use crate::tty::TTY;
 use core::fmt::Write;
-use log::error;
 
-/// Executes a closure with a mutable reference to the framebuffer writer if available.
-///
-/// This function locks the framebuffer and, if a writer is present, applies the given closure.
-///
-/// # Parameters
-/// - `f`: A closure that takes a mutable reference to a FrameBufferWriter.
-pub(crate) fn with_writer<T>(f: impl FnOnce(&mut FrameBufferWriter) -> T) -> Result<T, ()> {
-    unsafe {
-        FRAMEBUFFER.force_unlock();
-    }
-    let mut fb = FRAMEBUFFER.lock();
-    if let Some(ref mut fb_writer) = *fb {
-        Ok(f(fb_writer))
-    } else {
-        // If the framebuffer is not available, return an error.
-        error!("Framebuffer not initialized or not available");
-        Err(())
-    }
-}
-
-/// Internal helper to print formatted arguments to the framebuffer.
+/// Internal helper to print formatted arguments to the TTY.
 ///
 /// # Parameters
 /// - `args`: The format arguments to be printed.
@@ -39,25 +17,14 @@ pub(crate) fn with_writer<T>(f: impl FnOnce(&mut FrameBufferWriter) -> T) -> Res
 /// ```
 /// This function should not be called directly; instead, use the `kprint`/`kprintln!` macro.
 pub fn _print(args: core::fmt::Arguments) {
-    with_writer(|fb| {
-        // Write the formatted string to the framebuffer.
-        fb.write_fmt(args).unwrap();
-    })
-    .unwrap_or_else(|_| {
-        // If the framebuffer is not available, we can log to the serial port or panic.
+    unsafe {
+        TTY.force_unlock();
+    }
+    let mut tty = TTY.lock();
+    if let Some(ref mut tty_device) = *tty {
+        tty_device.write_fmt(args).unwrap();
+    } else {
+        // TTY not initialized, fall back to serial
         serial_print!("{}", args);
-    });
-}
-
-/// Updates the cursor position in the framebuffer.
-/// This function should be called after writing to the framebuffer
-/// to ensure the cursor is positioned correctly for further writings.
-pub fn update_cursor() {
-    with_writer(|fb| {
-        fb.update_cursor();
-    })
-    .unwrap_or_else(|_| {
-        // If the framebuffer is not available, we can log to the serial port or panic.
-        error!("Failed to update cursor: Framebuffer not available");
-    });
+    }
 }

@@ -139,10 +139,7 @@ macro_rules! kernel_busy_wait {
 pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext) -> u64 {
     // Increment the tick counter for timekeeping
     crate::disk::fs::proc::tick();
-
-    // Update cursor (existing functionality)
-    crate::update_cursor();
-
+    crate::tty::update_cursor();
     // Send EOI first
     {
         let mut guard = crate::hardware::APIC_MANAGER.lock();

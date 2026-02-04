@@ -36,6 +36,7 @@ extern crate alloc;
 pub use crate::framebuffer::helpers::*;
 use crate::percpu::get_percpu_data;
 use ::acpi::InterruptModel;
+use alloc::boxed::Box;
 use bootloader_api::{BootInfo, info::MemoryRegion, info::MemoryRegionKind};
 use core::arch::asm;
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb888};
@@ -58,6 +59,8 @@ pub mod interrupts;
 pub mod memory;
 mod pci;
 mod percpu;
+/// Primitive data structures
+pub mod primitives;
 pub mod process;
 /// Serial module for logging output
 pub mod serial;
@@ -67,6 +70,7 @@ pub mod syscall;
 pub mod testing;
 /// Time module for handling time-related functionality
 pub mod time;
+pub mod tty;
 
 #[cfg(not(target_arch = "x86_64"))]
 compile_error!("zenos only supports x86_64");
@@ -103,24 +107,6 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
 
     info!("Kernel initialization started");
 
-    // Initialize the framebuffer if available
-    trace!("Initializing framebuffer");
-    let framebuffer = boot_info.framebuffer.as_mut();
-    if let Some(framebuffer) = framebuffer {
-        let info = framebuffer.info();
-        let buffer = framebuffer.buffer_mut();
-        let mut fb_writer = framebuffer::FrameBufferWriter::new(buffer, info);
-        debug!(
-            "Framebuffer initialized, size: {}x{}",
-            info.width, info.height
-        );
-        fb_writer.clear(Rgb888::new(0, 0, 0)).unwrap();
-        framebuffer::FRAMEBUFFER.lock().replace(fb_writer);
-        kprintln!("fb_writer initialized");
-    } else {
-        warn!("Framebuffer is absent, falling back to serial logging");
-    }
-
     info!("starting memory initialization");
 
     let merged_regions = merge_contiguous_regions(&mut boot_info.memory_regions);
@@ -142,6 +128,25 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
     info!("Initializing slab allocator");
     memory::alloc::init();
     info!("Slab allocator initialized");
+    trace!("Initializing framebuffer");
+    // initialise framebuffer if available.
+    let framebuffer = boot_info.framebuffer.as_mut();
+    if let Some(framebuffer) = framebuffer {
+        let info = framebuffer.info();
+        let buffer = framebuffer.buffer_mut();
+        let mut fb_writer = framebuffer::FrameBufferWriter::new(buffer, info);
+        debug!(
+            "Framebuffer initialized, size: {}x{}",
+            info.width, info.height
+        );
+        fb_writer.clear(Rgb888::new(0, 0, 0)).unwrap();
+        tty::init(
+            Box::new(fb_writer),
+            Box::new(hardware::keyboard::KeyboardInput::new()),
+        );
+    } else {
+        warn!("Framebuffer is absent, falling back to serial logging");
+    }
 
     info!("Initialising interrupts");
     interrupts::init_idt();

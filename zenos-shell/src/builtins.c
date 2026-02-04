@@ -6,6 +6,14 @@
 #include <stdio.h>
 #include <unistd.h>
 
+/* ANSI color codes */
+#define RESET       "\x1b[0m"
+#define BOLD        "\x1b[1m"
+#define FG_CYAN     "\x1b[36m"
+#define FG_GREEN    "\x1b[32m"
+#define FG_YELLOW   "\x1b[33m"
+#define FG_WHITE    "\x1b[37m"
+
 void cmd_echo(int argc, char *argv[]) {
     for (int i = 1; i < argc; i++) {
         if (i > 1) printf(" ");
@@ -17,12 +25,12 @@ void cmd_echo(int argc, char *argv[]) {
 void cmd_help(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
-    printf("Zenos Shell - Built-in Commands:\n");
-    printf("  echo <args>  - Print arguments\n");
-    printf("  help         - Show this help\n");
-    printf("  clear        - Clear screen\n");
-    printf("  version      - Show shell version\n");
-    printf("  exit         - Exit the shell\n");
+    printf(BOLD FG_CYAN "Zenos Shell - Built-in Commands:" RESET "\n");
+    printf(FG_GREEN "  echo " FG_WHITE "<args>  " RESET "- Print arguments\n");
+    printf(FG_GREEN "  help         " RESET "- Show this help\n");
+    printf(FG_GREEN "  clear        " RESET "- Clear screen\n");
+    printf(FG_GREEN "  version      " RESET "- Show shell version\n");
+    printf(FG_GREEN "  exit         " RESET "- Exit the shell\n");
 }
 
 void cmd_clear(int argc, char *argv[]) {
@@ -34,13 +42,13 @@ void cmd_clear(int argc, char *argv[]) {
 void cmd_version(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
-    printf("Zenos Shell version 0.1.0\n");
+    printf(FG_CYAN "Zenos Shell version " BOLD "0.1.0" RESET "\n");
 }
 
 void cmd_exit(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
-    printf("Goodbye!\n");
+    printf(FG_YELLOW "Goodbye!" RESET "\n");
     exit(0);
 }
 
@@ -49,7 +57,7 @@ void cmd_getpid(int argc, char *argv[]) {
     (void)argv;
     pid_t pid = getpid();
     pid_t ppid = getppid();
-    printf("zenos shell running as pid %d, parent pid %d", pid, ppid);
-    if (ppid == 1) printf(" (init process)\n");
+    printf(FG_CYAN "zenos shell running as pid " BOLD "%d" RESET FG_CYAN ", parent pid " BOLD "%d" RESET, pid, ppid);
+    if (ppid == 1) printf(FG_GREEN " (init process)" RESET "\n");
     else printf("\n");
 }

@@ -1,19 +1,46 @@
 use crate::disk::FileError;
 use crate::disk::vfs::{File, FileType, Metadata, SeekFrom};
-use crate::hardware::keyboard;
-use crate::kprint;
+use crate::process::block_current_process;
+use crate::tty;
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::any::Any;
 use core::fmt::Debug;
 use core::ops::Deref;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone)]
-pub struct Stdout;
+pub struct Stdout {
+    pid: u64,
+}
+
 #[derive(Clone)]
-pub struct Stderr;
+pub struct Stderr {
+    pid: u64,
+}
+
 #[derive(Clone)]
-pub struct Stdin;
+pub struct Stdin {
+    pid: u64,
+}
+
+impl Stdout {
+    pub fn new(pid: u64) -> Self {
+        Self { pid }
+    }
+}
+
+impl Stderr {
+    pub fn new(pid: u64) -> Self {
+        Self { pid }
+    }
+}
+
+impl Stdin {
+    pub fn new(pid: u64) -> Self {
+        Self { pid }
+    }
+}
 
 impl File for Stdout {
     fn read(&mut self, _buffer: &mut [u8]) -> Result<usize, FileError> {
@@ -21,8 +48,7 @@ impl File for Stdout {
     }
 
     fn write(&mut self, buffer: &[u8]) -> Result<usize, FileError> {
-        unsafe { kprint!("{}", core::str::from_utf8_unchecked(buffer)) };
-        Ok(buffer.len())
+        tty::tty_write(self.pid, buffer).map_err(|_| FileError::WriteError)
     }
 
     fn seek(&mut self, _position: SeekFrom) -> Result<u64, FileError> {
@@ -48,8 +74,7 @@ impl File for Stderr {
     }
 
     fn write(&mut self, buffer: &[u8]) -> Result<usize, FileError> {
-        unsafe { kprint!("{}", core::str::from_utf8_unchecked(buffer)) };
-        Ok(buffer.len())
+        tty::tty_write(self.pid, buffer).map_err(|_| FileError::WriteError)
     }
 
     fn seek(&mut self, _position: SeekFrom) -> Result<u64, FileError> {
@@ -69,10 +94,46 @@ impl File for Stderr {
     }
 }
 
+/// Global flag used to wake processes blocked on stdin when keyboard input arrives.
+/// The keyboard handler sets this to `false` when new input is available.
+pub static STDIN_BLOCKED: AtomicBool = AtomicBool::new(false);
+
 impl File for Stdin {
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, FileError> {
-        let n = keyboard::read_exact(buffer);
-        Ok(n)
+        // Block until we get at least one byte or a newline
+        let mut count = 0;
+
+        while count < buffer.len() {
+            STDIN_BLOCKED.store(true, Ordering::SeqCst);
+
+            // Try to read non-blocking first
+            let n = tty::tty_read_nonblocking(self.pid, &mut buffer[count..]);
+            if n.is_err() {
+                continue;
+            }
+
+            let n = n.unwrap();
+            if n > 0 {
+                // Check if we got a newline
+                for i in 0..n {
+                    if buffer[count + i] == b'\n' {
+                        STDIN_BLOCKED.store(false, Ordering::SeqCst);
+                        return Ok(count + i + 1);
+                    }
+                }
+                count += n;
+            } else {
+                // No data available, block and yield to scheduler
+                block_current_process(&STDIN_BLOCKED);
+                // Enable interrupts and halt - timer will context switch
+                unsafe {
+                    core::arch::asm!("sti; hlt", options(nomem, nostack));
+                }
+            }
+        }
+
+        STDIN_BLOCKED.store(false, Ordering::SeqCst);
+        Ok(count)
     }
 
     fn write(&mut self, _buffer: &[u8]) -> Result<usize, FileError> {
