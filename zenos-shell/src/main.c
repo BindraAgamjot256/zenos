@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
         if (nargs == 0) continue;
         
         if (!shell_exec_cmd(args[0], nargs, args)) {
-            printf(FG_RED "Unknown command: %s" RESET "\n", args[0]);
+            printf(FG_RED "Unknown command: %s, " RESET "\n", args[0]);
             printf(FG_YELLOW "Type 'help' for available commands" RESET "\n");
         }
     }

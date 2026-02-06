@@ -31,6 +31,7 @@ void cmd_help(int argc, char *argv[]) {
     printf(FG_GREEN "  clear        " RESET "- Clear screen\n");
     printf(FG_GREEN "  version      " RESET "- Show shell version\n");
     printf(FG_GREEN "  exit         " RESET "- Exit the shell\n");
+    printf(FG_GREEN "  getpid       " RESET "- Get the process id of the shell\n");
 }
 
 void cmd_clear(int argc, char *argv[]) {

@@ -59,8 +59,6 @@ pub mod interrupts;
 pub mod memory;
 mod pci;
 mod percpu;
-/// Primitive data structures
-pub mod primitives;
 pub mod process;
 /// Serial module for logging output
 pub mod serial;

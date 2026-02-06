@@ -107,21 +107,28 @@ impl File for Stdin {
             STDIN_BLOCKED.store(true, Ordering::SeqCst);
 
             // Try to read non-blocking first
-            let n = tty::tty_read_nonblocking(self.pid, &mut buffer[count..]);
+            let mut temp = [0u8; 1];
+            let n = tty::tty_read_nonblocking(self.pid, &mut temp);
             if n.is_err() {
                 continue;
             }
 
             let n = n.unwrap();
             if n > 0 {
-                // Check if we got a newline
-                for i in 0..n {
-                    if buffer[count + i] == b'\n' {
-                        STDIN_BLOCKED.store(false, Ordering::SeqCst);
-                        return Ok(count + i + 1);
+                let byte = temp[0];
+                if byte == b'\n' {
+                    buffer[count] = byte;
+                    STDIN_BLOCKED.store(false, Ordering::SeqCst);
+                    return Ok(count + 1);
+                } else if byte == b'\x08' {
+                    // Backspace: remove last character from buffer
+                    if count > 0 {
+                        count -= 1;
                     }
+                } else {
+                    buffer[count] = byte;
+                    count += 1;
                 }
-                count += n;
             } else {
                 // No data available, block and yield to scheduler
                 block_current_process(&STDIN_BLOCKED);

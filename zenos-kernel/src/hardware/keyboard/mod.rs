@@ -1,31 +1,30 @@
 use crate::kprint;
-use crate::primitives::RingBuf;
 use crate::process::block_current_process;
 use crate::process::file_handles::STDIN_BLOCKED;
 use crate::tty::TtyInputBackend;
+use alloc::collections::VecDeque;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::SeqCst;
 use log::trace;
 use pc_keyboard::{DecodedKey, HandleControl, KeyCode, Keyboard, ScancodeSet1, layouts};
 use spin::{Lazy, Mutex};
+use x86_64::instructions::interrupts::without_interrupts;
 
-const KEYBUF_SIZE: usize = 256;
-
-/// Keyboard input handler with a ring buffer for storing scancodes.
+/// Keyboard input handler with a VecDeque for storing scancodes.
 pub struct KeyboardInput {
     keyboard: Keyboard<layouts::Us104Key, ScancodeSet1>,
-    buffer: RingBuf<u8, KEYBUF_SIZE>,
+    buffer: VecDeque<u8>,
 }
 
 impl KeyboardInput {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             keyboard: Keyboard::new(
                 ScancodeSet1::new(),
                 layouts::Us104Key,
                 HandleControl::Ignore,
             ),
-            buffer: RingBuf::new(),
+            buffer: VecDeque::new(),
         }
     }
 
@@ -34,15 +33,17 @@ impl KeyboardInput {
         if let Ok(Some(key_event)) = self.keyboard.add_byte(scancode)
             && let Some(key) = self.keyboard.process_keyevent(key_event)
         {
-            match key {
-                DecodedKey::Unicode(character) => {
-                    kprint!("{}", character);
-                    self.buffer.push_back(character as u8);
-                    // Wake any process blocked on stdin
-                    STDIN_BLOCKED.store(false, SeqCst);
+            without_interrupts(|| {
+                match key {
+                    DecodedKey::Unicode(character) => {
+                        kprint!("{}", character);
+                        self.buffer.push_back(character as u8);
+                        // Wake any process blocked on stdin
+                        STDIN_BLOCKED.store(false, SeqCst);
+                    }
+                    DecodedKey::RawKey(key) => Self::raw_key_handler(key),
                 }
-                DecodedKey::RawKey(key) => Self::raw_key_handler(key),
-            }
+            })
         }
     }
 
@@ -67,7 +68,7 @@ impl KeyboardInput {
 
 impl TtyInputBackend for KeyboardInput {
     fn read_byte(&mut self) -> Option<u8> {
-        self.pop().map(|b| b)
+        self.pop()
     }
 }
 
