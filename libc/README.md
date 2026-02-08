@@ -438,43 +438,41 @@ Width and zero-padding supported: `%08x` → `0000002a`
 
 The library wraps these Zenos syscalls:
 
-| Number                      | Name         | Function                               |
-|-----------------------------|--------------|----------------------------------------|
-| 0                           | `read`       | Read from file descriptor              |
-| 1                           | `write`      | Write to file descriptor               |
-| 2                           | `open`       | Open a file                            |
-| 3                           | `close`      | Close a file descriptor                |
-| 4                           | `stat`       | Get file status                        |
-| 5                           | `fstat`      | Get file status by fd                  |
-| 6                           | `lstat`      | Get file status (no symlink follow)    |
-| 8                           | `lseek`      | Seek in a file                         |
-| 21                          | `access`     | Check file accessibility               |
-| 22                          | `pipe`       | Create pipe                            |
-| 32                          | `dup`        | Duplicate file descriptor              |
-| 33                          | `dup2`       | Duplicate to specific fd               |
-| 34                          | `pause`      | Wait for signal                        |
-| 39                          | `getpid`     | Get process ID                         |
-| 57                          | `fork`       | Create child process                   |
-| 59                          | `execve`     | Execute a program                      |
-| 60                          | `exit`       | Terminate process                      |
-| 61                          | `waitpid`    | Wait for child                         |
-| --------------------------- | ------------ | -------------------------------------  |
-| THE FOLLOWING ARE ALL STUBS | ------------ | -------------------------------------- |
-| 72                          | `fcntl`      | File control                           |
-| 79                          | `getcwd`     | Get current directory                  |
-| 80                          | `chdir`      | Change directory                       |
-| 83                          | `mkdir`      | Create directory                       |
-| 84                          | `rmdir`      | Remove directory                       |
-| 87                          | `unlink`     | Delete file                            |
-| 90                          | `chmod`      | Change file mode                       |
-| 92                          | `chown`      | Change file owner                      |
-| 102                         | `getuid`     | Get user ID                            |
-| 104                         | `getgid`     | Get group ID                           |
-| 110                         | `getppid`    | Get parent PID                         |
-| 257                         | `openat`     | Open relative to dir fd                |
-| 258                         | `mkdirat`    | Create dir relative to fd              |
-| 263                         | `unlinkat`   | Delete relative to fd                  |
-| 264                         | `renameat`   | Rename relative to fd                  |
+| Number                      | Name         | Status      | Function                               |
+|-----------------------------|--------------|-------------|----------------------------------------|
+| 0                           | `read`       | Implemented | Read from file descriptor              |
+| 1                           | `write`      | Implemented | Write to file descriptor               |
+| 2                           | `open`       | Implemented | Open a file                            |
+| 3                           | `close`      | Implemented | Close a file descriptor                |
+| 4                           | `stat`       | Stub        | Get file status                        |
+| 5                           | `fstat`      | Stub        | Get file status by fd                  |
+| 6                           | `lstat`      | Stub        | Get file status (no symlink follow)    |
+| 8                           | `lseek`      | Implemented | Seek in a file                         |
+| 21                          | `access`     | Stub        | Check file accessibility               |
+| 22                          | `pipe`       | Stub        | Create pipe                            |
+| 32                          | `dup`        | Stub        | Duplicate file descriptor              |
+| 33                          | `dup2`       | Stub        | Duplicate to specific fd               |
+| 34                          | `pause`      | Stub        | Wait for signal                        |
+| 39                          | `getpid`     | Implemented | Get process ID                         |
+| 57                          | `fork`       | Implemented | Create child process                   |
+| 59                          | `execve`     | Implemented | Execute a program                      |
+| 60                          | `exit`       | Implemented | Terminate process                      |
+| 61                          | `waitpid`    | Implemented | Wait for child                         |
+| 72                          | `fcntl`      | Stub        | File control                           |
+| 79                          | `getcwd`     | Stub        | Get current directory                  |
+| 80                          | `chdir`      | Stub        | Change directory                       |
+| 83                          | `mkdir`      | Stub        | Create directory                       |
+| 84                          | `rmdir`      | Stub        | Remove directory                       |
+| 87                          | `unlink`     | Stub        | Delete file                            |
+| 90                          | `chmod`      | Stub        | Change file mode                       |
+| 92                          | `chown`      | Stub        | Change file owner                      |
+| 102                         | `getuid`     | Stub        | Get user ID                            |
+| 104                         | `getgid`     | Stub        | Get group ID                           |
+| 110                         | `getppid`    | Implemented | Get parent PID                         |
+| 257                         | `openat`     | Stub        | Open relative to dir fd                |
+| 258                         | `mkdirat`    | Stub        | Create dir relative to fd              |
+| 263                         | `unlinkat`   | Stub        | Delete relative to fd                  |
+| 264                         | `renameat`   | Stub        | Rename relative to fd                  |
 
 ---
 
@@ -522,7 +520,7 @@ libc/
 │       └── wait.h        # Wait macros
 └── src/
     ├── crt0.asm          # Entry point (_start → __libc_init → main)
-    ├── crt1.c            # Runtime init (environ, getenv)
+    ├── crt1.c            # Runtime init (environ, getenv, later heap also)
     ├── errno.c           # errno variable
     ├── fcntl.c           # File operations
     ├── math.c            # Math implementations

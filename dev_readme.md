@@ -63,17 +63,19 @@ We use the `syscall` ~~`int 0x80`~~ instruction because software interrupts are 
 
 **Current syscall numbers** (Linux-compatible where possible):
 
-| #  | Name   | What it does               |
-|----|--------|----------------------------|
-| 0  | read   | Read from fd               |
-| 1  | write  | Write to fd                |
-| 2  | open   | Open a file                |
-| 3  | close  | Close fd                   |
-| 8  | lseek  | Seek in file               |
-| 57 | fork   | Create child process       |
-| 59 | execve | Replace process            |
-| 60 | exit   | Die gracefully             |
-| 61 | wait   | Wait for child (hopefully) |
+| #   | Name    | What it does               |
+|-----|---------|----------------------------|
+| 0   | read    | Read from fd               |
+| 1   | write   | Write to fd                |
+| 2   | open    | Open a file                |
+| 3   | close   | Close fd                   |
+| 8   | lseek   | Seek in file               |
+| 39  | getpid  | Get process ID             |
+| 57  | fork    | Create child process       |
+| 59  | execve  | Replace process            |
+| 60  | exit    | Die gracefully             |
+| 61  | wait    | Wait for child (hopefully) |
+| 110 | getppid | Get parent process ID      |
 
 ### Build System - A Beautiful Disaster
 
@@ -180,7 +182,8 @@ The main event. Contains:
 - `memory/`: Both allocators and all the pain they bring
 - `process/`: The scheduler that decides who lives and who dies (CPU time-wise)
 - `syscall/`: The gateway drug to kernel mode
-- `fs/`: A file system that barely qualifies as a system ~~cough cough fat only cough cough~~
+- `disk/`: VFS, FAT filesystem, and procfs (yes, we have /proc now!)
+- `tty/`: TTY subsystem with full ANSI escape sequence support and 256-color palette
 - `framebuffer/`: Graphics because serial output is for peasants
 - `interrupts/`: GDT and IDT setup (dragons be here)
 - `hardware/`: ACPI parsing, PCI enumeration, and hardware abstraction
@@ -193,6 +196,32 @@ Our custom bootloader because apparently I hate myself:
 - `api/`: Interface between bootloader and kernel
 - `common/`: Shared code that both sides need
 - `uefi/`: UEFI-specific implementation details
+
+### zenos-shell/
+
+An actual interactive shell! Contains:
+
+- `main.c`: Shell entry point with ANSI color prompt
+- `builtins.c`: Built-in commands (echo, help, clear, version, exit, getpid)
+- `input.c`: Line reading and input handling
+- `commands.c`: Command execution logic
+
+Build with `cd zenos-shell && make`.
+
+### zenos-stress-tests/
+
+Stress tests for the kernel. Contains:
+
+- `fork_storm.c`: Fork bomb to test process limits
+- `fs_concurrent.c`: Concurrent filesystem access
+- `mem_exhaust.c`: Memory exhaustion testing
+- `orphan_zombie.c`: Orphan and zombie process handling
+- `rapid_spawn.c`: Rapid process spawning
+- `sched_fairness.c`: Scheduler fairness testing
+
+### zenos-fuzz/
+
+Fuzzing infrastructure for finding bugs in kernel subsystems.
 
 ### libc/
 
@@ -273,10 +302,15 @@ This is not a performance-focused OS. It's a learning project. That said:
 
 Things I might implement if I ever finish what I started:
 
+- Inode based VFS (because i want to cosplay as Unix)
+- A real file system (FAT is just a placeholder)
+- Pipes and IPC (because processes should talk to each other, even if they shouldn't)
+- A shell that does more than just print "Hello, world!" (maybe a REPL for testing syscalls?)
+- Every single syscall in Linux (because why not)
+- A real scheduler with priorities and maybe even a multilevel feedback queue (Copilot said so, i have no clue what it means)
 - Network stack (serial is good enough for now)
 - SMP support (single-core is simpler)
 - Real hardware support (QEMU is our friend)
-- An actual testing method (lol maybe)...
 
 ## Final Notes
 

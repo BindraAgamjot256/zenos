@@ -14,12 +14,14 @@ zero-cost abstractions. The project includes a custom UEFI bootloader, kernel, a
 
 - **Memory Management**: Custom page and slab allocators with O(1) allocation
 - **Process Management**: Process isolation with Ring 3 userspace execution
-- **File System**: Virtual file system with support for file handles and standard I/O
-- **System Calls**: Standardized syscall interface for user-space interaction
+- **Virtual File System**: Unified VFS with mount point support, FAT filesystem, and procfs
+- **TTY Subsystem**: Full ANSI escape sequence support with 256-color palette
+- **System Calls**: Linux-compatible syscall interface (read, write, open, close, fork, exec, etc.)
+- **Shell**: Interactive shell with built-in commands (echo, help, clear, version, exit)
 - **Graphics**: Framebuffer-based graphics output using embedded-graphics
-- **Hardware Support**: ACPI parsing, APIC initialization, PCI enumeration, and UART serial I/O
+- **Hardware Support**: ACPI parsing, APIC initialization, PCI enumeration, AHCI, and UART serial I/O
 - **C Library**: Minimal freestanding libc for userspace C programs
-- **Testing**: Comprehensive test suite that runs in QEMU
+- **Testing**: Comprehensive test suite and stress tests that run in QEMU
 - **Modular Design**: Clean separation between bootloader, kernel, and userspace components
 
 ## Quick Start
@@ -85,14 +87,18 @@ zenos/
 │       ├── memory/         # Memory management subsystem
 │       ├── process/        # Process scheduler and isolation
 │       ├── syscall/        # System call handlers
-│       ├── fs/             # Virtual file system
+│       ├── disk/           # VFS, FAT filesystem, and procfs
+│       ├── tty/            # TTY subsystem with ANSI support
 │       ├── framebuffer/    # Graphics output
 │       ├── interrupts/     # Interrupt handling
-│       └── hardware/       # Hardware abstraction
+│       └── hardware/       # Hardware abstraction (keyboard, AHCI)
 ├── zenos-bootloader/       # Custom UEFI bootloader
 │   ├── api/               # Bootloader API
 │   ├── common/            # Shared utilities
 │   └── uefi/              # UEFI implementation
+├── zenos-shell/            # Interactive userspace shell
+├── zenos-fuzz/             # Fuzzing infrastructure
+├── zenos-stress-tests/     # Stress testing suite
 ├── libc/                   # Minimal C standard library for userspace
 │   ├── include/           # Header files (stdio.h, string.h, etc.)
 │   └── src/               # Implementation (printf, syscalls, math, etc.)
@@ -122,6 +128,12 @@ zenos/
 - **Scheduling**: Basic round-robin scheduler for concurrent execution
 - **IPC**: System call interface for kernel services
 
+### Virtual File System
+
+- **Unified Interface**: Mount-based VFS with longest-prefix path matching
+- **FAT Support**: FAT12/FAT16/FAT32 filesystem driver
+- **Procfs**: Linux-compatible `/proc` filesystem with cpuinfo, meminfo, uptime, and per-process info
+
 ### Userspace (libc)
 
 The `libc/` directory contains a minimal C standard library for writing userspace programs:
@@ -140,8 +152,10 @@ See [libc/README.md](libc/README.md) for details.
 - **UEFI Bootloader**: Custom bootloader supporting modern UEFI systems
 - **ACPI Integration**: Hardware discovery through ACPI table parsing
 - **PCI Support**: Device enumeration and configuration
+- **AHCI Driver**: SATA disk access for FAT filesystem
 - **Serial Output**: UART-based debugging and logging
-- **Framebuffer Graphics**: Basic graphics output for visual feedback
+- **Keyboard Input**: PS/2 keyboard driver with input buffering
+- **Framebuffer Graphics**: TTY with ANSI escape sequences and 256-color support
 
 ## Development
 
