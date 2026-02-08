@@ -1,6 +1,10 @@
 use crate::serial_print;
 use core::fmt::Debug;
 #[cfg(feature = "run-kunittest")]
+use crate::disk::fs::proc::TICK_COUNT;
+#[cfg(feature = "run-kunittest")]
+use core::sync::atomic::Ordering;
+#[cfg(feature = "run-kunittest")]
 use spin::Lazy;
 
 #[macro_export]
@@ -113,20 +117,39 @@ unsafe fn build_test_table() -> [Option<Test>; 256] {
 
 impl Testable for Test {
     fn run(&self) -> Result<(), ()> {
-        const WIDTH: usize = 70; // total width before the result
-        serial_print!("{:w$}", self.name, w = WIDTH);
+        serial_print!("test {} ... ", self.name);
+
+        // Get start time in ticks (10ms per tick)
+        #[cfg(feature = "run-kunittest")]
+        let start_ticks = TICK_COUNT.load(Ordering::Relaxed);
 
         // Run the test
         let err = { (self.handler)() };
+
+        // Calculate elapsed time
+        #[cfg(feature = "run-kunittest")]
+        let elapsed_ticks = TICK_COUNT.load(Ordering::Relaxed) - start_ticks;
+        #[cfg(feature = "run-kunittest")]
+        let elapsed_ms = elapsed_ticks * 10;
+
         if err.is_none() {
             if self.name.contains("should_fail") {
-                serial_print!("\x1b[1;92mOK\x1b[0m\n");
+                #[cfg(feature = "run-kunittest")]
+                serial_print!("\x1b[1;92mok\x1b[0m ({}ms)\n", elapsed_ms);
+                #[cfg(not(feature = "run-kunittest"))]
+                serial_print!("\x1b[1;92mok\x1b[0m\n");
                 return Ok(());
             }
+            #[cfg(feature = "run-kunittest")]
+            serial_print!("\x1b[1;91mFAILED\x1b[0m ({}ms)\n", elapsed_ms);
+            #[cfg(not(feature = "run-kunittest"))]
             serial_print!("\x1b[1;91mFAILED\x1b[0m\n");
             return Err(());
         }
-        serial_print!("\x1b[1;92mOK\x1b[0m\n");
+        #[cfg(feature = "run-kunittest")]
+        serial_print!("\x1b[1;92mok\x1b[0m ({}ms)\n", elapsed_ms);
+        #[cfg(not(feature = "run-kunittest"))]
+        serial_print!("\x1b[1;92mok\x1b[0m\n");
         Ok(())
     }
 }
