@@ -1,6 +1,6 @@
 #pragma once
-#include <stdint.h>
-#include <sys/types.h>
+#include "stdint.h"
+#include "sys/types.h"
 
 /* The bitmask type */
 typedef uint64_t FileOpenOptions;

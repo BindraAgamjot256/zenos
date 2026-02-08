@@ -146,6 +146,7 @@ void _exit(int status) {
 }
 
 void exit(int status) {
+    /*todo: cleanup*/
     _exit(status);
 }
 

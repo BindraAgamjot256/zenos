@@ -51,9 +51,9 @@ NASMFLAGS := -f elf64
 
 # Add optimization unless DEBUG is set
 ifndef DEBUG
-CFLAGS += -O2
+CFLAGS += -O3
 else
-CFLAGS += -O0 -g
+CFLAGS += -O2 -g
 NASMFLAGS += -g -F dwarf
 endif
 
