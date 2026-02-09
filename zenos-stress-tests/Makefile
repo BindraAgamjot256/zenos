@@ -15,7 +15,6 @@ SOURCES := fork_storm.c \
            sched_fairness.c \
            mem_exhaust.c \
            orphan_zombie.c \
-           fs_concurrent.c \
            ansi_colors.c
 
 # Derive targets from sources

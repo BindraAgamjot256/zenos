@@ -35,15 +35,17 @@
 //! - Process information is read from the global [`PROCESSES`](crate::process::PROCESSES) table
 
 use crate::disk::FileError;
-use crate::disk::vfs::{DirEntry, Directory, File, FileSystem, FileType, Metadata, SeekFrom};
+use crate::disk::vfs::{DirEntry, FileSystem, FileType, Inode, InodeOps, Permissions};
 use crate::memory;
-use crate::process::{PROCESSES, current_pid};
+use crate::process::{PROCESSES, SCHEDULER};
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::{format, vec};
 use core::arch::x86_64::__cpuid;
 use core::sync::atomic::{AtomicU64, Ordering};
+use spin::Mutex;
 
 /// Global tick counter incremented by the timer interrupt (10ms per tick)
 pub static TICK_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -62,92 +64,147 @@ pub fn uptime_secs() -> u64 {
 pub struct ProcFs;
 
 impl FileSystem for ProcFs {
-    fn root_dir(&self) -> Result<Box<dyn Directory>, FileError> {
-        Ok(Box::new(ProcRootDir))
+    fn root_dir(&self) -> Result<Arc<Mutex<Inode>>, FileError> {
+        Ok(Arc::new(Mutex::new(Inode {
+            num: 0,
+            kind: FileType::Directory,
+            size: AtomicU64::new(0),
+            perms: (Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ),
+            links: AtomicU64::new(1),
+            data: Box::new(ProcRootDir),
+        })))
     }
 }
 
 /// Root directory of /proc
 struct ProcRootDir;
 
-impl Directory for ProcRootDir {
-    fn open_file(&mut self, name: &str) -> Result<Box<dyn File>, FileError> {
+impl InodeOps for ProcRootDir {
+    fn read(&mut self, _offset: u64, _buf: &mut [u8]) -> Result<usize, FileError> {
+        Err(FileError::IsADirectory)
+    }
+
+    fn write(&mut self, _offset: u64, _buf: &[u8]) -> Result<usize, FileError> {
+        Err(FileError::IsADirectory)
+    }
+
+    fn truncate(&mut self, _size: u64) -> Result<(), FileError> {
+        Err(FileError::IsADirectory)
+    }
+
+    fn sync(&mut self) -> Result<(), FileError> {
+        Err(FileError::IsADirectory)
+    }
+
+    fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
         match name {
-            "cpuinfo" => Ok(Box::new(ProcFile::new(ProcFileType::CpuInfo))),
-            "meminfo" => Ok(Box::new(ProcFile::new(ProcFileType::MemInfo))),
-            "version" => Ok(Box::new(ProcFile::new(ProcFileType::Version))),
-            "uptime" => Ok(Box::new(ProcFile::new(ProcFileType::Uptime))),
-            "self" => {
-                // /proc/self is a special case - redirect to current process's stat
-                let pid = current_pid();
-                Ok(Box::new(ProcFile::new(ProcFileType::ProcessStat(pid))))
+            "cpuinfo" => Ok(Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::File,
+                size: AtomicU64::new(0),
+                perms: (Permissions::OWNER_READ
+                    | Permissions::GROUP_READ
+                    | Permissions::OTHER_READ),
+                links: AtomicU64::new(1),
+                data: Box::new(ProcFile::new(ProcFileType::CpuInfo)),
+            }))),
+            "meminfo" => Ok(Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::File,
+                size: AtomicU64::new(0),
+                perms: (Permissions::OWNER_READ
+                    | Permissions::GROUP_READ
+                    | Permissions::OTHER_READ),
+                links: AtomicU64::new(1),
+                data: Box::new(ProcFile::new(ProcFileType::MemInfo)),
+            }))),
+            "version" => Ok(Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::File,
+                size: AtomicU64::new(0),
+                perms: (Permissions::OWNER_READ
+                    | Permissions::GROUP_READ
+                    | Permissions::OTHER_READ),
+                links: AtomicU64::new(1),
+                data: Box::new(ProcFile::new(ProcFileType::Version)),
+            }))),
+            "uptime" => Ok(Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::File,
+                size: AtomicU64::new(0),
+                perms: (Permissions::OWNER_READ
+                    | Permissions::GROUP_READ
+                    | Permissions::OTHER_READ),
+                links: AtomicU64::new(1),
+                data: Box::new(ProcFile::new(ProcFileType::Uptime)),
+            }))),
+            "self" => Ok(Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::Directory,
+                size: AtomicU64::new(0),
+                perms: (Permissions::OWNER_READ
+                    | Permissions::OWNER_EXEC
+                    | Permissions::GROUP_READ
+                    | Permissions::GROUP_EXEC
+                    | Permissions::OTHER_READ
+                    | Permissions::OTHER_EXEC),
+                links: AtomicU64::new(1),
+                data: Box::new(ProcessDir {
+                    pid: SCHEDULER.lock().current_pid().unwrap(),
+                }),
+            }))),
+
+            _ => {
+                if name.parse::<u64>().is_ok() {
+                    let pid = name.parse::<u64>().unwrap();
+                    Ok(Arc::new(Mutex::new(Inode {
+                        num: 0,
+                        kind: FileType::Directory,
+                        size: AtomicU64::new(0),
+                        perms: (Permissions::OWNER_READ
+                            | Permissions::OWNER_EXEC
+                            | Permissions::GROUP_READ
+                            | Permissions::GROUP_EXEC
+                            | Permissions::OTHER_READ
+                            | Permissions::OTHER_EXEC),
+                        links: AtomicU64::new(1),
+                        data: Box::new(ProcessDir { pid }),
+                    })))
+                } else {
+                    Err(FileError::NotFound)
+                }
             }
-            _ => Err(FileError::NotFound),
         }
     }
 
-    fn create_file(&mut self, _name: &str) -> Result<Box<dyn File>, FileError> {
-        Err(FileError::UnsupportedOperation)
-    }
-
-    fn open_dir(&mut self, name: &str) -> Result<Box<dyn Directory>, FileError> {
-        // Handle "self" as symlink to current process
-        if name == "self" {
-            let pid = current_pid();
-            return Ok(Box::new(ProcessDir { pid }));
-        }
-
-        // Try to parse as PID
-        if let Ok(pid) = name.parse::<u64>() {
-            let procs = PROCESSES.lock();
-            if procs.iter().any(|p| p.pid == pid) {
-                return Ok(Box::new(ProcessDir { pid }));
-            }
-        }
-        Err(FileError::NotFound)
-    }
-
-    fn create_dir(&mut self, _name: &str) -> Result<Box<dyn Directory>, FileError> {
-        Err(FileError::UnsupportedOperation)
-    }
-
-    fn remove(&mut self, _name: &str) -> Result<(), FileError> {
+    fn create(
+        &mut self,
+        _name: &str,
+        _kind: FileType,
+        _perms: Permissions,
+    ) -> Result<Arc<Mutex<Inode>>, FileError> {
         Err(FileError::UnsupportedOperation)
     }
 
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
-        let mut entries = Vec::new();
-
-        // Static entries
-        for name in &["cpuinfo", "meminfo", "version", "uptime", "self"] {
-            entries.push(DirEntry {
-                name: String::from(*name),
-                metadata: Metadata {
-                    size: 0,
-                    ftype: FileType::File,
-                    created: 0,
-                    modified: 0,
-                    accessed: 0,
-                },
-            });
-        }
-
-        // Process directories
-        let procs = PROCESSES.lock();
-        for proc in procs.iter() {
-            entries.push(DirEntry {
-                name: format!("{}", proc.pid),
-                metadata: Metadata {
-                    size: 0,
-                    ftype: FileType::Directory,
-                    created: 0,
-                    modified: 0,
-                    accessed: 0,
-                },
-            });
-        }
-
-        Ok(entries)
+        Ok(vec![
+            DirEntry {
+                name: "cpuinfo".to_string(),
+                inode: self.lookup("cpuinfo")?,
+            },
+            DirEntry {
+                name: "meminfo".to_string(),
+                inode: self.lookup("meminfo")?,
+            },
+            DirEntry {
+                name: "version".to_string(),
+                inode: self.lookup("version")?,
+            },
+            DirEntry {
+                name: "uptime".to_string(),
+                inode: self.lookup("uptime")?,
+            },
+        ])
     }
 }
 
@@ -156,67 +213,78 @@ struct ProcessDir {
     pid: u64,
 }
 
-impl Directory for ProcessDir {
-    fn open_file(&mut self, name: &str) -> Result<Box<dyn File>, FileError> {
+impl InodeOps for ProcessDir {
+    fn read(&mut self, _offset: u64, _buf: &mut [u8]) -> Result<usize, FileError> {
+        Err(FileError::IsADirectory)
+    }
+
+    fn write(&mut self, _offset: u64, _buf: &[u8]) -> Result<usize, FileError> {
+        Err(FileError::IsADirectory)
+    }
+
+    fn truncate(&mut self, _size: u64) -> Result<(), FileError> {
+        Err(FileError::IsADirectory)
+    }
+
+    fn sync(&mut self) -> Result<(), FileError> {
+        Err(FileError::IsADirectory)
+    }
+    fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
         match name {
-            "stat" => Ok(Box::new(ProcFile::new(ProcFileType::ProcessStat(self.pid)))),
-            "status" => Ok(Box::new(ProcFile::new(ProcFileType::ProcessStatus(
-                self.pid,
-            )))),
-            "cmdline" => Ok(Box::new(ProcFile::new(ProcFileType::ProcessCmdline(
-                self.pid,
-            )))),
+            "stat" => Ok(Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::File,
+                size: AtomicU64::new(0),
+                perms: (Permissions::OWNER_READ
+                    | Permissions::GROUP_READ
+                    | Permissions::OTHER_READ),
+                links: AtomicU64::new(1),
+                data: Box::new(ProcFile::new(ProcFileType::ProcessStat(self.pid))),
+            }))),
+            "status" => Ok(Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::File,
+                size: AtomicU64::new(0),
+                perms: (Permissions::OWNER_READ
+                    | Permissions::GROUP_READ
+                    | Permissions::OTHER_READ),
+                links: AtomicU64::new(1),
+                data: Box::new(ProcFile::new(ProcFileType::ProcessStatus(self.pid))),
+            }))),
+            "cmdline" => Ok(Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::File,
+                size: AtomicU64::new(0),
+                perms: (Permissions::OWNER_READ
+                    | Permissions::GROUP_READ
+                    | Permissions::OTHER_READ),
+                links: AtomicU64::new(1),
+                data: Box::new(ProcFile::new(ProcFileType::ProcessCmdline(self.pid))),
+            }))),
             _ => Err(FileError::NotFound),
         }
     }
-
-    fn create_file(&mut self, _name: &str) -> Result<Box<dyn File>, FileError> {
+    fn create(
+        &mut self,
+        _name: &str,
+        _kind: FileType,
+        _perms: Permissions,
+    ) -> Result<Arc<Mutex<Inode>>, FileError> {
         Err(FileError::UnsupportedOperation)
     }
-
-    fn open_dir(&mut self, _name: &str) -> Result<Box<dyn Directory>, FileError> {
-        Err(FileError::NotFound)
-    }
-
-    fn create_dir(&mut self, _name: &str) -> Result<Box<dyn Directory>, FileError> {
-        Err(FileError::UnsupportedOperation)
-    }
-
-    fn remove(&mut self, _name: &str) -> Result<(), FileError> {
-        Err(FileError::UnsupportedOperation)
-    }
-
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
         Ok(vec![
             DirEntry {
-                name: String::from("stat"),
-                metadata: Metadata {
-                    size: 0,
-                    ftype: FileType::File,
-                    created: 0,
-                    modified: 0,
-                    accessed: 0,
-                },
+                name: "stat".to_string(),
+                inode: self.lookup("stat")?,
             },
             DirEntry {
-                name: String::from("status"),
-                metadata: Metadata {
-                    size: 0,
-                    ftype: FileType::File,
-                    created: 0,
-                    modified: 0,
-                    accessed: 0,
-                },
+                name: "status".to_string(),
+                inode: self.lookup("status")?,
             },
             DirEntry {
-                name: String::from("cmdline"),
-                metadata: Metadata {
-                    size: 0,
-                    ftype: FileType::File,
-                    created: 0,
-                    modified: 0,
-                    accessed: 0,
-                },
+                name: "cmdline".to_string(),
+                inode: self.lookup("cmdline")?,
             },
         ])
     }
@@ -238,7 +306,6 @@ enum ProcFileType {
 struct ProcFile {
     file_type: ProcFileType,
     content: Vec<u8>,
-    position: u64,
     generated: bool,
 }
 
@@ -247,7 +314,6 @@ impl ProcFile {
         Self {
             file_type,
             content: Vec::new(),
-            position: 0,
             generated: false,
         }
     }
@@ -271,56 +337,44 @@ impl ProcFile {
     }
 }
 
-impl File for ProcFile {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, FileError> {
+impl InodeOps for ProcFile {
+    fn read(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, FileError> {
         self.generate_content();
-
-        let pos = self.position as usize;
-        if pos >= self.content.len() {
+        let content_len = self.content.len() as u64;
+        if offset >= content_len {
             return Ok(0);
         }
-
-        let remaining = &self.content[pos..];
-        let to_read = buf.len().min(remaining.len());
-        buf[..to_read].copy_from_slice(&remaining[..to_read]);
-        self.position += to_read as u64;
+        let to_read = core::cmp::min(buf.len() as u64, content_len - offset) as usize;
+        buf[..to_read].copy_from_slice(&self.content[offset as usize..(offset as usize + to_read)]);
         Ok(to_read)
     }
 
-    fn write(&mut self, _buf: &[u8]) -> Result<usize, FileError> {
+    fn write(&mut self, _offset: u64, _buf: &[u8]) -> Result<usize, FileError> {
         Err(FileError::UnsupportedOperation)
     }
 
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, FileError> {
-        self.generate_content();
-
-        let len = self.content.len() as i64;
-        let new_pos = match pos {
-            SeekFrom::Start(offset) => offset as i64,
-            SeekFrom::End(offset) => len + offset,
-            SeekFrom::Current(offset) => self.position as i64 + offset,
-        };
-
-        if new_pos < 0 {
-            return Err(FileError::SeekError);
-        }
-
-        self.position = new_pos as u64;
-        Ok(self.position)
+    fn truncate(&mut self, _size: u64) -> Result<(), FileError> {
+        Err(FileError::UnsupportedOperation)
     }
 
-    fn flush(&mut self) -> Result<(), FileError> {
+    fn sync(&mut self) -> Result<(), FileError> {
         Ok(())
     }
 
-    fn metadata(&self) -> Result<Metadata, FileError> {
-        Ok(Metadata {
-            size: 0, // Virtual files have dynamic size
-            ftype: FileType::File,
-            created: 0,
-            modified: 0,
-            accessed: 0,
-        })
+    fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
+        Err(FileError::NotADirectory)
+    }
+
+    fn create(
+        &mut self,
+        _name: &str,
+        _kind: FileType,
+        _perms: Permissions,
+    ) -> Result<Arc<Mutex<Inode>>, FileError> {
+        Err(FileError::NotADirectory)
+    }
+    fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
+        Err(FileError::NotADirectory)
     }
 }
 

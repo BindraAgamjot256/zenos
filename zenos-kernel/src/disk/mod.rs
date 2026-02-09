@@ -97,21 +97,19 @@ pub mod fs;
 pub mod vfs;
 
 use crate::disk::block::BlockDeviceDriver;
-use crate::disk::vfs::{File, SeekFrom, VFS};
+use crate::disk::vfs::{Inode, VFS};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 use block::ahci::{AhciBlockDevice, init};
+use core::sync::atomic::Ordering;
 use fs::fat::FatFileSystem;
-use log::error;
 use spin::{Lazy, Mutex};
 
 #[derive(Debug, Clone)]
 pub enum FileError {
     /// Operation is not supported for the requested file or handle.
     UnsupportedOperation,
-    /// The requested file/handle/path is invalid or not open.
-    InvalidDescriptor,
     /// A read failed at the block device or filesystem level.
     ReadError,
     /// A write failed at the block device or filesystem level.
@@ -124,8 +122,12 @@ pub enum FileError {
     NotFound,
     /// File or directory already exists.
     AlreadyExists,
-    /// Directory is not empty.
-    DirectoryNotEmpty,
+    /// Attempted to read/write a directory as a file.
+    NotADirectory,
+    /// Attempted to perform a directory only operation on a file.
+    IsADirectory,
+    /// Operation not permitted due to insufficient permissions.
+    PermissionDenied,
     /// Generic error with a message.
     Other(String),
 }
@@ -146,14 +148,7 @@ pub static FS: Lazy<Mutex<VFS>> = Lazy::new(|| {
     Mutex::new(vfs)
 });
 
-pub(crate) fn get_len(file: &mut dyn File) -> Result<u64, ()> {
-    let current_pos = file.seek(SeekFrom::Current(0)).map_err(|e| {
-        error!("Failed to get stream position: {:?}", e);
-    })?;
-    let end = file
-        .seek(SeekFrom::End(0))
-        .map_err(|e| error!("Seek failed: {:?}", e))?;
-    file.seek(SeekFrom::Start(current_pos))
-        .map_err(|e| error!("Seek restore failed: {:?}", e))?;
-    Ok(end)
+#[allow(dead_code)]
+pub(crate) fn get_len(file: &mut Arc<Inode>) -> Result<u64, ()> {
+    Ok(file.size.load(Ordering::SeqCst))
 }

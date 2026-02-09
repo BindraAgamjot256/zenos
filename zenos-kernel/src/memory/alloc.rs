@@ -27,7 +27,7 @@ macro_rules! meta_ptr_from_user {
 
 // ====== Config ======
 const PAGE_SIZE: usize = super::constants::PAGE_4K;
-const MAX_SLAB_PAGES: usize = 10; // 40 KiB per slab.
+const MAX_SLAB_PAGES: usize = 15; // 40 KiB per slab.
 const SLAB_SIZE_CLASSES: [usize; 10] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
 const MAX_SLABS: usize = 32; // Limit total slabs to prevent heapless::Vec overflow
 
@@ -324,7 +324,7 @@ impl SlabAllocator {
         }
 
         if self.slabs.push(Mutex::new(new_slab)).is_err() {
-            error!("Slab list full, cannot track new slab. Leaking memory to prevent corruption.");
+            panic!("Slab list full, cannot track new slab. Leaking memory to prevent corruption.");
             // Panic or failure strategy here. Since we can't track it, we can't free it later.
             // We return the pointer because the memory IS allocated, but this is a critical state.
         }

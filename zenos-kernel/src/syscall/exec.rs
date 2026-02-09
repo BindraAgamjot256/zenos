@@ -1,17 +1,19 @@
-use crate::disk::vfs::File;
-use crate::disk::{FS, get_len};
+use crate::disk::FS;
+use crate::disk::vfs::{Inode, Permissions};
 use crate::process;
 use crate::process::PROCESSES;
 use crate::syscall::copy_from_user;
 use crate::syscall::errors::{
-    E2BIG, EFAULT, EINVAL, EIO, ENAMETOOLONG, ENOEXEC, ESRCH, file_error_to_errno,
+    E2BIG, EFAULT, EINVAL, ENAMETOOLONG, ENOEXEC, ESRCH, file_error_to_errno,
 };
 use crate::syscall::table::SyscallPtr;
-use alloc::boxed::Box;
 use alloc::string::ToString;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::mem::size_of;
+use core::sync::atomic::Ordering;
 use log::info;
+use spin::Mutex;
 use zenos_macros::syscall;
 
 const MAX_PATH_LEN: usize = 4096;
@@ -102,15 +104,25 @@ fn exec(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     exec_inner(file, &*path, &kargv)
 }
 
-fn exec_inner(mut file: Box<dyn File>, path: &str, argv: &[Vec<u8>]) -> u64 {
-    let file_len = match get_len(file.as_mut()) {
-        Ok(l) => l,
-        Err(_) => return (-EIO) as u64,
-    };
-
+fn exec_inner(file: Arc<Mutex<Inode>>, path: &str, argv: &[Vec<u8>]) -> u64 {
+    let mut file = file.lock();
+    let file_len = file.size.load(Ordering::SeqCst);
     let mut file_buf = alloc::vec![0u8; file_len as usize];
-    if let Err(e) = file.read(&mut file_buf) {
+    let fread_res = file.data.read(0, &mut file_buf);
+    if let Err(e) = fread_res {
         return file_error_to_errno(&e);
+    }
+    info!("inode: {:#?}", file);
+    let len = fread_res.unwrap();
+    if len != file_len as usize {
+        panic!(
+            "unable to read entire file for exec, read {} bytes, expected {}, inode: {:#?}",
+            len, file_len, file
+        );
+    }
+
+    if !file.perms.contains(Permissions::OWNER_EXEC) {
+        return (-ENOEXEC) as u64;
     }
 
     let parent_pid = process::current_pid();

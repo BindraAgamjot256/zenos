@@ -77,12 +77,13 @@ mod plumbing;
 
 use crate::disk::FileError;
 use crate::disk::block::BlockDevice;
-use crate::disk::vfs::{self, DirEntry, FileType, Metadata, SeekFrom};
+use crate::disk::vfs::{self, DirEntry, FileType, Inode, InodeOps, Permissions, SeekFrom};
 use alloc::boxed::Box;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::sync::atomic::AtomicU64;
 use log::{debug, error, trace, warn};
 use plumbing::{
     BiosParameterBlock, FatDirEntry, FatTable, FatType, name_to_8_3, read_cluster, write_cluster,
@@ -140,7 +141,7 @@ impl<D: BlockDevice + 'static> FatFileSystem<D> {
 }
 
 impl<D: BlockDevice + 'static> vfs::FileSystem for FatFileSystem<D> {
-    fn root_dir(&self) -> Result<Box<dyn vfs::Directory>, FileError> {
+    fn root_dir(&self) -> Result<Arc<Mutex<Inode>>, FileError> {
         trace!("FatFileSystem: getting root directory");
         let inner = self.inner.lock();
         let root_cluster = if inner.fat_type == FatType::Fat32 {
@@ -150,11 +151,19 @@ impl<D: BlockDevice + 'static> vfs::FileSystem for FatFileSystem<D> {
         };
         drop(inner);
 
-        Ok(Box::new(FatDirectory::<D> {
+        let data = Box::new(FatDirectory::<D> {
             inner: Arc::clone(&self.inner),
             cluster: root_cluster,
             is_root: true,
-        }))
+        });
+        Ok(Arc::new(Mutex::new(Inode {
+            num: -1i64 as u64, // FAT doesn't have inodes, so we can use a dummy value
+            kind: FileType::Directory,
+            size: AtomicU64::new(0), // Size is not meaningful for directories in FAT
+            perms: Permissions::all(),
+            links: AtomicU64::new(1),
+            data,
+        })))
     }
 }
 
@@ -405,228 +414,119 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
     }
 }
 
-impl<D: BlockDevice + 'static> vfs::Directory for FatDirectory<D> {
-    fn open_file(&mut self, name: &str) -> Result<Box<dyn vfs::File>, FileError> {
-        debug!("FatDirectory: opening file '{}'", name);
-        let (entry, entry_idx) = self.find_entry(name)?.ok_or_else(|| {
-            warn!("FatDirectory: file '{}' not found", name);
-            FileError::NotFound
-        })?;
-
-        if entry.is_directory() {
-            warn!("FatDirectory: '{}' is a directory, not a file", name);
-            return Err(FileError::InvalidDescriptor);
-        }
-
-        trace!("FatDirectory: file '{}' opened successfully", name);
-        Ok(Box::new(FatFile::<D> {
-            inner: Arc::clone(&self.inner),
-            entry,
-            cursor: 0,
-            dir_cluster: self.cluster,
-            entry_index: entry_idx,
-            in_root: self.is_root,
-        }))
+impl<D: BlockDevice + 'static> InodeOps for FatDirectory<D> {
+    fn read(&mut self, _offset: u64, _buf: &mut [u8]) -> Result<usize, FileError> {
+        Err(FileError::IsADirectory)
     }
 
-    fn create_file(&mut self, name: &str) -> Result<Box<dyn vfs::File>, FileError> {
-        debug!("FatDirectory: creating file '{}'", name);
-        // Check if already exists
-        if self.find_entry(name)?.is_some() {
-            warn!("FatDirectory: file '{}' already exists", name);
-            return Err(FileError::AlreadyExists);
-        }
-
-        let entry = self.create_entry(name, false).map_err(|e| {
-            error!("FatDirectory: failed to create file '{}': {:?}", name, e);
-            e
-        })?;
-        // Find the entry index we just created
-        let (_, entry_idx) = self.find_entry(name)?.ok_or_else(|| {
-            error!("FatDirectory: failed to find newly created file '{}'", name);
-            FileError::NotFound
-        })?;
-
-        debug!("FatDirectory: file '{}' created successfully", name);
-        Ok(Box::new(FatFile::<D> {
-            inner: Arc::clone(&self.inner),
-            entry,
-            cursor: 0,
-            dir_cluster: self.cluster,
-            entry_index: entry_idx,
-            in_root: self.is_root,
-        }))
+    fn write(&mut self, _offset: u64, _buf: &[u8]) -> Result<usize, FileError> {
+        Err(FileError::IsADirectory)
     }
 
-    fn open_dir(&mut self, name: &str) -> Result<Box<dyn vfs::Directory>, FileError> {
-        debug!("FatDirectory: opening directory '{}'", name);
-        let (entry, _) = self.find_entry(name)?.ok_or_else(|| {
-            warn!("FatDirectory: directory '{}' not found", name);
-            FileError::NotFound
-        })?;
-
-        if !entry.is_directory() {
-            warn!("FatDirectory: '{}' is not a directory", name);
-            return Err(FileError::InvalidDescriptor);
-        }
-
-        trace!("FatDirectory: directory '{}' opened successfully", name);
-        Ok(Box::new(FatDirectory::<D> {
-            inner: Arc::clone(&self.inner),
-            cluster: entry.first_cluster(),
-            is_root: false,
-        }))
+    fn truncate(&mut self, _size: u64) -> Result<(), FileError> {
+        Err(FileError::IsADirectory)
     }
 
-    fn create_dir(&mut self, name: &str) -> Result<Box<dyn vfs::Directory>, FileError> {
-        debug!("FatDirectory: creating directory '{}'", name);
-        // Check if already exists
-        if self.find_entry(name)?.is_some() {
-            warn!("FatDirectory: directory '{}' already exists", name);
-            return Err(FileError::AlreadyExists);
-        }
-
-        let entry = self.create_entry(name, true).map_err(|e| {
-            error!(
-                "FatDirectory: failed to create directory '{}': {:?}",
-                name, e
-            );
-            e
-        })?;
-
-        debug!("FatDirectory: directory '{}' created successfully", name);
-        Ok(Box::new(FatDirectory::<D> {
-            inner: Arc::clone(&self.inner),
-            cluster: entry.first_cluster(),
-            is_root: false,
-        }))
-    }
-
-    fn remove(&mut self, name: &str) -> Result<(), FileError> {
-        debug!("FatDirectory: removing '{}'", name);
-        let (entry, entry_idx) = self.find_entry(name)?.ok_or_else(|| {
-            warn!("FatDirectory: '{}' not found for removal", name);
-            FileError::NotFound
-        })?;
-
-        // If directory, check if empty
-        if entry.is_directory() {
-            let mut subdir = FatDirectory::<D> {
-                inner: Arc::clone(&self.inner),
-                cluster: entry.first_cluster(),
-                is_root: false,
-            };
-            let sub_entries = subdir.read_entries()?;
-            // Filter out . and .. entries
-            let real_entries: Vec<_> = sub_entries
-                .iter()
-                .filter(|(e, _)| {
-                    let n = e.short_name();
-                    n != "." && n != ".."
-                })
-                .collect();
-            if !real_entries.is_empty() {
-                warn!(
-                    "FatDirectory: cannot remove '{}': directory not empty",
-                    name
-                );
-                return Err(FileError::DirectoryNotEmpty);
-            }
-        }
-
-        // Free cluster chain
-        if entry.first_cluster() >= 2 {
-            let mut inner = self.inner.lock();
-            let bpb = inner.bpb.clone();
-            let mut fat = FatTable::new(&mut inner.device, &bpb);
-            fat.free_chain(entry.first_cluster()).map_err(|e| {
-                error!(
-                    "FatDirectory: failed to free cluster chain for '{}': {:?}",
-                    name, e
-                );
-                e
-            })?;
-        }
-
-        // Mark directory entry as deleted
-        let mut inner = self.inner.lock();
-        let bpb = inner.bpb.clone();
-        let fat_type = inner.fat_type;
-
-        if self.is_root && fat_type != FatType::Fat32 {
-            let root_dir_sector =
-                bpb.reserved_sector_count as u32 + (bpb.num_fats as u32 * bpb.fat_size());
-            let offset = root_dir_sector as u64 * bpb.bytes_per_sector as u64
-                + (entry_idx * FatDirEntry::SIZE) as u64;
-
-            inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
-                error!("FatDirectory: failed to seek for remove: {:?}", e);
-                FileError::SeekError
-            })?;
-            inner.device.write(&[0xE5]).map_err(|e| {
-                error!("FatDirectory: failed to write delete marker: {:?}", e);
-                FileError::WriteError
-            })?;
-        } else {
-            let cluster_size = bpb.bytes_per_cluster() as usize;
-            let entries_per_cluster = cluster_size / FatDirEntry::SIZE;
-            let target_cluster_idx = entry_idx / entries_per_cluster;
-            let offset_in_cluster = (entry_idx % entries_per_cluster) * FatDirEntry::SIZE;
-
-            // Navigate to correct cluster
-            let mut cluster = self.cluster;
-            for _ in 0..target_cluster_idx {
-                let mut fat = FatTable::new(&mut inner.device, &bpb);
-                cluster = fat.read_entry(cluster)?;
-            }
-
-            let mut buf = vec![0u8; cluster_size];
-            read_cluster(&mut inner.device, &bpb, cluster, &mut buf).map_err(|e| {
-                error!("FatDirectory: failed to read cluster for remove: {:?}", e);
-                e
-            })?;
-            buf[offset_in_cluster] = 0xE5;
-            write_cluster(&mut inner.device, &bpb, cluster, &buf).map_err(|e| {
-                error!("FatDirectory: failed to write cluster for remove: {:?}", e);
-                e
-            })?;
-        }
-
-        debug!("FatDirectory: '{}' removed successfully", name);
+    fn sync(&mut self) -> Result<(), FileError> {
         Ok(())
     }
 
-    fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
-        trace!("FatDirectory: reading directory listing");
-        let entries = self.read_entries()?;
-        let mut result = Vec::new();
-
-        for (entry, _) in entries {
-            let name = entry.short_name();
-            if name == "." || name == ".." {
-                continue;
-            }
-
-            let ftype = if entry.is_directory() {
-                vfs::FileType::Directory
+    fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
+        let direntry = self.find_entry(name)?.ok_or_else(|| FileError::NotFound)?;
+        let tbox: Box<dyn InodeOps + Send + Sync> = if direntry.0.is_directory() {
+            Box::new(FatDirectory {
+                inner: Arc::clone(&self.inner),
+                cluster: direntry.0.first_cluster(),
+                is_root: false,
+            })
+        } else {
+            Box::new(FatFile {
+                inner: Arc::clone(&self.inner),
+                entry: direntry.0.clone(),
+                cursor: 0,
+                dir_cluster: self.cluster,
+                entry_index: direntry.1,
+                in_root: self.is_root,
+            })
+        };
+        assert_ne!(
+            direntry.1 as u64, 0,
+            "lookup should not return a file entry at index 0"
+        );
+        let inode = Arc::new(Mutex::new(Inode {
+            num: direntry.1 as u64,
+            kind: if direntry.0.is_directory() {
+                FileType::Directory
             } else {
-                vfs::FileType::File
-            };
+                FileType::File
+            },
+            size: AtomicU64::new(direntry.0.file_size as u64),
+            perms: Permissions::all(),
+            links: AtomicU64::new(1),
+            data: tbox,
+        }));
 
-            result.push(DirEntry {
-                name,
-                metadata: Metadata {
-                    size: entry.file_size as u64,
-                    ftype,
-                    created: 0,
-                    modified: 0,
-                    accessed: 0,
-                },
-            });
-        }
+        Ok(inode)
+    }
 
-        trace!("FatDirectory: found {} entries", result.len());
-        Ok(result)
+    fn create(
+        &mut self,
+        name: &str,
+        kind: FileType,
+        _perms: Permissions,
+    ) -> Result<Arc<Mutex<Inode>>, FileError> {
+        let is_dir = matches!(kind, FileType::Directory);
+        self.create_entry(name, is_dir)?;
+        Ok(self.lookup(name)?)
+    }
+    fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
+        let entries = self.read_entries()?;
+
+        Ok(entries
+            .into_iter()
+            .map(|(entry, idx)| {
+                let size = entry.file_size;
+                let isdir = entry.is_directory();
+                let name = entry.short_name();
+                let tbox: Box<dyn InodeOps + Send + Sync> = if entry.is_directory() {
+                    Box::new(FatDirectory {
+                        inner: Arc::clone(&self.inner),
+                        cluster: entry.first_cluster(),
+                        is_root: false,
+                    })
+                } else {
+                    Box::new(FatFile {
+                        inner: Arc::clone(&self.inner),
+                        entry,
+                        cursor: 0,
+                        dir_cluster: self.cluster,
+                        entry_index: 0, // Will be updated on first lookup
+                        in_root: self.is_root,
+                    })
+                };
+                let inode = Arc::new(Mutex::new(Inode {
+                    num: idx as u64,
+                    kind: if isdir {
+                        FileType::Directory
+                    } else {
+                        FileType::File
+                    },
+                    size: if isdir {
+                        AtomicU64::new(size as u64) // Size is not meaningful for directories, but we can set it to 0 or number of entries
+                    } else {
+                        AtomicU64::new(size as u64)
+                    },
+                    perms: Permissions::all(),
+                    links: AtomicU64::new(1),
+                    data: tbox,
+                }));
+                let dir_entry = DirEntry {
+                    name: name.to_string(),
+                    inode,
+                };
+                dir_entry
+            })
+            .collect())
     }
 }
 
@@ -702,8 +602,10 @@ impl<D: BlockDevice + 'static> FatFile<D> {
         Ok(())
     }
 }
-impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, FileError> {
+
+impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
+    fn read(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, FileError> {
+        self.cursor = offset;
         trace!(
             "FatFile: read {} bytes at cursor {}",
             buf.len(),
@@ -783,7 +685,8 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
         Ok(bytes_read)
     }
 
-    fn write(&mut self, buf: &[u8]) -> Result<usize, FileError> {
+    fn write(&mut self, offset: u64, buf: &[u8]) -> Result<usize, FileError> {
+        self.cursor = offset;
         trace!(
             "FatFile: write {} bytes at cursor {}",
             buf.len(),
@@ -892,54 +795,35 @@ impl<D: BlockDevice + 'static> vfs::File for FatFile<D> {
         Ok(bytes_written)
     }
 
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, FileError> {
-        trace!("FatFile: seek {:?} from cursor {}", pos, self.cursor);
-        self.cursor = match pos {
-            SeekFrom::Start(offset) => offset,
-            SeekFrom::End(offset) => {
-                if offset >= 0 {
-                    self.entry.file_size as u64 + offset as u64
-                } else {
-                    (self.entry.file_size as i64 + offset)
-                        .try_into()
-                        .map_err(|_| FileError::SeekError)?
-                }
-            }
-            SeekFrom::Current(offset) => {
-                if offset >= 0 {
-                    self.cursor + offset as u64
-                } else {
-                    self.cursor
-                        .checked_sub(offset.unsigned_abs())
-                        .ok_or_else(|| {
-                            warn!("FatFile: seek underflow");
-                            FileError::SeekError
-                        })?
-                }
-            }
-        };
-        trace!("FatFile: seek complete, new cursor {}", self.cursor);
-        Ok(self.cursor)
-    }
-
-    fn flush(&mut self) -> Result<(), FileError> {
-        trace!("FatFile: flush");
-        // Sync directory entry to disk
+    fn truncate(&mut self, size: u64) -> Result<(), FileError> {
+        let mut buf = vec![0u8; size as usize];
+        self.read(0, &mut buf)?;
+        self.cursor = 0;
+        self.write(0, &buf)?;
+        self.entry.file_size = size as u32;
         self.sync_entry()?;
-        let mut inner = self.inner.lock();
-        inner.device.flush().map_err(|e| {
-            error!("FatFile: flush failed: {:?}", e);
-            FileError::WriteError
-        })
+        Ok(())
     }
 
-    fn metadata(&self) -> Result<Metadata, FileError> {
-        Ok(Metadata {
-            size: self.entry.file_size as u64,
-            ftype: FileType::File,
-            created: 0,
-            modified: 0,
-            accessed: 0,
-        })
+    fn sync(&mut self) -> Result<(), FileError> {
+        self.sync_entry()
+    }
+
+    fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
+        error!("FatFile: lookup called on file, {:#?}", self.entry);
+        Err(FileError::NotADirectory)
+    }
+
+    fn create(
+        &mut self,
+        _name: &str,
+        _kind: FileType,
+        _perms: Permissions,
+    ) -> Result<Arc<Mutex<Inode>>, FileError> {
+        Err(FileError::NotADirectory)
+    }
+
+    fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
+        Err(FileError::NotADirectory)
     }
 }

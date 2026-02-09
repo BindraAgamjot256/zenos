@@ -5,7 +5,7 @@
 //! and the kernel tick counter (10ms per tick) for efficient timestamp generation.
 
 use crate::arch::{inb, outb};
-use crate::disk::fs::proc::TICK_COUNT;
+// use crate::disk::fs::proc::TICK_COUNT;
 use core::fmt::{self, Display, Formatter};
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -27,7 +27,8 @@ static BOOT_TIME_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Get system uptime in seconds
 pub fn uptime_secs() -> u64 {
-    TICK_COUNT.load(Ordering::Relaxed) / 100 // 10ms per tick = 100 ticks per second
+    // TICK_COUNT.load(Ordering::Relaxed) / 100 // 10ms per tick = 100 ticks per second
+    0
 }
 
 /// Get the current time using boot RTC + tick counter for efficiency
@@ -46,9 +47,10 @@ pub fn current_time() -> RtcTime {
 
     // Use tick counter for subsequent calls
     let boot_secs = BOOT_TIME_SECS.load(Ordering::Acquire);
-    let ticks = TICK_COUNT.load(Ordering::Relaxed);
-    let elapsed_secs = ticks / 100; // 10ms per tick = 100 ticks per second
+    // let ticks = TICK_COUNT.load(Ordering::Relaxed);
+    // let elapsed_secs = ticks / 100; // 10ms per tick = 100 ticks per second
 
+    let elapsed_secs = 0; // Placeholder until TICK_COUNT is available
     let total_secs = boot_secs + elapsed_secs;
 
     // Reconstruct time with boot date

@@ -5,21 +5,21 @@ pub(crate) mod scheduler;
 
 pub use crate::process::scheduler::Scheduler;
 use crate::{
+    disk,
     disk::FS,
     disk::FileError,
-    disk::get_len,
-    disk::vfs::File,
+    disk::vfs::{FileType, Inode, OpenFile, Permissions},
     interrupts::gdt::GDT,
     memory::ALLOCATOR,
     memory::{KERNEL_BASE, PAGE_4K, PageType, kalloc_page, ualloc_page, ualloc_page_flags},
     percpu::PerCpuData,
     percpu::PerCpuVar,
     process::debug::dump_pte,
-    process::file_handles::{FileHandle, FileOpenOptions, Stderr, Stdin, Stdout},
+    process::file_handles::{FileOpenOptions, Stderr, Stdin, Stdout},
     process::isolation::new_user_address_space,
     tty::TTY,
 };
-use alloc::{boxed::Box, format, string::String, string::ToString, vec::Vec};
+use alloc::{boxed::Box, format, string::String, string::ToString, sync::Arc, vec::Vec};
 use core::{
     arch::asm,
     ffi::CStr,
@@ -93,7 +93,7 @@ pub struct Process {
     pub cr3: PhysAddr,
     pub end: u64,
     pub entry_point: u64,
-    pub file_handles: HashMap<u32, FileHandle>,
+    pub file_handles: HashMap<u32, OpenFile>,
     /// Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
     pub load_bias: u64,
     pub loaded: bool,
@@ -119,15 +119,48 @@ impl Process {
         let mut file_handles = HashMap::new();
         file_handles.insert(
             0,
-            FileHandle::new(0, Box::new(Stdin::new(pid)), FileOpenOptions::READ_WRITE),
+            OpenFile {
+                inode: Arc::new(Mutex::new(Inode {
+                    num: 0,
+                    kind: FileType::Device,
+                    size: Default::default(),
+                    perms: Permissions::all(),
+                    links: Default::default(),
+                    data: Box::new(Stdin::new(pid)),
+                })),
+                cursor: Mutex::new(0),
+                file_open_options: FileOpenOptions::READ_WRITE,
+            },
         );
         file_handles.insert(
             1,
-            FileHandle::new(1, Box::new(Stdout::new(pid)), FileOpenOptions::READ_WRITE),
+            OpenFile {
+                inode: Arc::new(Mutex::new(Inode {
+                    num: 0,
+                    kind: FileType::Device,
+                    size: Default::default(),
+                    perms: Permissions::all(),
+                    links: Default::default(),
+                    data: Box::new(Stdout::new(pid)),
+                })),
+                cursor: Mutex::new(0),
+                file_open_options: FileOpenOptions::READ_WRITE,
+            },
         );
         file_handles.insert(
             2,
-            FileHandle::new(2, Box::new(Stderr::new(pid)), FileOpenOptions::READ_WRITE),
+            OpenFile {
+                inode: Arc::new(Mutex::new(Inode {
+                    num: 0,
+                    kind: FileType::Device,
+                    size: Default::default(),
+                    perms: Permissions::all(),
+                    links: Default::default(),
+                    data: Box::new(Stderr::new(pid)),
+                })),
+                cursor: Mutex::new(0),
+                file_open_options: FileOpenOptions::READ_WRITE,
+            },
         );
         let p = Process {
             pid,
@@ -228,8 +261,10 @@ impl Process {
         self.loaded = false;
         self.user_stack_top = 0;
 
-        self.file_handles
-            .retain(|_, fh| !fh.foo.contains(FileOpenOptions::CLOSE_ON_EXEC));
+        self.file_handles.retain(|_, fh| {
+            !fh.file_open_options
+                .contains(FileOpenOptions::CLOSE_ON_EXEC)
+        });
 
         unsafe {
             self.cr3 = new_user_address_space().unwrap();
@@ -549,20 +584,24 @@ impl Process {
     pub fn get_cr3(&self) -> PhysAddr {
         self.cr3
     }
-    pub(crate) fn get_file_handle(&mut self, fd: u64) -> Option<&mut FileHandle> {
+    pub(crate) fn get_file_handle(&mut self, fd: u64) -> Option<&mut disk::vfs::OpenFile> {
         self.file_handles.get_mut(&(fd as u32))
     }
 
     pub(crate) fn add_file_handle(
         &mut self,
-        descriptor: Box<dyn File>,
+        descriptor: Arc<Mutex<Inode>>,
         foo: FileOpenOptions,
     ) -> Result<u64, ()> {
         let fds = self.file_handles.keys();
         let max = fds.clone().max().cloned().unwrap_or(2);
         let new_fd = max + 1;
-        let file_handle = FileHandle::new(new_fd, descriptor, foo);
-        self.file_handles.insert(new_fd, file_handle);
+        let open_file = OpenFile {
+            inode: Arc::clone(&descriptor),
+            cursor: Mutex::new(0),
+            file_open_options: foo,
+        };
+        self.file_handles.insert(new_fd, open_file);
         Ok(new_fd as u64)
     }
 
@@ -742,7 +781,7 @@ static NEXT_PID: AtomicU64 = AtomicU64::new(2);
 
 pub fn init_process() -> &'static [u8] {
     let fs = FS.lock();
-    let mut file = match fs.open_file("/bin/init.elf") {
+    let file = match fs.open_file("/bin/init.elf") {
         Ok(f) => f,
         Err(e) => {
             error!("Failed to open init: {:?}", e);
@@ -750,7 +789,7 @@ pub fn init_process() -> &'static [u8] {
             panic!("Failed to open init");
         }
     };
-    let len = get_len(file.as_mut()).unwrap_or(0);
+    let len = file.lock().size.load(Ordering::SeqCst);
     let pages = (len + PAGE_4K as u64) / PAGE_4K as u64;
     for page in 0..pages {
         kalloc_page(
@@ -764,15 +803,15 @@ pub fn init_process() -> &'static [u8] {
 
     let mut offset = 0;
     loop {
-        match file.read(&mut buf[offset..]) {
+        match file.lock().data.read(offset, &mut buf[offset as usize..]) {
             Ok(0) => break,
-            Ok(n) => offset += n,
+            Ok(n) => offset += n as u64,
             Err(e) => {
                 error!("Failed to read init: {:?}", e);
                 break;
             }
         }
-        if offset >= len as usize {
+        if offset >= len {
             break;
         }
     }
@@ -782,19 +821,52 @@ pub fn init_process() -> &'static [u8] {
     let elf = ElfFile::new(buf).expect("Failed to parse init");
     let cr3 = Cr3::read().0;
     let load_bias = compute_load_bias(&elf);
-
+    let pid = 1;
     let mut file_handles = HashMap::new();
     file_handles.insert(
         0,
-        FileHandle::new(0, Box::new(Stdin::new(1)), FileOpenOptions::all()),
+        OpenFile {
+            inode: Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::Device,
+                size: Default::default(),
+                perms: Permissions::all(),
+                links: Default::default(),
+                data: Box::new(Stdin::new(pid)),
+            })),
+            cursor: Mutex::new(0),
+            file_open_options: FileOpenOptions::READ_WRITE,
+        },
     );
     file_handles.insert(
         1,
-        FileHandle::new(1, Box::new(Stdout::new(1)), FileOpenOptions::all()),
+        OpenFile {
+            inode: Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::Device,
+                size: Default::default(),
+                perms: Permissions::all(),
+                links: Default::default(),
+                data: Box::new(Stdout::new(pid)),
+            })),
+            cursor: Mutex::new(0),
+            file_open_options: FileOpenOptions::READ_WRITE,
+        },
     );
     file_handles.insert(
         2,
-        FileHandle::new(2, Box::new(Stderr::new(1)), FileOpenOptions::all()),
+        OpenFile {
+            inode: Arc::new(Mutex::new(Inode {
+                num: 0,
+                kind: FileType::Device,
+                size: Default::default(),
+                perms: Permissions::all(),
+                links: Default::default(),
+                data: Box::new(Stderr::new(pid)),
+            })),
+            cursor: Mutex::new(0),
+            file_open_options: FileOpenOptions::READ_WRITE,
+        },
     );
     let process = Process {
         pid: 1,

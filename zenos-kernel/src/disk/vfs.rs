@@ -47,13 +47,18 @@
 //! ```
 
 use super::FileError;
-use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::sync::Arc;
-use alloc::vec::Vec;
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
+use bitflags::bitflags;
+use core::{fmt::Debug, sync::atomic::AtomicU64};
 use hashbrown::HashMap;
 use log::{debug, trace};
+use spin::Mutex;
 
 /// Specifies the position from which to seek within a file.
 ///
@@ -68,37 +73,190 @@ pub enum SeekFrom {
     Current(i64),
 }
 
-/// File or directory metadata.
-///
-/// Contains information about a file system entry including size,
-/// type, and timestamps.
-#[derive(Debug, Clone)]
-pub struct Metadata {
-    /// Size of the file in bytes (0 for directories).
-    pub size: u64,
-    /// Whether this entry is a directory.
-    pub ftype: FileType,
-    /// Creation timestamp (filesystem-dependent format).
-    pub created: u64,
-    /// Last modification timestamp.
-    pub modified: u64,
-    /// Last access timestamp.
-    pub accessed: u64,
+pub struct Inode {
+    pub(crate) num: u64,
+    pub(crate) kind: FileType,
+    pub(crate) size: AtomicU64,
+    pub(crate) perms: Permissions,
+    pub(crate) links: AtomicU64,
+    pub(crate) data: Box<dyn InodeOps + Send + Sync>,
 }
 
-#[derive(Debug, Clone)]
-pub enum FileType {
+impl Debug for Inode {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Inode")
+            .field("num", &self.num)
+            .field("kind", &self.kind)
+            .field(
+                "size",
+                &self.size.load(core::sync::atomic::Ordering::SeqCst),
+            )
+            .field("perms", &self.perms)
+            .field(
+                "links",
+                &self.links.load(core::sync::atomic::Ordering::SeqCst),
+            )
+            .finish()
+    }
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub(crate) enum FileType {
     File,
     Directory,
+    Symlink,
+    Device,
+    Socket,
+    Pipe,
 }
 
-/// A directory entry returned when listing directory contents.
-#[derive(Debug, Clone)]
+bitflags! {
+    #[derive(Debug)]
+    pub struct Permissions: u16 {
+        const OWNER_READ    = 0o400;
+        const OWNER_WRITE   = 0o200;
+        const OWNER_EXEC    = 0o100;
+
+        const GROUP_READ    = 0o040;
+        const GROUP_WRITE   = 0o020;
+        const GROUP_EXEC    = 0o010;
+
+        const OTHER_READ    = 0o004;
+        const OTHER_WRITE   = 0o002;
+        const OTHER_EXEC    = 0o001;
+    }
+}
+
+pub(crate) trait InodeOps {
+    fn read(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, FileError>;
+    fn write(&mut self, offset: u64, buf: &[u8]) -> Result<usize, FileError>;
+
+    fn truncate(&mut self, size: u64) -> Result<(), FileError>;
+    fn sync(&mut self) -> Result<(), FileError>;
+
+    // directory-only ops (return Err(NotADirectory) otherwise)
+    fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError>;
+    fn create(
+        &mut self,
+        name: &str,
+        kind: FileType,
+        perms: Permissions,
+    ) -> Result<Arc<Mutex<Inode>>, FileError>;
+
+    fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError>;
+}
+
 pub struct DirEntry {
-    /// Name of the file or subdirectory.
     pub name: String,
-    /// Metadata for this entry.
-    pub metadata: Metadata,
+    pub inode: Arc<Mutex<Inode>>,
+}
+
+#[derive(Debug)]
+pub struct OpenFile {
+    pub(crate) inode: Arc<Mutex<Inode>>,
+    pub(crate) cursor: Mutex<u64>,
+    pub(crate) file_open_options: FileOpenOptions,
+}
+
+impl Clone for OpenFile {
+    fn clone(&self) -> Self {
+        OpenFile {
+            inode: self.inode.clone(),
+            cursor: Mutex::new(*self.cursor.lock()),
+            file_open_options: self.file_open_options,
+        }
+    }
+}
+
+impl OpenFile {
+    pub fn seek(&mut self, from: SeekFrom) -> u64 {
+        let current_pos = *self.cursor.lock();
+        let new_pos = match from {
+            SeekFrom::Start(pos) => pos,
+            SeekFrom::End(offset) => {
+                let file_size = self
+                    .inode
+                    .lock()
+                    .size
+                    .load(core::sync::atomic::Ordering::SeqCst);
+                if offset < 0 {
+                    file_size.saturating_sub((-offset) as u64)
+                } else {
+                    file_size.saturating_add(offset as u64)
+                }
+            }
+            SeekFrom::Current(offset) => {
+                if offset < 0 {
+                    current_pos.saturating_sub((-offset) as u64)
+                } else {
+                    current_pos.saturating_add(offset as u64)
+                }
+            }
+        };
+        *self.cursor.lock() = new_pos;
+        new_pos
+    }
+
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FileError> {
+        if !self
+            .file_open_options
+            .contains(FileOpenOptions::READ_ONLY | FileOpenOptions::READ_WRITE)
+            && !self.inode.lock().perms.contains(Permissions::OWNER_READ)
+        {
+            return Err(FileError::PermissionDenied);
+        }
+        let offset = *self.cursor.lock();
+        let bytes_read = self.inode.lock().data.read(offset, buf)?;
+        *self.cursor.lock() += bytes_read as u64;
+        Ok(bytes_read)
+    }
+    pub fn write(&mut self, buf: &[u8]) -> Result<usize, FileError> {
+        if !(self
+            .file_open_options
+            .contains(FileOpenOptions::WRITE_ONLY | FileOpenOptions::READ_WRITE)
+            || self.inode.lock().perms.contains(Permissions::OWNER_WRITE))
+        {
+            // if someone wonders how this works, i used de morgan's law.
+            return Err(FileError::PermissionDenied);
+        }
+        let offset = *self.cursor.lock();
+        let bytes_written = self.inode.lock().data.write(offset, buf)?;
+        *self.cursor.lock() += bytes_written as u64;
+        Ok(bytes_written)
+    }
+}
+
+bitflags! {
+    #[derive(Debug, Clone, Copy)]
+    pub struct FileOpenOptions: u64 {
+        // Access modes (mutually exclusive)
+        const READ_ONLY  = 0; // O_RDONLY
+        const WRITE_ONLY = 1; // O_WRONLY
+        const READ_WRITE = 2; // O_RDWR
+
+        // Flags
+        const CREATE        = 0o100;      // O_CREAT
+        const EXCLUSIVE     = 0o200;      // O_EXCL
+        const NOCTTY        = 0o400;      // O_NOCTTY
+        const TRUNCATE      = 0o1000;     // O_TRUNC
+        const APPEND        = 0o2000;     // O_APPEND
+        const NONBLOCK      = 0o4000;     // O_NONBLOCK
+        const SYNC          = 0o10000;    // O_SYNC
+        const CLOSE_ON_EXEC = 0o2000000;  // O_CLOEXEC
+    }
+
+}
+
+impl Default for FileOpenOptions {
+    fn default() -> Self {
+        let mut foo = FileOpenOptions::empty();
+        foo |= Self::READ_ONLY;
+        foo |= Self::CREATE;
+        foo |= Self::EXCLUSIVE;
+
+        foo
+    }
 }
 
 /// Trait for file system implementations.
@@ -107,42 +265,7 @@ pub struct DirEntry {
 /// other file system operations can be performed.
 pub trait FileSystem: Send + Sync {
     /// Returns the root directory of this file system.
-    fn root_dir(&self) -> Result<Box<dyn Directory>, FileError>;
-}
-
-/// Trait for directory operations.
-///
-/// Provides methods for navigating the directory tree and managing
-/// files and subdirectories.
-pub trait Directory: Send + Sync {
-    /// Opens an existing file in this directory.
-    fn open_file(&mut self, name: &str) -> Result<Box<dyn File>, FileError>;
-    /// Creates a new file in this directory.
-    fn create_file(&mut self, name: &str) -> Result<Box<dyn File>, FileError>;
-    /// Opens an existing subdirectory.
-    fn open_dir(&mut self, name: &str) -> Result<Box<dyn Directory>, FileError>;
-    /// Creates a new subdirectory.
-    fn create_dir(&mut self, name: &str) -> Result<Box<dyn Directory>, FileError>;
-    /// Removes a file or empty directory.
-    fn remove(&mut self, name: &str) -> Result<(), FileError>;
-    /// Lists all entries in this directory.
-    fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError>;
-}
-
-/// Trait for file I/O operations.
-///
-/// Provides standard read, write, and seek operations on an open file.
-pub trait File: Send + Sync {
-    /// Reads bytes into the buffer, returning the number of bytes read.
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, FileError>;
-    /// Writes bytes from the buffer, returning the number of bytes written.
-    fn write(&mut self, buf: &[u8]) -> Result<usize, FileError>;
-    /// Repositions the file cursor, returning the new absolute position.
-    fn seek(&mut self, pos: SeekFrom) -> Result<u64, FileError>;
-    /// Flushes any buffered writes to the underlying storage.
-    fn flush(&mut self) -> Result<(), FileError>;
-    /// Returns metadata about this file.
-    fn metadata(&self) -> Result<Metadata, FileError>;
+    fn root_dir(&self) -> Result<Arc<Mutex<Inode>>, FileError>;
 }
 
 /// Mapping of filesystem mount points to their drivers.
@@ -211,7 +334,7 @@ impl VFS {
     /// # Errors
     ///
     /// Returns [`FileError::NotFound`] if no file system is mounted at "/".
-    pub fn root_dir(&self) -> Result<Box<dyn Directory>, FileError> {
+    pub fn root_dir(&self) -> Result<Arc<Mutex<Inode>>, FileError> {
         trace!("VFS: getting root directory");
         let fs = self.get_fs("/").ok_or(FileError::NotFound)?;
         fs.root_dir()
@@ -247,7 +370,7 @@ impl VFS {
     ///
     /// Returns [`FileError::NotFound`] if the path doesn't exist or no
     /// file system is mounted for this path.
-    pub fn open_file(&self, path: &str) -> Result<Box<dyn File>, FileError> {
+    pub fn open_file(&self, path: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
         trace!("VFS: opening file at path '{}'", path);
         let normalized_path = normalize_path(path);
         debug!("VFS: normalized path '{}'", normalized_path);
@@ -261,19 +384,41 @@ impl VFS {
         );
         let relative_path = normalized_path[mount_point.len()..].trim_start_matches('/');
         debug!("VFS: relative path '{}'", relative_path);
-        let mut dir = fs.root_dir()?;
+        let mut dir_inode = fs.root_dir()?;
 
         let parts: Vec<&str> = relative_path.split('/').filter(|p| !p.is_empty()).collect();
         debug!("VFS: path parts {:?}", parts);
         if parts.is_empty() {
             return Err(FileError::NotFound);
         }
-
         for part in &parts[..parts.len() - 1] {
-            dir = dir.open_dir(part)?;
+            debug!("VFS: looking up directory '{}'", part);
+            let di = dir_inode.lock().data.lookup(part)?;
+            if di.lock().perms.contains(Permissions::OWNER_EXEC) {
+                debug!("VFS: directory '{}' is executable", part);
+            } else {
+                debug!("VFS: directory '{}' is not executable", part);
+                return Err(FileError::PermissionDenied);
+            }
+            debug!("VFS: directory lookup successful");
+            dir_inode = di;
         }
-
-        dir.open_file(parts.last().unwrap())
+        debug!(
+            "VFS: opened directory at path '{}', inode: {:#?}",
+            relative_path, dir_inode
+        );
+        let file_inode = dir_inode.lock().data.lookup(parts.last().unwrap())?;
+        if file_inode.lock().perms.contains(Permissions::OWNER_READ) {
+            debug!("VFS: file '{}' is readable", parts.last().unwrap());
+        } else {
+            debug!("VFS: file '{}' is not readable", parts.last().unwrap());
+            return Err(FileError::PermissionDenied);
+        }
+        debug!(
+            "VFS: file inode found with number {}",
+            file_inode.lock().num
+        );
+        Ok(file_inode)
     }
 
     /// Creates a new file at the specified absolute path.
@@ -284,7 +429,11 @@ impl VFS {
     ///
     /// Returns [`FileError::NotFound`] if the parent path doesn't exist
     /// or no file system is mounted for this path.
-    pub fn create_file(&self, path: &str) -> Result<Box<dyn File>, FileError> {
+    pub fn create_file(
+        &self,
+        path: &str,
+        perms: Permissions,
+    ) -> Result<Arc<Mutex<Inode>>, FileError> {
         trace!("VFS: creating file at path '{}'", path);
         let normalized_path = normalize_path(path);
         let (mount_point, fs) = self
@@ -292,18 +441,30 @@ impl VFS {
             .ok_or(FileError::NotFound)?;
 
         let relative_path = normalized_path[mount_point.len()..].trim_start_matches('/');
-        let mut dir = fs.root_dir()?;
+        let mut dir_inode = fs.root_dir()?;
 
         let parts: Vec<&str> = relative_path.split('/').filter(|p| !p.is_empty()).collect();
         if parts.is_empty() {
             return Err(FileError::NotFound);
         }
-
         for part in &parts[..parts.len() - 1] {
-            dir = dir.open_dir(part)?;
+            let di = dir_inode.lock().data.lookup(part)?;
+            if di
+                .lock()
+                .perms
+                .contains(Permissions::OWNER_EXEC | Permissions::OWNER_WRITE)
+            {
+                debug!("VFS: directory '{}' is executable", part);
+            } else {
+                debug!("VFS: directory '{}' is not executable", part);
+                return Err(FileError::PermissionDenied);
+            }
+            dir_inode = di;
         }
-
-        dir.create_file(parts.last().unwrap())
+        dir_inode
+            .lock()
+            .data
+            .create(parts.last().unwrap(), FileType::File, perms)
     }
 }
 
@@ -361,38 +522,6 @@ mod tests {
     }
 
     #[zenos_macros::test]
-    pub fn test_metadata_file() -> Option<()> {
-        let meta = Metadata {
-            size: 1024,
-            ftype: FileType::File,
-            created: 0,
-            modified: 0,
-            accessed: 0,
-        };
-        assert_eq!(meta.size, 1024);
-        crate::test_assert!(matches!(meta.ftype, FileType::File));
-        crate::test_assert!(!matches!(meta.ftype, FileType::Directory));
-        Some(())
-    }
-
-    #[zenos_macros::test]
-    pub fn test_metadata_directory() -> Option<()> {
-        let meta = Metadata {
-            size: 0,
-            ftype: FileType::Directory,
-            created: 100,
-            modified: 200,
-            accessed: 300,
-        };
-        crate::test_assert!(matches!(meta.ftype, FileType::Directory));
-        crate::test_assert!(!matches!(meta.ftype, FileType::File));
-        assert_eq!(meta.created, 100);
-        assert_eq!(meta.modified, 200);
-        assert_eq!(meta.accessed, 300);
-        Some(())
-    }
-
-    #[zenos_macros::test]
     pub fn test_vfs_new() -> Option<()> {
         let vfs = VFS::new();
         crate::test_assert!(vfs.get_fs("/").is_none());
@@ -407,6 +536,59 @@ mod tests {
             Err(FileError::NotFound) => {}
             _ => return None,
         }
+        Some(())
+    }
+    #[zenos_macros::test]
+    pub fn test_file_open_options_default() -> Option<()> {
+        let opts = FileOpenOptions::default();
+        crate::test_assert!(!opts.is_empty());
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_file_open_options_read() -> Option<()> {
+        let opts = FileOpenOptions::READ_ONLY;
+        crate::test_assert!(opts.contains(FileOpenOptions::READ_ONLY));
+        crate::test_assert!(!opts.contains(FileOpenOptions::WRITE_ONLY));
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_file_open_options_combined() -> Option<()> {
+        let opts = FileOpenOptions::READ_ONLY | FileOpenOptions::WRITE_ONLY;
+        crate::test_assert!(opts.contains(FileOpenOptions::READ_ONLY));
+        crate::test_assert!(opts.contains(FileOpenOptions::WRITE_ONLY));
+        crate::test_assert!(!opts.contains(FileOpenOptions::CREATE));
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_file_open_options_all() -> Option<()> {
+        let opts = FileOpenOptions::all();
+        crate::test_assert!(opts.contains(FileOpenOptions::READ_ONLY));
+        crate::test_assert!(opts.contains(FileOpenOptions::WRITE_ONLY));
+        crate::test_assert!(opts.contains(FileOpenOptions::CREATE));
+        crate::test_assert!(opts.contains(FileOpenOptions::TRUNCATE));
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_file_open_options_from_bits() -> Option<()> {
+        let opts = FileOpenOptions::from_bits_truncate(
+            FileOpenOptions::READ_ONLY.bits() | FileOpenOptions::CREATE.bits(),
+        );
+        crate::test_assert!(opts.contains(FileOpenOptions::READ_ONLY));
+        crate::test_assert!(opts.contains(FileOpenOptions::CREATE));
+        crate::test_assert!(!opts.contains(FileOpenOptions::WRITE_ONLY));
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_file_open_options_bits_values() -> Option<()> {
+        assert_eq!(FileOpenOptions::READ_ONLY.bits(), 0);
+        assert_eq!(FileOpenOptions::WRITE_ONLY.bits(), 0b0001);
+        assert_eq!(FileOpenOptions::CREATE.bits(), 0o100);
+        assert_eq!(FileOpenOptions::TRUNCATE.bits(), 0o1000);
         Some(())
     }
 }

@@ -1,4 +1,4 @@
-use crate::disk::vfs::File;
+use crate::disk::vfs::InodeOps;
 use crate::process::file_handles::Stdin;
 use crate::syscall::errors::{EBADF, EFAULT, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
@@ -34,18 +34,17 @@ fn read(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 fn read_inner(fd: u64, buf: &mut [u8]) -> Result<usize, u64> {
     info!("read_inner called with fd: {}, buf len: {}", fd, buf.len());
 
-    // Handle stdin specially - it needs to block without holding the PROCESSES lock
+    // handle stdin fd as a special case
     if fd == 0 {
         let curr_pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
         let mut stdin = Stdin::new(curr_pid);
-        let read_res = File::read(&mut stdin, buf).map_err(|e| {
-            info!("read error: {:?}", e);
-            file_error_to_errno(&e)
+        let read_res = stdin.read(0, buf).map_err(|e| {
+            let errno = file_error_to_errno(&e);
+            debug!("read_inner: read error for stdin: {:?}", e);
+            errno
         })?;
-        info!("read_inner read {} bytes from stdin", read_res);
         return Ok(read_res);
     }
-
     // For other fds, we need to look up the file handle
     let mut processes = crate::process::PROCESSES.lock();
     let curr_pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
@@ -54,10 +53,11 @@ fn read_inner(fd: u64, buf: &mut [u8]) -> Result<usize, u64> {
         .find(|p| p.pid == curr_pid)
         .ok_or((-ESRCH) as u64)?;
     let file_handle = process.get_file_handle(fd).ok_or((-EBADF) as u64)?;
-    let handle = &mut *file_handle.descriptor();
-    let read_res = File::read(handle, buf).map_err(|e| {
-        info!("read error: {:?}", e);
-        file_error_to_errno(&e)
+    let handle = &mut *file_handle;
+    let read_res = handle.read(buf).map_err(|e| {
+        let errno = file_error_to_errno(&e);
+        debug!("read_inner: read error for fd {}: {:?}", fd, e);
+        errno
     })?;
     info!("read_inner read {} bytes", read_res);
     Ok(read_res)

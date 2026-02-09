@@ -503,7 +503,6 @@ fn build_stress_tests(_args: BuildArgs) {
         ("sched_fairness", "schedfar.elf"),
         ("mem_exhaust", "memexhst.elf"),
         ("orphan_zombie", "orphzomb.elf"),
-        ("fs_concurrent", "fsconcrn.elf"),
         ("ansi_colors", "ansiclrs.elf"),
     ];
 

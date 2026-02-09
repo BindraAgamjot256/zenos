@@ -1,4 +1,5 @@
 use crate::disk::FS;
+use crate::disk::vfs::Permissions;
 use crate::process::PROCESSES;
 use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;
@@ -63,7 +64,12 @@ pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u
         );
         if res.is_err() {
             if foo.contains(FileOpenOptions::CREATE) {
-                let res = fs.create_file(file_name);
+                let res = fs.create_file(
+                    file_name,
+                    (Permissions::OWNER_READ | Permissions::OWNER_WRITE | Permissions::OWNER_EXEC)
+                        | (Permissions::GROUP_READ)
+                        | (Permissions::OTHER_READ),
+                );
                 if res.is_err() {
                     return Err(file_error_to_errno(&res.err().unwrap()));
                 }

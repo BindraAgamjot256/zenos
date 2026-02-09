@@ -63,7 +63,15 @@ bitflags! {
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     println!("panic occurred: {}", _info);
-    loop {}
+    unsafe {
+        // exit syscall directly since we can't use exit() in no_std context easily
+        core::arch::asm!(
+        "syscall",
+        in("rax") 60u64,  // SYS_exit
+        in("rdi") -1i64 as u64,
+        options(noreturn)
+        )
+    }
 }
 
 /// Spawn a child process to run the given binary with optional arguments
@@ -104,7 +112,6 @@ static STRESS_TESTS: &[(&[u8], &[&[u8]])] = &[
     (b"/bin/rapidspn.elf\0", &[b"rapidspn\0"]),
     (b"/bin/schedfar.elf\0", &[b"schedfar\0"]),
     (b"/bin/memexhst.elf\0", &[b"memexhst\0"]),
-    //(b"/bin/fsconcrn\0", &[b"fsconcrn\0"]),
     (b"/bin/orphzomb.elf\0", &[b"orphzomb\0"]),
     (b"/bin/ansiclrs.elf\0", &[b"ansiclrs\0"]),
 ];

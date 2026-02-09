@@ -51,14 +51,15 @@ pub const EOVERFLOW: i64 = 75; // Value too large for defined data type
 pub fn file_error_to_errno(err: &FileError) -> u64 {
     let errno = match err {
         FileError::UnsupportedOperation => ENOSYS,
-        FileError::InvalidDescriptor => EBADF,
         FileError::ReadError => EIO,
         FileError::WriteError => EIO,
         FileError::SeekError => ESPIPE,
         FileError::InvalidFileDescriptor => EBADF,
         FileError::NotFound => ENOENT,
         FileError::AlreadyExists => EEXIST,
-        FileError::DirectoryNotEmpty => ENOTEMPTY,
+        FileError::NotADirectory => ENOTDIR,
+        FileError::IsADirectory => EISDIR,
+        FileError::PermissionDenied => EPERM,
         FileError::Other(_) => EIO,
     };
     (-errno) as u64
@@ -102,14 +103,6 @@ mod tests {
     }
 
     #[zenos_macros::test]
-    pub fn test_file_error_to_errno_bad_fd() -> Option<()> {
-        let err = FileError::InvalidDescriptor;
-        let errno = file_error_to_errno(&err);
-        assert_eq!(errno, (-EBADF) as u64);
-        Some(())
-    }
-
-    #[zenos_macros::test]
     pub fn test_file_error_to_errno_io_errors() -> Option<()> {
         let read_err = FileError::ReadError;
         let write_err = FileError::WriteError;
@@ -123,14 +116,6 @@ mod tests {
         let err = FileError::SeekError;
         let errno = file_error_to_errno(&err);
         assert_eq!(errno, (-ESPIPE) as u64);
-        Some(())
-    }
-
-    #[zenos_macros::test]
-    pub fn test_file_error_to_errno_dir_not_empty() -> Option<()> {
-        let err = FileError::DirectoryNotEmpty;
-        let errno = file_error_to_errno(&err);
-        assert_eq!(errno, (-ENOTEMPTY) as u64);
         Some(())
     }
 

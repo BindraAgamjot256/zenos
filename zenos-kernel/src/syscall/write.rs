@@ -1,4 +1,3 @@
-use crate::disk::vfs::File;
 use crate::syscall::copy_from_user;
 use crate::syscall::errors::{EBADF, EFAULT, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
@@ -39,7 +38,12 @@ pub(crate) fn write_inner(buf: &[u8], fd: u64) -> Result<u64, u64> {
         buf.len()
     );
     let file_handle = process.get_file_handle(fd).ok_or((-EBADF) as u64)?;
-    let handle = &mut *file_handle.descriptor();
-    let written = File::write(handle, buf).map_err(|e| file_error_to_errno(&e))?;
-    Ok(written as u64)
+    let handle = &mut *file_handle;
+    let write_res = handle.write(buf).map_err(|e| {
+        let errno = file_error_to_errno(&e);
+        debug!("write_inner: write error for fd {}: {:?}", fd, e);
+        errno
+    })?;
+    info!("write_inner: wrote {} bytes to fd {}", write_res, fd);
+    Ok(write_res as u64)
 }
