@@ -143,7 +143,7 @@ dependencies = [
  "rand_hc",
  "raw-cpuid",
  "spinning_top 0.3.0",
- "uart_16550 0.3.2",
+ "uart_16550",
  "usize_conversions",
  "x86_64",
  "xmas-elf 0.8.0",
@@ -889,17 +889,6 @@ dependencies = [
 
 [[package]]
 name = "uart_16550"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e492212ac378a5e00da953718dafb1340d9fbaf4f27d6f3c5cab03d931d1c049"
-dependencies = [
- "bitflags 2.10.0",
- "rustversion",
- "x86",
-]
-
-[[package]]
-name = "uart_16550"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94d293f51425981fdb1b766beae254dbb711a17e8c4b549dc69b9b7ee0d478d5"
@@ -1356,7 +1345,7 @@ dependencies = [
  "log",
  "pc-keyboard",
  "spin 0.10.0",
- "uart_16550 0.4.0",
+ "uart_16550",
  "x86_64",
  "xmas-elf 0.10.0",
  "zenos-macros",
