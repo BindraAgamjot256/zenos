@@ -39,6 +39,7 @@ pub(crate) fn write_inner(buf: &[u8], fd: u64) -> Result<u64, u64> {
     );
     let file_handle = process.get_file_handle(fd).ok_or((-EBADF) as u64)?;
     let handle = &mut *file_handle;
+    let mut handle = handle.lock();
     let write_res = handle.write(buf).map_err(|e| {
         let errno = file_error_to_errno(&e);
         debug!("write_inner: write error for fd {}: {:?}", fd, e);

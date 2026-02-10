@@ -54,6 +54,8 @@ fn read_inner(fd: u64, buf: &mut [u8]) -> Result<usize, u64> {
         .ok_or((-ESRCH) as u64)?;
     let file_handle = process.get_file_handle(fd).ok_or((-EBADF) as u64)?;
     let handle = &mut *file_handle;
+    let mut handle = handle.lock();
+
     let read_res = handle.read(buf).map_err(|e| {
         let errno = file_error_to_errno(&e);
         debug!("read_inner: read error for fd {}: {:?}", fd, e);

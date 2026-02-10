@@ -33,6 +33,7 @@ fn seek_inner(fd: u64, offset: i64, whence: u64) -> Result<u64, u64> {
         2 => SeekFrom::End(offset),
         _ => return Err((-EINVAL) as u64),
     };
+    let mut file_handle = file_handle.lock();
     let new_pos = file_handle.seek(seek_from);
     Ok(new_pos)
 }

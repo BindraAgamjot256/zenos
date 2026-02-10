@@ -1,5 +1,6 @@
 #![allow(unused_assignments)]
 mod close;
+mod dup;
 mod errors;
 mod exec;
 mod exit;

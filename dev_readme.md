@@ -302,7 +302,7 @@ This is not a performance-focused OS. It's a learning project. That said:
 
 Things I might implement if I ever finish what I started:
 
-- Inode based VFS (because i want to cosplay as Unix)
+- Writing to disk that actually works(currently, it's a hisenbug. Sometimes it works, sometimes it doesn't, and I have no idea why)
 - A real file system (FAT is just a placeholder)
 - Pipes and IPC (because processes should talk to each other, even if they shouldn't)
 - A shell that does more than just print "Hello, world!" (maybe a REPL for testing syscalls?)

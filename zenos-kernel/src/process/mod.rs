@@ -19,6 +19,7 @@ use crate::{
     process::isolation::new_user_address_space,
     tty::TTY,
 };
+use alloc::rc::Rc;
 use alloc::{boxed::Box, format, string::String, string::ToString, sync::Arc, vec::Vec};
 use core::{
     arch::asm,
@@ -93,7 +94,7 @@ pub struct Process {
     pub cr3: PhysAddr,
     pub end: u64,
     pub entry_point: u64,
-    pub file_handles: HashMap<u32, OpenFile>,
+    pub file_handles: HashMap<u32, Rc<Mutex<OpenFile>>>,
     /// Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
     pub load_bias: u64,
     pub loaded: bool,
@@ -119,7 +120,7 @@ impl Process {
         let mut file_handles = HashMap::new();
         file_handles.insert(
             0,
-            OpenFile {
+            Rc::new(Mutex::new(OpenFile {
                 inode: Arc::new(Mutex::new(Inode {
                     num: 0,
                     kind: FileType::Device,
@@ -130,11 +131,11 @@ impl Process {
                 })),
                 cursor: Mutex::new(0),
                 file_open_options: FileOpenOptions::READ_WRITE,
-            },
+            })),
         );
         file_handles.insert(
             1,
-            OpenFile {
+            Rc::new(Mutex::new(OpenFile {
                 inode: Arc::new(Mutex::new(Inode {
                     num: 0,
                     kind: FileType::Device,
@@ -145,11 +146,11 @@ impl Process {
                 })),
                 cursor: Mutex::new(0),
                 file_open_options: FileOpenOptions::READ_WRITE,
-            },
+            })),
         );
         file_handles.insert(
             2,
-            OpenFile {
+            Rc::new(Mutex::new(OpenFile {
                 inode: Arc::new(Mutex::new(Inode {
                     num: 0,
                     kind: FileType::Device,
@@ -160,7 +161,7 @@ impl Process {
                 })),
                 cursor: Mutex::new(0),
                 file_open_options: FileOpenOptions::READ_WRITE,
-            },
+            })),
         );
         let p = Process {
             pid,
@@ -262,7 +263,8 @@ impl Process {
         self.user_stack_top = 0;
 
         self.file_handles.retain(|_, fh| {
-            !fh.file_open_options
+            !fh.lock()
+                .file_open_options
                 .contains(FileOpenOptions::CLOSE_ON_EXEC)
         });
 
@@ -584,7 +586,7 @@ impl Process {
     pub fn get_cr3(&self) -> PhysAddr {
         self.cr3
     }
-    pub(crate) fn get_file_handle(&mut self, fd: u64) -> Option<&mut disk::vfs::OpenFile> {
+    pub(crate) fn get_file_handle(&mut self, fd: u64) -> Option<&mut Rc<Mutex<OpenFile>>> {
         self.file_handles.get_mut(&(fd as u32))
     }
 
@@ -596,13 +598,48 @@ impl Process {
         let fds = self.file_handles.keys();
         let max = fds.clone().max().cloned().unwrap_or(2);
         let new_fd = max + 1;
-        let open_file = OpenFile {
+        let open_file = Rc::new(Mutex::new(OpenFile {
             inode: Arc::clone(&descriptor),
             cursor: Mutex::new(0),
             file_open_options: foo,
-        };
+        }));
         self.file_handles.insert(new_fd, open_file);
         Ok(new_fd as u64)
+    }
+
+    pub(crate) fn add_file_handle_with_fd(
+        &mut self,
+        descriptor: Arc<Mutex<Inode>>,
+        foo: FileOpenOptions,
+        fd: u64,
+    ) -> Result<u64, ()> {
+        if self.file_handles.contains_key(&(fd as u32)) {
+            self.file_handles.remove(&(fd as u32));
+        };
+        let new_fd = fd as u32;
+        let open_file = Rc::new(Mutex::new(OpenFile {
+            inode: Arc::clone(&descriptor),
+            cursor: Mutex::new(0),
+            file_open_options: foo,
+        }));
+        self.file_handles.insert(new_fd, open_file);
+        Ok(fd)
+    }
+
+    pub(crate) fn dup_file_handle(&mut self, old_fd: u64, new_fd: Option<u64>) -> Result<u64, ()> {
+        let old_handle = self.file_handles.get(&(old_fd as u32)).ok_or(())?.clone();
+        let new_fd = if let Some(fd) = new_fd {
+            fd
+        } else {
+            let fds = self.file_handles.keys();
+            let max = fds.clone().max().cloned().unwrap_or(2);
+            (max + 1) as u64
+        };
+        if self.file_handles.contains_key(&(new_fd as u32)) {
+            self.file_handles.remove(&(new_fd as u32));
+        }
+        self.file_handles.insert(new_fd as u32, old_handle);
+        Ok(new_fd)
     }
 
     pub(crate) fn close_file_handle(&mut self, fd: u64) -> Result<(), FileError> {
@@ -825,7 +862,7 @@ pub fn init_process() -> &'static [u8] {
     let mut file_handles = HashMap::new();
     file_handles.insert(
         0,
-        OpenFile {
+        Rc::new(Mutex::new(OpenFile {
             inode: Arc::new(Mutex::new(Inode {
                 num: 0,
                 kind: FileType::Device,
@@ -836,11 +873,11 @@ pub fn init_process() -> &'static [u8] {
             })),
             cursor: Mutex::new(0),
             file_open_options: FileOpenOptions::READ_WRITE,
-        },
+        })),
     );
     file_handles.insert(
         1,
-        OpenFile {
+        Rc::new(Mutex::new(OpenFile {
             inode: Arc::new(Mutex::new(Inode {
                 num: 0,
                 kind: FileType::Device,
@@ -851,11 +888,11 @@ pub fn init_process() -> &'static [u8] {
             })),
             cursor: Mutex::new(0),
             file_open_options: FileOpenOptions::READ_WRITE,
-        },
+        })),
     );
     file_handles.insert(
         2,
-        OpenFile {
+        Rc::new(Mutex::new(OpenFile {
             inode: Arc::new(Mutex::new(Inode {
                 num: 0,
                 kind: FileType::Device,
@@ -866,7 +903,7 @@ pub fn init_process() -> &'static [u8] {
             })),
             cursor: Mutex::new(0),
             file_open_options: FileOpenOptions::READ_WRITE,
-        },
+        })),
     );
     let process = Process {
         pid: 1,
