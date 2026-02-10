@@ -8,7 +8,7 @@ default = ["uefi"]
 uefi = ["dep:gpt"]
 
 [dependencies]
-anyhow = "1.0.32"
+anyhow = "1.0.101"
 fatfs = { version = "0.3.4", default-features = false, features = [
     "std",
     "alloc",
