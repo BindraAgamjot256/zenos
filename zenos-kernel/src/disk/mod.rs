@@ -10,8 +10,7 @@
 //!   Currently implements an AHCI driver ([`block::ahci`]) for SATA drives using DMA.
 //!
 //! - **VFS layer** ([`vfs`]): Virtual File System abstraction providing unified
-//!   filesystem traits ([`FileSystem`](vfs::FileSystem), [`Directory`](vfs::Directory),
-//!   [`File`](File)) that can be implemented by multiple backends. Handles
+//!   filesystem traits ([`FileSystem`](vfs::FileSystem), [`Inode`](vfs::InodeOps)) that can be implemented by multiple backends. Handles
 //!   mount point management and path resolution across mounted filesystems.
 //!
 //! - **Filesystem layer** ([`fs`]): Concrete filesystem implementations:

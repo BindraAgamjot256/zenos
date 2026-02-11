@@ -30,7 +30,10 @@ int main(int argc, char *argv[]) {
     printf(FG_YELLOW "  Type 'help' for commands" RESET "\n");
     printf(FG_CYAN "=================================" RESET "\n");
     printf("\n");
+    
+    shell_init_path();
     shell_register_builtins();
+    
     while (1) {
         printf(BOLD FG_BLUE "zenos" FG_MAGENTA "> " RESET);
         
@@ -46,8 +49,13 @@ int main(int argc, char *argv[]) {
         if (nargs == 0) continue;
         
         if (!shell_exec_cmd(args[0], nargs, args)) {
-            printf(FG_RED "Unknown command: %s, " RESET "\n", args[0]);
-            printf(FG_YELLOW "Type 'help' for available commands" RESET "\n");
+            if (!shell_exec_external(args[0], nargs, args)) {
+                printf(FG_RED "Unknown command: %s, " RESET "\n", args[0]);
+                printf(FG_YELLOW "Type 'help' for available commands" RESET "\n");
+            }
+            else {
+                printf(FG_RED "fuck you\n" RESET);
+            }
         }
     }
     

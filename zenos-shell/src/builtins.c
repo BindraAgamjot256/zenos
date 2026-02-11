@@ -32,6 +32,7 @@ void cmd_help(int argc, char *argv[]) {
     printf(FG_GREEN "  version      " RESET "- Show shell version\n");
     printf(FG_GREEN "  exit         " RESET "- Exit the shell\n");
     printf(FG_GREEN "  getpid       " RESET "- Get the process id of the shell\n");
+    printf(FG_GREEN "  path " FG_WHITE "[path]  " RESET "- Get or set PATH variable\n");
 }
 
 void cmd_clear(int argc, char *argv[]) {
@@ -61,4 +62,19 @@ void cmd_getpid(int argc, char *argv[]) {
     printf(FG_CYAN "zenos shell running as pid " BOLD "%d" RESET FG_CYAN ", parent pid " BOLD "%d" RESET, pid, ppid);
     if (ppid == 1) printf(FG_GREEN " (init process)" RESET "\n");
     else printf("\n");
+}
+
+void cmd_path(int argc, char *argv[]) {
+    if (argc == 1) {
+        /* Print current PATH */
+        printf("%s\n", shell_get_path());
+    } else if (argc == 2) {
+        /* Set new PATH */
+        shell_set_path(argv[1]);
+        printf(FG_GREEN "PATH updated to: " RESET "%s\n", argv[1]);
+    } else {
+        printf(FG_YELLOW "Usage: path [new_path]" RESET "\n");
+        printf("  Without arguments: display current PATH\n");
+        printf("  With argument: set PATH to the given value\n");
+    }
 }

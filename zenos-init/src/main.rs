@@ -3,10 +3,14 @@
 #![feature(format_args_nl)]
 
 use bitflags::bitflags;
+use core::ffi::CStr;
 use core::fmt::{self, Write};
 
 unsafe extern "C" {
     fn write(fd: u64, buf: *const u8, count: usize) -> isize;
+    fn open(path: *const u8, flags: u64, mode: u64) -> i64;
+    fn read(fd: u64, buf: *mut u8, count: usize) -> isize;
+    fn close(fd: u64) -> i64;
     fn fork() -> i64;
     fn execve(path: *const u8, argv: *const *const u8, envp: *const *const u8) -> i64;
     fn waitpid(pid: u64) -> i64;
@@ -74,6 +78,45 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
     }
 }
 
+/// Read PATH from /etc/path file and build environment array
+fn build_env_with_path() -> ([u8; 256], [*const u8; 2]) {
+    let mut path_buf = [0u8; 256];
+    let mut path_len = 0usize;
+
+    println!("[init] Reading PATH from /etc/path...");
+    // Try to read /etc/path
+    let fd = unsafe { open(b"/etc/path\0".as_ptr(), 0, 0) };
+    if fd >= 0 {
+        let n = unsafe { read(fd as u64, path_buf.as_mut_ptr().add(5), 250) };
+        if n > 0 {
+            path_len = n as usize;
+            // Remove trailing newline if present
+            if path_len > 0 && path_buf[5 + path_len - 1] == b'\n' {
+                path_len -= 1;
+            }
+        }
+        unsafe { close(fd as u64) };
+    } else {
+        panic!("failed to open /etc/path, error code: {}", fd);
+    }
+
+    // Build PATH=<value> string
+    if path_len > 0 {
+        path_buf[0] = b'P';
+        path_buf[1] = b'A';
+        path_buf[2] = b'T';
+        path_buf[3] = b'H';
+        path_buf[4] = b'=';
+        path_buf[5 + path_len] = 0;
+    } else {
+        // Default PATH
+        panic!("failed to open /etc/path, error code: {}", fd);
+    }
+
+    let envp = [path_buf.as_ptr(), core::ptr::null()];
+    (path_buf, envp)
+}
+
 /// Spawn a child process to run the given binary with optional arguments
 fn spawn(path: &[u8], args: &[&[u8]]) -> i64 {
     let pid = unsafe { fork() };
@@ -85,7 +128,10 @@ fn spawn(path: &[u8], args: &[&[u8]]) -> i64 {
             argv_ptrs[i] = arg.as_ptr();
         }
 
-        let ret = unsafe { execve(path.as_ptr(), argv_ptrs.as_ptr(), core::ptr::null()) };
+        // Build environment with PATH
+        let (_path_buf, envp) = build_env_with_path();
+
+        let ret = unsafe { execve(path.as_ptr(), argv_ptrs.as_ptr(), envp.as_ptr()) };
         // If we get here, execve failed
         println!(
             "execve failed for {:?}: {}",
@@ -191,9 +237,36 @@ pub extern "C" fn main() -> ! {
 pub extern "C" fn main() -> u64 {
     println!("=== Zenos Init ===");
 
+    let mut path_buf = [0u8; 256];
+    let mut path_len = 0usize;
+    let fd = unsafe { open(b"/etc/path\0".as_ptr(), 0, 0) };
+    if fd >= 0 {
+        let n = unsafe { read(fd as u64, path_buf.as_mut_ptr().add(5), 250) };
+        if n > 0 {
+            path_len = n as usize;
+            // Remove trailing newline if present
+            if path_len > 0 && path_buf[5 + path_len - 1] == b'\n' {
+                path_len -= 1;
+            }
+        }
+        unsafe { close(fd as u64) };
+    } else {
+        panic!("failed to open /etc/path, error code: {}", fd);
+    }
+    if path_len > 0 {
+        path_buf[0] = b'P';
+        path_buf[1] = b'A';
+        path_buf[2] = b'T';
+        path_buf[3] = b'H';
+        path_buf[4] = b'=';
+        path_buf[5 + path_len] = 0;
+    }
+    let path = CStr::from_bytes_until_nul(&path_buf).unwrap();
+    println!("[init] path: {:?}", path);
+
     // Launch the shell
     println!("[init] Launching shell...");
-    let shell_pid = spawn(b"/bin/shell\0", &[b"shell\0"]);
+    let shell_pid = spawn(b"/bin/shell\0", &[]);
 
     if shell_pid > 0 {
         println!("[init] Shell started with PID {}", shell_pid);

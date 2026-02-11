@@ -98,6 +98,7 @@ fn main() {
         std::fs::remove_dir_all(&path).expect("Could not clean iso/bin directory");
     }
     build_init(build_args);
+    build_coreutils(build_args);
     if build_args.stress {
         build_stress_tests(build_args);
     } else if cli.fuzz {
@@ -470,6 +471,46 @@ fn build_shell(_args: BuildArgs) {
     } else {
         eprintln!("[ERROR] Shell binary not found: {:?}", src);
         exit(1);
+    }
+}
+
+/// Builds coreutils and copies them to iso/usr/bin/
+fn build_coreutils(_args: BuildArgs) {
+    println!("[BUILD] Compiling coreutils...");
+
+    let coreutils_dir = Path::new("zenos-coreutils");
+    let build_dir = coreutils_dir.join("build");
+
+    // Build coreutils
+    let compile_status = std::process::Command::new("make")
+        .current_dir(coreutils_dir)
+        .env("CC", "clang --target=x86_64-unknown-none-elf")
+        .env("LD", "ld.lld")
+        .status()
+        .expect("Failed to run make for coreutils");
+
+    if !compile_status.success() {
+        eprintln!("[ERROR] coreutils build failed.");
+        exit(1);
+    }
+
+    // Copy all coreutils binaries to iso/usr/bin/
+    let out_dir = Path::new("iso").join("usr").join("bin");
+    std::fs::create_dir_all(&out_dir).unwrap();
+
+    let utilities = [
+        "ls", "cat", "grep", "echo", "true", "false", "yes", "wc", "head", "tail",
+    ];
+
+    for util in utilities {
+        let src = build_dir.join(util);
+        let dst = out_dir.join(util);
+        if src.exists() {
+            std::fs::copy(&src, &dst).expect(&format!("Failed to stage {}", util));
+            println!("[BUILD] Staged {} -> {:?}", util, dst);
+        } else {
+            eprintln!("[WARN] Coreutil binary not found: {:?}", src);
+        }
     }
 }
 

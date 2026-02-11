@@ -32,6 +32,7 @@ use hashbrown::HashMap;
 use heapless::Vec as HeaplessVec;
 use log::{LevelFilter, error, info, trace, warn};
 use spin::{Lazy, Mutex};
+use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::{
     PhysAddr, VirtAddr, instructions::tlb::flush_all, registers::control::Cr3,
     structures::paging::PageTableFlags, structures::paging::PhysFrame,
@@ -292,6 +293,7 @@ impl Process {
         p.user_stack_top = parent.user_stack_top;
         p.loaded = true; // Already loaded via cloned address space
         p.status = ProcessStatus::Ready;
+        p.file_handles = parent.file_handles.clone();
         Ok(p)
     }
 
@@ -299,24 +301,25 @@ impl Process {
         // CRITICAL: We need to modify the NEW process's memory.
         // Since ualloc_page and ptr::copy work on the ACTIVE CR3,
         // we must temporarily switch, do the work, and switch back.
+        without_interrupts(|| {
+            let (saved_cr3, flags) = Cr3::read();
 
-        let (saved_cr3, flags) = Cr3::read();
+            // 1. Switch to the new process context
+            unsafe {
+                Cr3::write(PhysFrame::containing_address(self.cr3), flags);
+                flush_all();
+            }
 
-        // 1. Switch to the new process context
-        unsafe {
-            Cr3::write(PhysFrame::containing_address(self.cr3), flags);
-            flush_all();
-        }
+            // 2. Do the loading (allocating pages, copying ELF data)
+            // This works because ELF_ADDR is in the Kernel (Upper) half,
+            // which is shared/copied in create_cr3.
+            self.internal_load(bytes);
 
-        // 2. Do the loading (allocating pages, copying ELF data)
-        // This works because ELF_ADDR is in the Kernel (Upper) half,
-        // which is shared/copied in create_cr3.
-        self.internal_load(bytes);
-
-        // 3. Switch BACK to the creator's context
-        unsafe {
-            Cr3::write(saved_cr3, flags);
-        }
+            // 3. Switch BACK to the creator's context
+            unsafe {
+                Cr3::write(saved_cr3, flags);
+            }
+        })
     }
 
     fn internal_load(&mut self, bytes: &[u8]) {
@@ -607,25 +610,6 @@ impl Process {
         Ok(new_fd as u64)
     }
 
-    pub(crate) fn add_file_handle_with_fd(
-        &mut self,
-        descriptor: Arc<Mutex<Inode>>,
-        foo: FileOpenOptions,
-        fd: u64,
-    ) -> Result<u64, ()> {
-        if self.file_handles.contains_key(&(fd as u32)) {
-            self.file_handles.remove(&(fd as u32));
-        };
-        let new_fd = fd as u32;
-        let open_file = Rc::new(Mutex::new(OpenFile {
-            inode: Arc::clone(&descriptor),
-            cursor: Mutex::new(0),
-            file_open_options: foo,
-        }));
-        self.file_handles.insert(new_fd, open_file);
-        Ok(fd)
-    }
-
     pub(crate) fn dup_file_handle(&mut self, old_fd: u64, new_fd: Option<u64>) -> Result<u64, ()> {
         let old_handle = self.file_handles.get(&(old_fd as u32)).ok_or(())?.clone();
         let new_fd = if let Some(fd) = new_fd {
@@ -698,7 +682,7 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
 /// Switch to the next ready process immediately.
 /// Used by exit syscall to avoid busy-waiting.
 /// Never returns if a process is found to switch to.
-pub fn schedule_next() -> ! {
+pub fn schedule_next() {
     // Force the scheduler to pick a new process on the next timer tick
     {
         let mut sched = SCHEDULER.lock();
@@ -716,13 +700,9 @@ pub fn schedule_next() -> ! {
     }
 
     // Enable interrupts and halt - the next timer tick will context switch
+    // When we're rescheduled, we'll return from this function
     unsafe {
         asm!("sti", "hlt", options(nomem, nostack),);
-    }
-
-    // Loop halting until timer reschedules us away
-    loop {
-        unsafe { asm!("hlt") };
     }
 }
 

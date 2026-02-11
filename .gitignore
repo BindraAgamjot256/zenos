@@ -157,7 +157,7 @@ tmp/
 temp/
 WARP.md
 **/*.elf
-iso/bin/**/*
+iso/**/bin/**/*
 *.img
 **/*.bin
 .bochsrc

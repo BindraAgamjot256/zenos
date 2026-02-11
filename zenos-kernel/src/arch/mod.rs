@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![doc(hidden)]
+// here be dragons. run away.
 
 #[inline(always)]
 pub(crate) unsafe fn outb(port: u16, val: u8) {

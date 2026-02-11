@@ -28,5 +28,11 @@ int shell_parse_args(char *line, char *argv[]);
 /* Find and execute a command, returns 1 if found, 0 if not */
 int shell_exec_cmd(const char *name, int argc, char *argv[]);
 
+/* Execute external command by searching PATH, returns 1 if found, 0 if not */
+int shell_exec_external(const char *name, int argc, char *argv[]);
+
+/* Initialize PATH from environment */
+void shell_init_path(void);
+
 /* Register the builtin commands */
 void shell_register_builtins(void);

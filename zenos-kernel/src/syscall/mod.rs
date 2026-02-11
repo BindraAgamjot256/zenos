@@ -1,4 +1,3 @@
-#![allow(unused_assignments)]
 mod close;
 mod dup;
 mod errors;
@@ -28,6 +27,7 @@ use x86_64::VirtAddr;
 
 use crate::memory::HIGHER_HALF_BASE;
 use crate::process::FxSaveArea;
+use crate::syscall::errors::{EFAULT, ENAMETOOLONG};
 use core::arch::global_asm;
 
 // Syscall entry that saves full register state for fork() support
@@ -199,7 +199,6 @@ pub unsafe extern "C" fn syscall_main(sframe: *mut SyscallFrame) -> u64 {
     ret
 }
 
-#[allow(unreachable_code, unused_variables, unused_assignments)]
 pub fn init() {
     let rt_ptr = syscall_entry as *const () as u64;
 
@@ -268,7 +267,10 @@ fn copy_from_user(user_ptr: *const u8, len: usize) -> Result<Vec<u8>, ()> {
     info!("copy from user {:x} len {len:x}", user_ptr as usize);
 
     if !user_range_is_mapped(user_ptr, len) {
-        error!("invalid user pointer");
+        error!(
+            "invalid user pointer, {:#x} + {:#x} is not fully mapped",
+            user_ptr as usize, len
+        );
         return Err(());
     }
 

@@ -28,6 +28,7 @@ void shell_register_builtins(void) {
     register_cmd("version", "Show shell version",              cmd_version);
     register_cmd("exit",    "Exit the shell",                  cmd_exit);
     register_cmd("getpid",  "get the process id of the shell", cmd_getpid);
+    register_cmd("path",    "Get or set PATH variable",        cmd_path);
 }
 
 int shell_exec_cmd(const char *name, int argc, char *argv[]) {

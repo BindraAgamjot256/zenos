@@ -5,7 +5,10 @@ use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;
 use crate::syscall::errors::{EFAULT, EINVAL, EMFILE, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
-use log::{debug, info};
+use alloc::ffi::CString;
+use alloc::string::{String, ToString};
+use alloc::vec::{self, Vec};
+use log::{debug, error, info};
 use zenos_macros::syscall;
 
 const MAX_PATH_LEN: usize = 4096;
@@ -18,26 +21,23 @@ fn open(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     debug!("syscall open: buf={:#x}", user_ptr as usize);
 
     // Step 1: copy a user-space path into kernel buffer
-    let buf = match copy_from_user(user_ptr, MAX_PATH_LEN) {
+    let buf = match copy_string(user_ptr, MAX_PATH_LEN) {
         Ok(b) => b,
-        Err(_) => return (-EFAULT) as u64,
+        Err(e) => {
+            error!(
+                "open syscall: failed to copy filename from user pointer {:#x}: error code {}",
+                user_ptr as usize,
+                -(e as i64)
+            );
+            return e;
+        }
     };
 
-    // Step 2: find the NUL terminator
-    let path_len = match buf.iter().position(|&c| c == 0) {
-        Some(pos) => pos,
-        None => return (-EINVAL) as u64,
-    };
-
-    // Step 3: convert to Rust str
-    let file_name = match str::from_utf8(&buf[..path_len]) {
-        Ok(s) => s,
-        Err(_) => return (-EINVAL) as u64,
-    };
-
+    // Step 2: convert to Rust str
+    let file_name = buf.as_str();
     debug!("open syscall: filename='{}', flags={:?}", file_name, flags);
 
-    // Step 4: delegate to inner function
+    // Step 3: delegate to inner function
     match open_inner(file_name, flags) {
         Ok(fd) => {
             info!("Opened file '{}' with fd {}", file_name, fd);
@@ -45,6 +45,24 @@ fn open(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         }
         Err(errno) => errno,
     }
+}
+
+fn copy_string(user_ptr: *const u8, max_len: usize) -> Result<String, u64> {
+    let mut vec = Vec::new();
+    unsafe {
+        for i in 0..max_len {
+            let byte = copy_from_user(user_ptr.add(i), 1).map_err(|_| -EFAULT as u64)?[0];
+            vec.push(byte);
+            if byte == 0 {
+                break;
+            }
+        }
+    }
+    let s = String::from_utf8(vec).map_err(|e| {
+        error!("invalid UTF-8 in filename: {}", e);
+        -EINVAL as u64
+    })?;
+    Ok(s.trim_end_matches('\0').to_string())
 }
 
 pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u64> {
@@ -59,8 +77,7 @@ pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u
         let res = fs.open_file(file_name);
         debug!(
             "open_inner: open_file result for '{}': {:?}",
-            file_name,
-            res.is_ok()
+            file_name, res
         );
         if res.is_err() {
             if foo.contains(FileOpenOptions::CREATE) {

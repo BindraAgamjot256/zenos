@@ -35,7 +35,7 @@ impl Scheduler {
             cursor: 0,
             current_pid: CurrentProcessAction::None,
             times_scheduled: 0,
-            quantum: 50, // milliseconds
+            quantum: 5, // milliseconds
             time: 0,
         }
     }
