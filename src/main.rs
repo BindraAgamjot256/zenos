@@ -97,6 +97,10 @@ fn main() {
     if path.exists() {
         std::fs::remove_dir_all(&path).expect("Could not clean iso/bin directory");
     }
+    let path = PathBuf::from("./iso/usr/bin");
+    if path.exists() {
+        std::fs::remove_dir_all(&path).expect("Could not clean iso/usr/bin directory");
+    }
     build_init(build_args);
     build_coreutils(build_args);
     if build_args.stress {
