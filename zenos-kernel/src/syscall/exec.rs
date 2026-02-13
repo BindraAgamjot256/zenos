@@ -159,9 +159,6 @@ fn exec_inner(file: Arc<Mutex<Inode>>, path: &str, argv: &[Vec<u8>], envp: &[Vec
         .collect();
 
     let mut full_argv = Vec::new();
-    let mut pth = path.to_string();
-    pth.push(0 as char);
-    full_argv.push(pth.as_ptr());
     full_argv.extend(argv_ptrs);
 
     let argc = full_argv.len();
