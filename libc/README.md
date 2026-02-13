@@ -389,6 +389,7 @@ int main(void) {
 | Specifier | Description             | Example  |
 |-----------|-------------------------|----------|
 | `%d`      | Signed decimal int      | `-42`    |
+| `%ld`     | Signed decimal long     | `-42`    |
 | `%u`      | Unsigned decimal int    | `42`     |
 | `%x`      | Hexadecimal (lowercase) | `2a`     |
 | `%p`      | Pointer                 | `0x1234` |

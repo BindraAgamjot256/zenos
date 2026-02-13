@@ -6,6 +6,7 @@
  *
  * Supported format specifiers:
  *   %d  - signed decimal integer
+ *   %ld - signed decimal long
  *   %u  - unsigned decimal integer
  *   %x  - unsigned hexadecimal (lowercase)
  *   %p  - pointer (prints as 0x...)
@@ -105,6 +106,48 @@ static int print_int(int value, int width, int zero_pad) {
     return bytes;
 }
 
+/** Print signed long with optional width/zero-padding */
+static int print_long(long value, int width, int zero_pad) {
+    unsigned long u;
+    int bytes = 0;
+    int is_neg = (value < 0);
+
+    if (is_neg) {
+        u = (unsigned long) (-(value + 1)) + 1;
+    } else {
+        u = (unsigned long) value;
+    }
+
+    char buffer[32];
+    int i = 0;
+
+    if (u == 0) {
+        buffer[i++] = '0';
+    } else {
+        while (u > 0) {
+            buffer[i++] = (char) ('0' + (u % 10));
+            u /= 10;
+        }
+    }
+
+    if (is_neg) {
+        bytes += write_char('-');
+    }
+
+    int pad_len = width - i;
+    char pad_char = zero_pad ? '0' : ' ';
+
+    while (pad_len-- > 0) {
+        bytes += write_char(pad_char);
+    }
+
+    while (i > 0) {
+        bytes += write_char(buffer[--i]);
+    }
+
+    return bytes;
+}
+
 /** Print pointer as "0x..." hex address */
 static int print_pointer(void *ptr) {
     uintptr_t p = (uintptr_t) ptr;
@@ -151,10 +194,23 @@ int printf(const char *format, ...) {
 
         if (*format == '\0') break;
 
+        // Check for length modifier 'l'
+        int is_long = 0;
+        if (*format == 'l') {
+            is_long = 1;
+            format++;
+            if (*format == '\0') break;
+        }
+
         switch (*format) {
             case 'd': {
-                int v = va_arg(args, int);
-                bytes += print_int(v, width, zero_pad);
+                if (is_long) {
+                    long v = va_arg(args, long);
+                    bytes += print_long(v, width, zero_pad);
+                } else {
+                    int v = va_arg(args, int);
+                    bytes += print_int(v, width, zero_pad);
+                }
                 break;
             }
             case 'u': {
