@@ -95,11 +95,15 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         );
     }
 
+    // Create the kernel idle task first (pid 0)
+    zenos_kernel::process::create_idle_task();
+
     let buf = zenos_kernel::process::init_process();
 
     let (entry, stack, pid) = {
         let mut processes = zenos_kernel::process::PROCESSES.lock();
-        let pinit = &mut processes[0];
+        // kidle is at index 0, init is at index 1
+        let pinit = &mut processes[1];
         pinit.load(buf);
         let (e, s) = pinit.prepare_run().unwrap();
         (e, s, pinit.pid)

@@ -85,6 +85,9 @@ impl PartialEq<ProcessStatus<'_>> for ProcessStatus<'_> {
 
 impl Eq for ProcessStatus<'_> {}
 
+/// Default process priority (lower number = higher priority)
+pub const DEFAULT_PRIORITY: u8 = 1;
+
 #[derive(Debug)]
 pub struct Process {
     pub pid: u64,
@@ -106,6 +109,8 @@ pub struct Process {
     pub envp: Vec<Vec<u8>>,
     /// Argument vectors for the process
     pub argv: Vec<Vec<u8>>,
+    /// Process priority (lower number = higher priority, default is 1)
+    pub priority: u8,
 }
 impl Eq for Process {}
 impl PartialEq for Process {
@@ -180,6 +185,7 @@ impl Process {
             exit_code: None,
             envp: parent.envp.clone(),
             argv: Vec::new(),
+            priority: DEFAULT_PRIORITY,
         };
         NEXT_PID.store(pid + 1, Ordering::Release);
         p
@@ -294,6 +300,7 @@ impl Process {
         p.loaded = true; // Already loaded via cloned address space
         p.status = ProcessStatus::Ready;
         p.file_handles = parent.file_handles.clone();
+        p.priority = parent.priority;
         Ok(p)
     }
 
@@ -901,9 +908,77 @@ pub fn init_process() -> &'static [u8] {
         exit_code: None,
         envp: Vec::new(),
         argv: Vec::new(),
+        priority: DEFAULT_PRIORITY,
     };
     PROCESSES.lock().push(process).unwrap();
     buf
+}
+
+/// Kernel idle task - runs when no other processes are ready
+/// This is a kernel-mode task that simply halts the CPU until an interrupt occurs
+pub fn create_idle_task() {
+    // Allocate a kernel stack for the idle task
+    let stack_size = 0x4000; // 16 KiB
+    kalloc_page(
+        VirtAddr::new(KERNEL_BASE + 0x100_0000), // Place it in kernel space
+        PageType::Arbitrary,
+    )
+    .expect("Failed to allocate idle task stack");
+
+    // Map additional pages for the stack
+    for i in 1..(stack_size / PAGE_4K) {
+        kalloc_page(
+            VirtAddr::new(KERNEL_BASE + 0x100_0000 + (i * PAGE_4K) as u64),
+            PageType::Arbitrary,
+        )
+        .expect("Failed to allocate idle task stack page");
+    }
+
+    let stack_top = KERNEL_BASE + 0x100_0000 + stack_size as u64;
+
+    // Set up kernel-mode process state
+    let mut state = ProcessState::default();
+    state.rip = idle_loop as *const () as u64;
+    state.rsp = stack_top;
+    state.rflags = 0x202; // IF=1 (interrupts enabled)
+    state.cs = GDT.code_selector.0 as u64; // Kernel code segment
+    state.ss = GDT._data_selector.0 as u64; // Kernel data segment
+
+    let idle_process = Process {
+        pid: 0,
+        parent_pid: 0,
+        state,
+        status: ProcessStatus::Ready,
+        name: String::from("[kidle]"),
+        end: 0,
+        entry_point: idle_loop as *const () as u64,
+        load_bias: 0,
+        cr3: Cr3::read().0.start_address(),
+        file_handles: HashMap::new(),
+        loaded: true, // Mark as loaded so scheduler considers it
+        user_stack_top: stack_top,
+        exit_code: None,
+        envp: Vec::new(),
+        argv: Vec::new(),
+        priority: u8::MAX, // Lowest priority - only runs when nothing else can
+    };
+    PROCESSES.lock().push(idle_process).unwrap();
+    info!(
+        "Kernel idle task created (pid 0, priority {}, entry {:#x}, stack {:#x})",
+        u8::MAX,
+        idle_loop as *const () as u64,
+        stack_top
+    );
+}
+
+/// Kernel idle loop - halts CPU until an interrupt occurs
+/// This function never returns and is the entry point for the idle task
+pub extern "C" fn idle_loop() -> ! {
+    loop {
+        unsafe {
+            asm!("hlt", options(nomem, nostack, preserves_flags));
+        }
+    }
 }
 
 static CURRENT_PID: PerCpuVar<u64> = PerCpuVar::new(offset_of!(PerCpuData, curr_pid));
