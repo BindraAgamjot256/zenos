@@ -1,6 +1,4 @@
-use crate::disk::vfs::InodeOps;
 use crate::process::PROCESSES;
-use crate::process::file_handles::Stdin;
 use crate::syscall::errors::{EBADF, EFAULT, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
 use crate::syscall::{copy_from_user, copy_to_user};

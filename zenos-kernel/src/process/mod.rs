@@ -5,7 +5,6 @@ pub(crate) mod scheduler;
 
 pub use crate::process::scheduler::Scheduler;
 use crate::{
-    disk,
     disk::FS,
     disk::FileError,
     disk::vfs::{FileType, Inode, OpenFile, Permissions},

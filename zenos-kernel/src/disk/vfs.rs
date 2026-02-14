@@ -209,6 +209,7 @@ impl OpenFile {
         let offset = *self.cursor.lock();
         let bytes_read = self.inode.lock().data.read(offset, buf)?;
         *self.cursor.lock() += bytes_read as u64;
+        self.inode.lock().data.sync()?;
         Ok(bytes_read)
     }
     pub fn write(&mut self, buf: &[u8]) -> Result<usize, FileError> {
@@ -217,12 +218,13 @@ impl OpenFile {
             .contains(FileOpenOptions::WRITE_ONLY | FileOpenOptions::READ_WRITE)
             || self.inode.lock().perms.contains(Permissions::OWNER_WRITE))
         {
-            // if someone wonders how this works, i used de morgan's law.
+            // if someone wonders how this works, I used de Morgan's law.
             return Err(FileError::PermissionDenied);
         }
         let offset = *self.cursor.lock();
         let bytes_written = self.inode.lock().data.write(offset, buf)?;
         *self.cursor.lock() += bytes_written as u64;
+        self.inode.lock().data.sync()?;
         Ok(bytes_written)
     }
 }

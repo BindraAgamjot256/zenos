@@ -27,7 +27,6 @@ use x86_64::VirtAddr;
 
 use crate::memory::HIGHER_HALF_BASE;
 use crate::process::FxSaveArea;
-use crate::syscall::errors::{EFAULT, ENAMETOOLONG};
 use core::arch::global_asm;
 
 // Syscall entry that saves full register state for fork() support
