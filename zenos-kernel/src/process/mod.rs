@@ -986,7 +986,7 @@ pub static SCHEDULER: Lazy<Mutex<Scheduler>> = Lazy::new(|| Mutex::new(Scheduler
 
 /// Get the current process PID
 pub fn current_pid() -> u64 {
-    unsafe { CURRENT_PID.read() }
+    SCHEDULER.lock().current_pid().unwrap()
 }
 
 /// Set the current process PID

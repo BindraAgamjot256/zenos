@@ -101,6 +101,37 @@ info:
 	@echo "OUTPUT:   $(OUTPUT)"
 	@echo "CRT0:     $(CRT0_OBJ)"
 
+# Test configuration (host build)
+TEST_DIR := tests
+TEST_BUILD := $(BUILD_DIR)/tests
+TEST_BIN := $(TEST_BUILD)/run_tests
+
+TEST_SRCS := $(TEST_DIR)/test_main.c \
+             $(TEST_DIR)/test_string.c \
+             $(TEST_DIR)/test_stdlib.c \
+             $(TEST_DIR)/test_math.c \
+             $(TEST_DIR)/host_string.c \
+             $(TEST_DIR)/host_stdlib.c \
+             $(TEST_DIR)/host_math.c
+
+TEST_CFLAGS := -std=c11 -Wall -Wextra -g -O0 -I$(INC_DIR)
+
+# Host compiler for tests (use system default)
+HOST_CC ?= cc
+
+# Test target - builds and runs tests on host
+.PHONY: test
+test: $(TEST_BIN)
+	@echo ""
+	@echo "Running tests..."
+	@$(TEST_BIN)
+
+$(TEST_BUILD):
+	mkdir -p $(TEST_BUILD)
+
+$(TEST_BIN): $(TEST_SRCS) | $(TEST_BUILD)
+	$(HOST_CC) $(TEST_CFLAGS) -lm $(TEST_SRCS) -o $@
+
 .PHONY: help
 help:
 	@echo "Usage:"
@@ -109,6 +140,7 @@ help:
 	@echo "  make DEBUG=1      - Build with debug symbols"
 	@echo "  make clean        - Remove build artifacts"
 	@echo "  make info         - Show build configuration"
+	@echo "  make test         - Run unit tests on host"
 	@echo ""
 	@echo "Output files:"
 	@echo "  build/crt0.o      - C runtime startup (link FIRST)"
