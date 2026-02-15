@@ -84,10 +84,6 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     // Initialize kernel subsystems
     kinit(boot_info);
 
-    let (free, total) = zenos_kernel::memory::get_stats().unwrap();
-    let used = total - free;
-    serial_println!("Pages used: {} / {}", used, total);
-    serial_println!("Memory used: {} KiB", used * PAGE_4K / 1024);
     #[cfg(feature = "test_stub")]
     {
         compile_error!(
@@ -95,7 +91,9 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         );
     }
 
+
     // Create the kernel idle task first (pid 0)
+    log::set_max_level(log::LevelFilter::Warn);
     zenos_kernel::process::create_idle_task();
 
     let buf = zenos_kernel::process::init_process();
@@ -115,6 +113,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         sched.set_current(pid);
     }
 
+    log::set_max_level(log::LevelFilter::Debug);    
     zenos_kernel::process::enter_user_mode(entry, stack);
 }
 

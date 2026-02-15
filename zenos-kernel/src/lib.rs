@@ -23,7 +23,6 @@
 
 #![no_std]
 #![feature(abi_x86_interrupt)]
-#![feature(ptr_as_ref_unchecked)]
 #![feature(associated_type_defaults)]
 #![feature(unsafe_cell_access)]
 #![allow(unsafe_op_in_unsafe_fn)] // rustc 2024 doesn't allow unsafe ops in unsafe functions, so we enable it manually

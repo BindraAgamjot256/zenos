@@ -57,7 +57,7 @@ impl InodeOps for Stdout {
     }
 
     fn sync(&mut self) -> Result<(), FileError> {
-        Err(FileError::UnsupportedOperation)
+        Ok(())
     }
 
     fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
@@ -94,7 +94,7 @@ impl InodeOps for Stderr {
     }
 
     fn sync(&mut self) -> Result<(), FileError> {
-        Err(FileError::UnsupportedOperation)
+        Ok(())
     }
 
     fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
@@ -169,7 +169,7 @@ impl InodeOps for Stdin {
     }
 
     fn sync(&mut self) -> Result<(), FileError> {
-        Err(FileError::UnsupportedOperation)
+        Ok(())
     }
 
     fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {

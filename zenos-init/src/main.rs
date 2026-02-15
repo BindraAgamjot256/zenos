@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(format_args_nl)]
 
 use bitflags::bitflags;
 use core::ffi::CStr;
@@ -39,7 +38,7 @@ macro_rules! print {
 macro_rules! println {
     () => (print!("\n"));
     ($($arg:tt)*) => ({
-        print!("{}", format_args_nl!($($arg)*));
+        print!("{}\n", format_args!($($arg)*));
     })
 }
 

@@ -249,6 +249,7 @@ fn build_kernel(args: BuildArgs) -> PathBuf {
     cmd.arg("+nightly");
     cmd.arg("build");
     cmd.arg("-p").arg("zenos-kernel");
+    cmd.arg("-Z").arg("json-target-spec");
 
     #[cfg(not(debug_assertions))]
     {
@@ -303,6 +304,7 @@ fn build_init(args: BuildArgs) {
     cmd.arg("+nightly");
     cmd.arg("build");
     cmd.arg("-p").arg("zenos-init");
+    cmd.arg("-Z").arg("json-target-spec");
 
     #[cfg(not(debug_assertions))]
     cmd.arg("--release");
@@ -401,6 +403,8 @@ fn build_fuzz(args: BuildArgs) {
     cmd.arg("+nightly");
     cmd.arg("build");
     cmd.arg("-p").arg("zenos-fuzz");
+    cmd.arg("-Z").arg("json-target-spec");
+
 
     #[cfg(not(debug_assertions))]
     cmd.arg("--release");
