@@ -14,8 +14,7 @@ extern crate alloc;
 
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
-use zenos_kernel::memory::PAGE_4K;
-use zenos_kernel::{kinit, serial_println};
+use zenos_kernel::{kinit};
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();

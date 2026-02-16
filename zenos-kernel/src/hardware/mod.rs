@@ -366,7 +366,7 @@ impl LocalApic {
 
         // Check CPUID for APIC support
         debug!("Checking CPUID for APIC capabilities");
-        let leaf = unsafe { __cpuid(1) };
+        let leaf = { __cpuid(1) };
         let have_apic = (leaf.edx >> 9) & 1 != 0;
         let have_x2 = (leaf.ecx >> 21) & 1 != 0;
 
