@@ -6,7 +6,7 @@ use crate::syscall::copy_from_user;
 use crate::syscall::errors::{EFAULT, EINVAL, EMFILE, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
 use alloc::string::{String, ToString};
-use alloc::vec::{Vec};
+use alloc::vec::Vec;
 use log::{debug, error, info};
 use zenos_macros::syscall;
 

@@ -382,7 +382,7 @@ pub fn generate_cpuinfo() -> String {
     let mut info = String::new();
 
     // Vendor
-    let vendor =  {
+    let vendor = {
         let c = __cpuid(0);
         let mut bytes = [0u8; 12];
         bytes[0..4].copy_from_slice(&c.ebx.to_le_bytes());
@@ -394,7 +394,7 @@ pub fn generate_cpuinfo() -> String {
     };
 
     // Brand
-    let brand =  {
+    let brand = {
         let max = __cpuid(0x80000000).eax;
         if max >= 0x80000004 {
             let mut bytes = [0u8; 48];
@@ -417,7 +417,7 @@ pub fn generate_cpuinfo() -> String {
     };
 
     // Family / model / stepping
-    let (family, model, stepping) =  {
+    let (family, model, stepping) = {
         let c = __cpuid(1);
         let stepping = c.eax & 0xF;
         let model = ((c.eax >> 4) & 0xF) | (((c.eax >> 16) & 0xF) << 4);
@@ -427,7 +427,7 @@ pub fn generate_cpuinfo() -> String {
 
     // Features
     let mut flags = Vec::new();
-     {
+    {
         let c1 = __cpuid(1);
         let c7 = __cpuid(7);
 

@@ -405,7 +405,6 @@ fn build_fuzz(args: BuildArgs) {
     cmd.arg("-p").arg("zenos-fuzz");
     cmd.arg("-Z").arg("json-target-spec");
 
-
     #[cfg(not(debug_assertions))]
     cmd.arg("--release");
 

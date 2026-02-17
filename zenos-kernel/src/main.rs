@@ -14,7 +14,7 @@ extern crate alloc;
 
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
-use zenos_kernel::{kinit};
+use zenos_kernel::kinit;
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -90,7 +90,6 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         );
     }
 
-
     // Create the kernel idle task first (pid 0)
     log::set_max_level(log::LevelFilter::Warn);
     zenos_kernel::process::create_idle_task();
@@ -112,7 +111,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         sched.set_current(pid);
     }
 
-    log::set_max_level(log::LevelFilter::Debug);    
+    log::set_max_level(log::LevelFilter::Debug);
     zenos_kernel::process::enter_user_mode(entry, stack);
 }
 
