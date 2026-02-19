@@ -24,8 +24,6 @@ use xmas_elf::ElfFile;
 
 /// Provides a function to gather entropy and build a RNG.
 mod entropy;
-/// Provides a type that logs output as text to pixel-based framebuffers.
-pub mod framebuffer;
 mod gdt;
 /// Provides a frame allocator based on a BIOS or UEFI memory map.
 pub mod legacy_memory_region;

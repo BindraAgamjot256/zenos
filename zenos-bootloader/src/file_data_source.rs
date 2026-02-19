@@ -9,7 +9,6 @@ use std::{fs, io};
 /// Defines a data source, either a source `std::path::PathBuf`, or a vector of bytes.
 pub enum FileDataSource {
     File(PathBuf),
-    Data(Vec<u8>),
     Bytes(&'static [u8]),
 }
 
@@ -18,9 +17,6 @@ impl Debug for FileDataSource {
         match self {
             FileDataSource::File(file) => {
                 f.write_fmt(format_args!("data source: File {}", file.display()))
-            }
-            FileDataSource::Data(d) => {
-                f.write_fmt(format_args!("data source: {} raw bytes ", d.len()))
             }
             FileDataSource::Bytes(b) => {
                 f.write_fmt(format_args!("data source: {} raw bytes ", b.len()))
@@ -36,7 +32,6 @@ impl FileDataSource {
             FileDataSource::File(path) => fs::metadata(path)
                 .with_context(|| format!("failed to read metadata of file `{}`", path.display()))?
                 .len(),
-            FileDataSource::Data(v) => v.len() as u64,
             FileDataSource::Bytes(s) => s.len() as u64,
         })
     }
@@ -50,10 +45,6 @@ impl FileDataSource {
                     })?,
                     target,
                 )?;
-            }
-            FileDataSource::Data(contents) => {
-                let mut cursor = Cursor::new(contents);
-                io::copy(&mut cursor, target)?;
             }
             FileDataSource::Bytes(contents) => {
                 let mut cursor = Cursor::new(contents);

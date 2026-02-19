@@ -1,6 +1,4 @@
 #![allow(deprecated)]
-
-use crate::concat::*;
 use crate::version_info;
 /// Allows configuring the bootloader behavior.
 ///
@@ -30,11 +28,22 @@ pub struct BootloaderConfig {
 
     /// Configuration for the frame buffer that can be used by the kernel to display pixels
     /// on the screen.
-    #[deprecated(
-        since = "0.11.1",
-        note = "The frame buffer is now configured through the `BootConfig` struct when creating the bootable block image"
-    )]
     pub frame_buffer: FrameBuffer,
+}
+
+const fn concat<const N: usize, const M: usize>(a: [u8; N], b: [u8; M]) -> [u8; N + M] {
+    let mut result = [0; N + M];
+    let mut i = 0;
+    while i < N {
+        result[i] = a[i];
+        i += 1;
+    }
+    let mut j = 0;
+    while j < M {
+        result[N + j] = b[j];
+        j += 1;
+    }
+    result
 }
 
 impl BootloaderConfig {
@@ -93,65 +102,65 @@ impl BootloaderConfig {
         } = frame_buffer;
 
         let version = {
-            let one = concat_2_2(version_major.to_le_bytes(), version_minor.to_le_bytes());
-            let two = concat_2_1(version_patch.to_le_bytes(), [*pre_release as u8]);
-            concat_4_3(one, two)
+            let one = concat(version_major.to_le_bytes(), version_minor.to_le_bytes());
+            let two = concat(version_patch.to_le_bytes(), [*pre_release as u8]);
+            concat(one, two)
         };
-        let buf = concat_16_7(Self::UUID, version);
+        let buf = concat(Self::UUID, version);
 
-        let buf = concat_23_8(buf, kernel_stack_size.to_le_bytes());
+        let buf = concat(buf, kernel_stack_size.to_le_bytes());
 
-        let buf = concat_31_9(buf, kernel_stack.serialize());
-        let buf = concat_40_9(buf, kernel_base.serialize());
+        let buf = concat(buf, kernel_stack.serialize());
+        let buf = concat(buf, kernel_base.serialize());
 
-        let buf = concat_49_9(buf, boot_info.serialize());
-        let buf = concat_58_9(buf, framebuffer.serialize());
+        let buf = concat(buf, boot_info.serialize());
+        let buf = concat(buf, framebuffer.serialize());
 
-        let buf = concat_67_10(
+        let buf = concat(
             buf,
             match physical_memory {
                 None => [0; 10],
-                Some(m) => concat_1_9([1], m.serialize()),
+                Some(m) => concat([1], m.serialize()),
             },
         );
-        let buf = concat_77_10(
+        let buf = concat(
             buf,
             match page_table_recursive {
                 None => [0; 10],
-                Some(m) => concat_1_9([1], m.serialize()),
+                Some(m) => concat([1], m.serialize()),
             },
         );
-        let buf = concat_87_1(buf, [(*aslr) as u8]);
-        let buf = concat_88_9(
+        let buf = concat(buf, [(*aslr) as u8]);
+        let buf = concat(
             buf,
             match dynamic_range_start {
                 None => [0; 9],
-                Some(addr) => concat_1_8([1], addr.to_le_bytes()),
+                Some(addr) => concat([1], addr.to_le_bytes()),
             },
         );
-        let buf = concat_97_9(
+        let buf = concat(
             buf,
             match dynamic_range_end {
                 None => [0; 9],
-                Some(addr) => concat_1_8([1], addr.to_le_bytes()),
+                Some(addr) => concat([1], addr.to_le_bytes()),
             },
         );
 
-        let buf = concat_106_9(buf, ramdisk_memory.serialize());
+        let buf = concat(buf, ramdisk_memory.serialize());
 
-        let buf = concat_115_9(
+        let buf = concat(
             buf,
             match minimum_framebuffer_height {
                 None => [0; 9],
-                Some(addr) => concat_1_8([1], addr.to_le_bytes()),
+                Some(addr) => concat([1], addr.to_le_bytes()),
             },
         );
 
-        concat_124_9(
+        concat(
             buf,
             match minimum_framebuffer_width {
                 None => [0; 9],
-                Some(addr) => concat_1_8([1], addr.to_le_bytes()),
+                Some(addr) => concat([1], addr.to_le_bytes()),
             },
         )
     }
@@ -194,8 +203,10 @@ impl BootloaderConfig {
             (version, s)
         };
 
-        // TODO check version against this crate version -> error if they're different
-
+        let default_version = ApiVersion::new_default();
+        if version != default_version {
+            return Err("incompatible API version");
+        }
         let (&kernel_stack_size, s) = split_array_ref(s);
 
         let (mappings, s) = {
@@ -459,7 +470,7 @@ impl Mapping {
     const fn serialize(&self) -> [u8; 9] {
         match self {
             Mapping::Dynamic => [0; 9],
-            Mapping::FixedAddress(addr) => concat_1_8([1], addr.to_le_bytes()),
+            Mapping::FixedAddress(addr) => concat([1], addr.to_le_bytes()),
         }
     }
 

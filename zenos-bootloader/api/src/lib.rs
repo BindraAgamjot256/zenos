@@ -4,6 +4,8 @@
 #![cfg_attr(not(test), no_std)]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
+#![feature(generic_const_exprs)]
+#![allow(incomplete_features)]
 
 pub use self::{config::BootloaderConfig, info::BootInfo};
 
@@ -11,10 +13,6 @@ pub use self::{config::BootloaderConfig, info::BootInfo};
 pub mod config;
 /// Contains the boot information struct sent by the bootloader to the kernel on startup.
 pub mod info;
-
-mod concat {
-    include!(concat!(env!("OUT_DIR"), "/concat.rs"));
-}
 
 mod version_info {
     include!(concat!(env!("OUT_DIR"), "/version_info.rs"));

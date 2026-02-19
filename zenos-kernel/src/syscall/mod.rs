@@ -26,7 +26,7 @@ use log::{debug, error, info};
 use x86_64::VirtAddr;
 
 use crate::memory::HIGHER_HALF_BASE;
-use crate::process::FxSaveArea;
+use crate::process::{FxSaveArea, SCHEDULER};
 use core::arch::global_asm;
 
 // Syscall entry that saves full register state for fork() support
@@ -163,14 +163,13 @@ pub unsafe extern "C" fn syscall_main(sframe: *mut SyscallFrame) -> u64 {
     let r8 = frame.r8;
     let r9 = frame.r9;
     frame.user_rflags |= 0x200; // set IF flag in RFLAGS to re-enable interrupts on return
-    let curr_pid = unsafe { (*crate::percpu::get_percpu_data()).curr_pid };
+    let curr_pid = SCHEDULER.lock().current_pid().unwrap_or_default();
 
     debug!("syscall num: {} (pid={})", syscall_num, curr_pid);
     debug!(
         "args: rdi={:#x}, rsi={:#x}, rdx={:#x}, r10={:#x}, r8={:#x}, r9={:#x}",
         rdi, rsi, rdx, r10, r8, r9
     );
-    info!("percpu data ptr: {:#?}", *crate::percpu::get_percpu_data());
 
     // Update current process state from syscall frame (needed for fork)
     {
@@ -195,6 +194,10 @@ pub unsafe extern "C" fn syscall_main(sframe: *mut SyscallFrame) -> u64 {
         info!("invalid syscall number: {}", syscall_num);
         ret = (-errors::ENOSYS) as u64;
     }
+    info!(
+        "returning from syscall number: {}, return value: {:#x}",
+        syscall_num, ret
+    );
     ret
 }
 

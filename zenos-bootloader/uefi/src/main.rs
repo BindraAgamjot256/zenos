@@ -82,19 +82,7 @@ fn main_inner(image: Handle, mut st: SystemTable<Boot>) -> Status {
     }
     let kernel = kernel.expect("Failed to load kernel");
 
-    let config_file = load_config_file(image, &mut st, boot_mode);
-    let mut error_loading_config: Option<serde_json_core::de::Error> = None;
-    let mut config: BootConfig = match config_file
-        .as_deref()
-        .map(serde_json_core::from_slice)
-        .transpose()
-    {
-        Ok(data) => data.unwrap_or_default().0,
-        Err(err) => {
-            error_loading_config = Some(err);
-            Default::default()
-        }
-    };
+    let mut config: BootConfig = Default::default();
 
     #[allow(deprecated)]
     if config.frame_buffer.minimum_framebuffer_height.is_none() {
@@ -116,12 +104,6 @@ fn main_inner(image: Handle, mut st: SystemTable<Boot>) -> Status {
 
     if let Some(framebuffer) = framebuffer {
         log::info!("Using framebuffer at {:#x}", framebuffer.addr);
-    }
-
-    if let Some(err) = error_loading_config {
-        log::warn!("Failed to deserialize the config file {:#?}", err);
-    } else {
-        log::info!("Reading configuration from disk was successful");
     }
 
     log::info!("Trying to load ramdisk via {:#?}", boot_mode);

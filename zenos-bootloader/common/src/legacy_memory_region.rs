@@ -211,7 +211,7 @@ where
         unsafe {
             // inlined variant of: `MaybeUninit::slice_assume_init_mut(initialized)`
             // TODO: undo inlining when `slice_assume_init_mut` becomes stable
-            &mut *(initialized as *mut [_] as *mut [_])
+            &mut *(initialized as *mut [MaybeUninit<_>] as *mut [_])
         }
     }
 
