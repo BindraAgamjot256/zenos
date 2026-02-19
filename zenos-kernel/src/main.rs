@@ -91,7 +91,6 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     }
 
     // Create the kernel idle task first (pid 0)
-    log::set_max_level(log::LevelFilter::Warn);
     zenos_kernel::process::create_idle_task();
 
     let buf = zenos_kernel::process::init_process();
@@ -111,7 +110,6 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         sched.set_current(pid);
     }
 
-    log::set_max_level(log::LevelFilter::Debug);
     zenos_kernel::process::enter_user_mode(entry, stack);
 }
 

@@ -138,7 +138,7 @@ macro_rules! kernel_busy_wait {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext) -> u64 {
     // Increment the tick counter for timekeeping
-    // crate::disk::fs::proc::tick();
+    crate::disk::fs::proc::tick();
     crate::tty::update_cursor();
     // Send EOI first
     {
