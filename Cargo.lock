@@ -4,13 +4,16 @@ version = 4
 
 [[package]]
 name = "acpi"
-version = "5.2.0"
+version = "6.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94476c7ef97af4c4d998b3f422c1b01d5211aad57c80ed200baf148d1f1efab6"
+checksum = "5ccf6d4e668d9babca9103f59f305d3bc55e24355cf166dbddf5a7a5e1243d06"
 dependencies = [
  "bit_field",
  "bitflags 2.10.0",
+ "byteorder",
  "log",
+ "pci_types",
+ "spinning_top 0.3.0",
 ]
 
 [[package]]
@@ -607,6 +610,16 @@ name = "pc-keyboard"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0ca629cbb3f0d5b699c338f0129ff78c9bfd7ea8b1258ad529bff490dc8ed5a"
+
+[[package]]
+name = "pci_types"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0c2a105c657261a938ff68ee231c199a3d80eef33976004829de761ef5b1a9b"
+dependencies = [
+ "bit_field",
+ "bitflags 2.10.0",
+]
 
 [[package]]
 name = "ppv-lite86"
