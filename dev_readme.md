@@ -35,7 +35,7 @@ literally anything.
 I have a two-tier memory management system because one layer of complexity wasn't enough:
 
 1. **Page Allocator**: A bitmap-based allocator that uses linked lists stored in higher-half virtual addresses. Yes, I
-   store the metadata in the memory I'me managing. It's turtles all the way down.
+   store the metadata in the memory I'm managing. It's turtles all the way down.
 
 2. **Slab Allocator**: Because malloc() is for wimps, I implemented my own fixed-size block allocator. It has nine size
    classes from 8 bytes to 2KiB because fuck you, that's why.

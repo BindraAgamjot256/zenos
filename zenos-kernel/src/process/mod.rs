@@ -40,7 +40,7 @@ use xmas_elf::{ElfFile, header::Type as ElfType, program, program::Type as PhTyp
 
 // Choose a default userspace base for PIE/ET_DYN binaries
 const DEFAULT_USER_BASE: u64 = 0x0000_0000_0040_0000; // 4 MiB, away from the null page(0x0)
-const ELF_ADDR: u64 = 0x1000000 + KERNEL_BASE;
+const ELF_ADDR: u64 = 0x100_0000 + KERNEL_BASE;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ProcessStatus<'a> {
@@ -98,6 +98,7 @@ pub struct Process {
     pub end: u64,
     pub entry_point: u64,
     pub file_handles: HashMap<u32, Rc<Mutex<OpenFile>>>,
+    pub cwd: Arc<Mutex<Inode>>,
     /// Base address to load the binary at (0 for ET_EXEC, DEFAULT_USER_BASE for ET_DYN/PIE)
     pub load_bias: u64,
     pub loaded: bool,
@@ -179,6 +180,7 @@ impl Process {
             entry_point: 0,
             cr3: Cr3::read().0.start_address(),
             file_handles,
+            cwd: parent.cwd.clone(),
             loaded: false,
             user_stack_top: 0,
             exit_code: None,
@@ -804,6 +806,7 @@ static NEXT_PID: AtomicU64 = AtomicU64::new(2);
 
 pub fn init_process() -> &'static [u8] {
     let fs = FS.lock();
+    let cwd = fs.root_dir().expect("Failed to get root dir").clone();
     let file = match fs.open_file("/bin/init.elf") {
         Ok(f) => f,
         Err(e) => {
@@ -902,6 +905,7 @@ pub fn init_process() -> &'static [u8] {
         load_bias,
         cr3: cr3.start_address(),
         file_handles,
+        cwd,
         loaded: false,
         user_stack_top: 0,
         exit_code: None,
@@ -917,9 +921,9 @@ pub fn init_process() -> &'static [u8] {
 /// This is a kernel-mode task that simply halts the CPU until an interrupt occurs
 pub fn create_idle_task() {
     // Allocate a kernel stack for the idle task
-    let stack_size = 0x4000; // 16 KiB
+    let stack_size = 0x1000; // 4 KiB
     kalloc_page(
-        VirtAddr::new(KERNEL_BASE + 0x100_0000), // Place it in kernel space
+        VirtAddr::new(KERNEL_BASE + 0x200_0000), // Place it in kernel space
         PageType::Arbitrary,
     )
     .expect("Failed to allocate idle task stack");
@@ -927,13 +931,17 @@ pub fn create_idle_task() {
     // Map additional pages for the stack
     for i in 1..(stack_size / PAGE_4K) {
         kalloc_page(
-            VirtAddr::new(KERNEL_BASE + 0x100_0000 + (i * PAGE_4K) as u64),
+            VirtAddr::new(KERNEL_BASE + 0x200_0000 + (i * PAGE_4K) as u64),
             PageType::Arbitrary,
         )
         .expect("Failed to allocate idle task stack page");
     }
 
     let stack_top = KERNEL_BASE + 0x100_0000 + stack_size as u64;
+    let cwd = {
+        let fs = FS.lock();
+        fs.root_dir().expect("Failed to get root dir").clone()
+    };
 
     // Set up kernel-mode process state
     let mut state = ProcessState::default();
@@ -954,6 +962,7 @@ pub fn create_idle_task() {
         load_bias: 0,
         cr3: Cr3::read().0.start_address(),
         file_handles: HashMap::new(),
+        cwd,
         loaded: true, // Mark as loaded so scheduler considers it
         user_stack_top: stack_top,
         exit_code: None,
