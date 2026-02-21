@@ -85,7 +85,7 @@ impl PartialEq<ProcessStatus<'_>> for ProcessStatus<'_> {
 impl Eq for ProcessStatus<'_> {}
 
 /// Default process priority (lower number = higher priority)
-pub const DEFAULT_PRIORITY: u8 = 1;
+pub const DEFAULT_PRIORITY: u8 = 15;
 
 #[derive(Debug)]
 pub struct Process {
@@ -169,6 +169,8 @@ impl Process {
                 file_open_options: FileOpenOptions::READ_WRITE,
             })),
         );
+        let cwd = parent.cwd.clone();
+        //todo: dirfd AT_FDCWD, should also be added. for now, it'll be a special case in *at
         let p = Process {
             pid,
             parent_pid: parent.pid,
@@ -180,7 +182,7 @@ impl Process {
             entry_point: 0,
             cr3: Cr3::read().0.start_address(),
             file_handles,
-            cwd: parent.cwd.clone(),
+            cwd,
             loaded: false,
             user_stack_top: 0,
             exit_code: None,
@@ -690,7 +692,7 @@ pub fn enter_user_mode(user_entry: u64, user_stack: u64) -> ! {
 /// Switch to the next ready process immediately.
 /// Used by exit syscall to avoid busy-waiting.
 /// Never returns if a process is found to switch to.
-pub fn schedule_next() {
+pub fn schedule_next() -> ! {
     // Force the scheduler to pick a new process on the next timer tick
     {
         let mut sched = SCHEDULER.lock();
@@ -711,6 +713,97 @@ pub fn schedule_next() {
     // When we're rescheduled, we'll return from this function
     unsafe {
         asm!("sti", "hlt", options(nomem, nostack),);
+    }
+    unreachable!();
+}
+
+// Assembly routine to perform the actual context switch
+// Takes pointer to ProcessState in rdi
+// ProcessState layout (offsets in bytes):
+//   0x00: rax, 0x08: rbx, 0x10: rcx, 0x18: rdx
+//   0x20: rsi, 0x28: rdi, 0x30: rbp, 0x38: rsp
+//   0x40: r8,  0x48: r9,  0x50: r10, 0x58: r11
+//   0x60: r12, 0x68: r13, 0x70: r14, 0x78: r15
+//   0x80: rip, 0x88: rflags, 0x90: cs, 0x98: ss
+//   0xa0: fxsave area (512 bytes)
+core::arch::global_asm!(
+    r#"
+.global switch_to_next_asm
+switch_to_next_asm:
+    // rdi = pointer to ProcessState
+    cli
+    swapgs
+
+    // Restore FPU state (fxsave area at offset 0xa0)
+    lea rax, [rdi + 0xa0]
+    fxrstor [rax]
+
+    // Build iretq frame on stack (push in reverse order: ss, rsp, rflags, cs, rip)
+    push qword ptr [rdi + 0x98]   // ss
+    push qword ptr [rdi + 0x38]   // rsp
+    push qword ptr [rdi + 0x88]   // rflags
+    push qword ptr [rdi + 0x90]   // cs
+    push qword ptr [rdi + 0x80]   // rip
+
+    // Restore general purpose registers (use rax as temp since we restore it last)
+    mov r15, [rdi + 0x78]
+    mov r14, [rdi + 0x70]
+    mov r13, [rdi + 0x68]
+    mov r12, [rdi + 0x60]
+    mov r11, [rdi + 0x58]
+    mov r10, [rdi + 0x50]
+    mov r9,  [rdi + 0x48]
+    mov r8,  [rdi + 0x40]
+    mov rbp, [rdi + 0x30]
+    mov rsi, [rdi + 0x20]
+    mov rdx, [rdi + 0x18]
+    mov rcx, [rdi + 0x10]
+    mov rbx, [rdi + 0x08]
+    mov rax, [rdi + 0x00]
+    // Restore rdi last since we were using it as the base pointer
+    mov rdi, [rdi + 0x28]
+
+    iretq
+"#
+);
+
+unsafe extern "C" {
+    fn switch_to_next_asm(state: *const ProcessState) -> !;
+}
+
+/// Perform an immediate context switch to the next ready process.
+/// Does NOT save the current process state - use for exit/terminated processes.
+/// Never returns.
+pub fn switch_to_next() -> ! {
+    use x86_64::{registers::control::Cr3, structures::paging::PhysFrame};
+
+    // Find the next process and copy its state (we need to release locks before switching)
+    let (next_cr3, next_state) = {
+        let mut sched = SCHEDULER.lock();
+        sched.force_reschedule();
+        let (next_pid, next_cr3, next_state) = sched
+            .schedule(&ProcessState::default())
+            .expect("No ready process to switch to");
+        info!("Immediate switch to process {}", next_pid);
+        (next_cr3, next_state)
+    };
+    // All locks released here
+
+    // Switch CR3 to new process
+    unsafe {
+        Cr3::write(
+            PhysFrame::containing_address(PhysAddr::new(next_cr3)),
+            Cr3::read().1,
+        );
+    }
+    flush_all();
+
+    // Copy state to stack and get pointer (state lives until iretq switches stacks)
+    let state_on_stack = next_state;
+
+    // Jump to assembly routine to restore state and iretq
+    unsafe {
+        switch_to_next_asm(&state_on_stack);
     }
 }
 
@@ -773,7 +866,7 @@ pub struct ProcessState {
     pub fxsave: FxSaveArea,
 }
 
-#[repr(align(16))]
+#[repr(C, align(16))]
 #[derive(Clone, Copy, Debug)]
 pub struct FxSaveArea {
     _data: [u8; 512],

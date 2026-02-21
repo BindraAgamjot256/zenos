@@ -80,21 +80,30 @@ use crate::disk::block::BlockDevice;
 use crate::disk::vfs::{self, DirEntry, FileType, Inode, InodeOps, Permissions, SeekFrom};
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
-use alloc::sync::Arc;
+use alloc::sync::{Arc, Weak};
 use alloc::vec;
 use alloc::vec::Vec;
 use core::sync::atomic::AtomicU64;
+use hashbrown::HashMap;
 use log::{debug, error, trace, warn};
 use plumbing::{
     BiosParameterBlock, FatDirEntry, FatTable, FatType, name_to_8_3, read_cluster, write_cluster,
 };
 use spin::Mutex;
 
+#[derive(Debug, Hash, Copy, Clone, Eq, PartialEq)]
+struct InodeKey {
+    dir_cluster: u32,
+    entry_index: usize,
+    in_root: bool,
+}
+
 /// Shared filesystem state wrapped in Arc<Mutex<...>>.
 struct FatFileSystemInner<D: BlockDevice> {
     device: D,
     bpb: BiosParameterBlock,
     fat_type: FatType,
+    pub ino_cache: HashMap<InodeKey, Weak<Mutex<Inode>>>,
 }
 
 /// FAT filesystem instance.
@@ -130,6 +139,7 @@ impl<D: BlockDevice + 'static> FatFileSystem<D> {
                 device,
                 bpb,
                 fat_type,
+                ino_cache: HashMap::new(),
             })),
         })
     }
@@ -412,6 +422,47 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             }
         }
     }
+
+    fn create_and_cache_inode(
+        &self,
+        inner: &mut FatFileSystemInner<D>, // done on purpose... makes locking easier. see uses.
+        key: InodeKey,
+        entry: FatDirEntry,
+        idx: usize,
+    ) -> Result<Arc<Mutex<Inode>>, FileError> {
+        let inode_ops: Box<dyn InodeOps + Send + Sync> = if entry.is_directory() {
+            Box::new(FatDirectory {
+                inner: Arc::clone(&self.inner),
+                cluster: entry.first_cluster(),
+                is_root: false,
+            })
+        } else {
+            Box::new(FatFile {
+                inner: Arc::clone(&self.inner),
+                entry: entry.clone(),
+                cursor: 0,
+                dir_cluster: self.cluster,
+                entry_index: idx,
+                in_root: self.is_root,
+            })
+        };
+
+        let inode = Arc::new(Mutex::new(Inode {
+            num: idx as u64,
+            kind: if entry.is_directory() {
+                FileType::Directory
+            } else {
+                FileType::File
+            },
+            size: AtomicU64::new(entry.file_size as u64),
+            perms: Permissions::all(),
+            links: AtomicU64::new(1),
+            data: inode_ops,
+        }));
+
+        inner.ino_cache.insert(key, Arc::downgrade(&inode));
+        Ok(inode)
+    }
 }
 
 impl<D: BlockDevice + 'static> InodeOps for FatDirectory<D> {
@@ -432,40 +483,30 @@ impl<D: BlockDevice + 'static> InodeOps for FatDirectory<D> {
     }
 
     fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
-        let direntry = self.find_entry(name)?.ok_or_else(|| FileError::NotFound)?;
-        let tbox: Box<dyn InodeOps + Send + Sync> = if direntry.0.is_directory() {
-            Box::new(FatDirectory {
-                inner: Arc::clone(&self.inner),
-                cluster: direntry.0.first_cluster(),
-                is_root: false,
-            })
-        } else {
-            Box::new(FatFile {
-                inner: Arc::clone(&self.inner),
-                entry: direntry.0.clone(),
-                cursor: 0,
-                dir_cluster: self.cluster,
-                entry_index: direntry.1,
-                in_root: self.is_root,
-            })
-        };
-        assert_ne!(
-            direntry.1 as u64, 0,
-            "lookup should not return a file entry at index 0"
-        );
-        let inode = Arc::new(Mutex::new(Inode {
-            num: direntry.1 as u64,
-            kind: if direntry.0.is_directory() {
-                FileType::Directory
-            } else {
-                FileType::File
-            },
-            size: AtomicU64::new(direntry.0.file_size as u64),
-            perms: Permissions::all(),
-            links: AtomicU64::new(1),
-            data: tbox,
-        }));
+        let (entry, idx) = self.find_entry(name)?.ok_or(FileError::NotFound)?;
 
+        let key = InodeKey {
+            dir_cluster: self.cluster,
+            entry_index: idx,
+            in_root: self.is_root,
+        };
+
+        let mut inner = self.inner.lock();
+
+        if let Some(weak) = inner.ino_cache.get(&key) {
+            if let Some(existing) = weak.upgrade() {
+                debug!(
+                    "FatDirectory: cache hit for entry '{}' at index {}",
+                    name, idx
+                );
+                return Ok(existing);
+            } else {
+                // Clean up dead Weak
+                inner.ino_cache.remove(&key);
+            }
+        }
+
+        let inode = self.create_and_cache_inode(&mut inner, key, entry, idx)?;
         Ok(inode)
     }
 
@@ -479,54 +520,41 @@ impl<D: BlockDevice + 'static> InodeOps for FatDirectory<D> {
         self.create_entry(name, is_dir)?;
         Ok(self.lookup(name)?)
     }
+
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
         let entries = self.read_entries()?;
+        let mut result = Vec::new();
 
-        Ok(entries
-            .into_iter()
-            .map(|(entry, idx)| {
-                let size = entry.file_size;
-                let isdir = entry.is_directory();
-                let name = entry.short_name();
-                let tbox: Box<dyn InodeOps + Send + Sync> = if entry.is_directory() {
-                    Box::new(FatDirectory {
-                        inner: Arc::clone(&self.inner),
-                        cluster: entry.first_cluster(),
-                        is_root: false,
-                    })
+        for (entry, idx) in entries {
+            let key = InodeKey {
+                dir_cluster: self.cluster,
+                entry_index: idx,
+                in_root: self.is_root,
+            };
+
+            // First try cache
+            let inode = {
+                let mut inner = self.inner.lock();
+                if let Some(weak) = inner.ino_cache.get(&key) {
+                    if let Some(existing) = weak.upgrade() {
+                        existing
+                    } else {
+                        // Weak expired, remove it
+                        inner.ino_cache.remove(&key);
+                        Self::create_and_cache_inode(self, &mut inner, key, entry.clone(), idx)?
+                    }
                 } else {
-                    Box::new(FatFile {
-                        inner: Arc::clone(&self.inner),
-                        entry,
-                        cursor: 0,
-                        dir_cluster: self.cluster,
-                        entry_index: 0, // Will be updated on first lookup
-                        in_root: self.is_root,
-                    })
-                };
-                let inode = Arc::new(Mutex::new(Inode {
-                    num: idx as u64,
-                    kind: if isdir {
-                        FileType::Directory
-                    } else {
-                        FileType::File
-                    },
-                    size: if isdir {
-                        AtomicU64::new(size as u64) // Size is not meaningful for directories, but we can set it to 0 or number of entries
-                    } else {
-                        AtomicU64::new(size as u64)
-                    },
-                    perms: Permissions::all(),
-                    links: AtomicU64::new(1),
-                    data: tbox,
-                }));
-                let dir_entry = DirEntry {
-                    name: name.to_string(),
-                    inode,
-                };
-                dir_entry
-            })
-            .collect())
+                    Self::create_and_cache_inode(self, &mut inner, key, entry.clone(), idx)?
+                }
+            };
+
+            result.push(DirEntry {
+                name: entry.short_name().to_string(),
+                inode,
+            });
+        }
+
+        Ok(result)
     }
 }
 

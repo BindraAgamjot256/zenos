@@ -2,7 +2,6 @@
 #![no_main]
 
 use bitflags::bitflags;
-use core::ffi::CStr;
 use core::fmt::{self, Write};
 
 unsafe extern "C" {

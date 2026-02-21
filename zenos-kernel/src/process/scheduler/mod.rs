@@ -1,5 +1,5 @@
 use crate::process::{PROCESSES, ProcessState, ProcessStatus, set_current_pid};
-use log::{debug, info, trace};
+use log::{debug, trace};
 
 /// Priority-based scheduler for preemptive multitasking
 /// Lower priority number = higher priority (runs first)
@@ -19,15 +19,6 @@ enum CurrentProcessAction {
     SaveAndSwitch(u64),
     SwitchOnly(u64),
     None,
-}
-impl CurrentProcessAction {
-    fn unwrap_or(&self, default: u64) -> u64 {
-        match self {
-            CurrentProcessAction::SaveAndSwitch(pid) => *pid,
-            CurrentProcessAction::SwitchOnly(pid) => *pid,
-            CurrentProcessAction::None => default,
-        }
-    }
 }
 impl Scheduler {
     pub const fn new() -> Self {
@@ -62,7 +53,7 @@ impl Scheduler {
         self.current_pid = CurrentProcessAction::SwitchOnly(1);
     }
 
-    /// Schedule: save current process state and switch to next
+    /// Schedule: save the current process state and switch to next
     /// Called from timer interrupt handler
     /// Returns (next_pid, next_cr3, next_context) if there's a process to switch to
     /// Uses priority-based scheduling: lower priority number = higher priority
@@ -82,6 +73,8 @@ impl Scheduler {
                 }
             } else if let CurrentProcessAction::None = self.current_pid {
                 debug!("schedule: no current_pid set in scheduler!");
+            } else if let CurrentProcessAction::SwitchOnly(pid) = self.current_pid {
+                debug!("schedule: forced switch to pid {} on schedule", pid);
             }
 
             let len = procs.len();
@@ -124,8 +117,6 @@ impl Scheduler {
                         if proc.priority < best_priority {
                             best_priority = proc.priority;
                             best_idx = Some(i);
-                            wake_idx = None;
-                            reap_idx = None;
                         }
                         continue;
                     }
@@ -135,8 +126,6 @@ impl Scheduler {
                 if proc.status == ProcessStatus::Ready && proc.priority < best_priority {
                     best_priority = proc.priority;
                     best_idx = Some(i);
-                    wake_idx = None;
-                    reap_idx = None;
                 }
             }
 
@@ -152,7 +141,6 @@ impl Scheduler {
             let next_pid = next_proc.pid;
             let next_cr3 = next_proc.cr3.as_u64();
             let next_state = next_proc.state;
-            let curr = self.current_pid.unwrap_or(0);
 
             next_proc.status = ProcessStatus::Running;
             self.current_pid = CurrentProcessAction::SaveAndSwitch(next_pid);
@@ -164,21 +152,9 @@ impl Scheduler {
                 procs.remove(idx);
             }
 
-            if next_pid == curr {
-                info!(
-                    "Scheduler chose the same process (pid {}) to run again",
-                    next_pid
-                );
-                return None;
-            }
-
             #[cfg(debug_assertions)]
             {
                 self.times_scheduled += 1;
-                debug!(
-                    "Scheduling switch to pid {} priority {} (times scheduled: {})",
-                    next_pid, best_priority, self.times_scheduled
-                );
             }
             self.time = 0;
             Some((next_pid, next_cr3, next_state))

@@ -36,7 +36,6 @@ fn exit(rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         }
     }
 
-    // Immediately switch to the next ready process
-    crate::process::schedule_next();
-    panic!("fuck you copilot.")
+    // Immediately switch to the next ready process (never returns)
+    crate::process::switch_to_next();
 }
