@@ -36,7 +36,7 @@ macro_rules! print {
 macro_rules! println {
     () => (print!("\n"));
     ($($arg:tt)*) => ({
-        print!("{}", format_args_nl!($($arg)*));
+        print!("{}\n", format_args!($($arg)*));
     })
 }
 
@@ -94,8 +94,8 @@ unsafe fn raw_syscall(num: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64, a6:
     ret
 }
 
-const NUM_SYSCALLS: u64 = 256;
-const FUZZ_ITERATIONS: u64 = 50000;
+const NUM_SYSCALLS: u64 = u64::MAX; // Large number to cover all possible syscall numbers
+const FUZZ_ITERATIONS: u64 = 500000;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> ! {

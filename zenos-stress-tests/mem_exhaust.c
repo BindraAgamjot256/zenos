@@ -56,12 +56,13 @@ int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
     
     printf("[mem_exhaust] Starting memory exhaustion test\n");
+    printf("[mem_exhaust] Stack size: %ld bytes\n", sizeof(stack_dive(0)));
     
     /* Test 1: Stack exhaustion in child (protects parent) */
     int pid = fork();
     if (pid < 0) {
         printf("[mem_exhaust] Fork failed\n");
-        exit(1);
+        return -1;
     }
     if (pid == 0) {
         /* Child does the dangerous stack dive */
@@ -73,9 +74,7 @@ int main(int argc, char *argv[]) {
     
     /* Parent waits and observes */
     printf("[mem_exhaust] Parent waiting for child\n");
-    for (volatile int i = 0; i < 200000; i++) {
-        __asm__("pause");
-    }
+    for (volatile int i = 0; i < 200000; i++) {}
     
     /* Test 2: Large stack allocations */
     printf("[mem_exhaust] Testing large stack allocation\n");
@@ -97,6 +96,5 @@ int main(int argc, char *argv[]) {
     }
     
     printf("[mem_exhaust] Test complete\n");
-    exit(0);
     return 0;
 }

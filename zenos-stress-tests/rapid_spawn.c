@@ -33,7 +33,6 @@ int main(int argc, char *argv[]) {
             printf("[rapid_spawn] fork() failed at iteration %d\n", i);
             /* Try to recover - maybe resources will free up */
             for (volatile int j = 0; j < 10000; j++) {
-                __asm__("pause");
             }
             continue;
         } else if (pid == 0) {

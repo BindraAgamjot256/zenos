@@ -900,7 +900,7 @@ static NEXT_PID: AtomicU64 = AtomicU64::new(2);
 pub fn init_process() -> &'static [u8] {
     let fs = FS.lock();
     let cwd = fs.root_dir().expect("Failed to get root dir").clone();
-    let file = match fs.open_file("/bin/init.elf") {
+    let file = match fs.open_file("/bin/init") {
         Ok(f) => f,
         Err(e) => {
             error!("Failed to open init: {:?}", e);

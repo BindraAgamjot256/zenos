@@ -51,10 +51,7 @@ int main(int argc, char *argv[]) {
                 printf("[child %d] Born, parent will die soon\n", i);
                 
                 /* Wait for parent to definitely be dead */
-                for (volatile int j = 0; j < 100000; j++) {
-                    __asm__("pause");
-                }
-                
+                for (volatile int j = 0; j < 100000; j++) {}
                 /* We should now be orphaned */
                 /* BUG CHECK: Are we reparented? Can we still run? */
                 printf("[orphan %d] Still alive after parent death!\n", i);
@@ -86,7 +83,7 @@ int main(int argc, char *argv[]) {
     
     /* Give time for parent to die and orphans to run */
     for (volatile int i = 0; i < 500000; i++) {
-        __asm__("pause");
+
     }
     
     /* Test 2: Create zombies by having children exit while parent lives */

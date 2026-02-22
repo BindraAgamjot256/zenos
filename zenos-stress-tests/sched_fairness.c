@@ -85,7 +85,6 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < 5; i++) {
         /* Brief delay */
         for (volatile int j = 0; j < 100000; j++) {
-            __asm__("pause");
         }
         /* BUG CHECK: Can parent get CPU time among all the hogs? */
         printf("[sched_fairness] Parent heartbeat %d\n", i);
