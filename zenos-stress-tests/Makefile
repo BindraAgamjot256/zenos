@@ -15,7 +15,8 @@ SOURCES := fork_storm.c \
            sched_fairness.c \
            mem_exhaust.c \
            orphan_zombie.c \
-           ansi_colors.c
+           ansi_colors.c  \
+           fs_concurrent.c \
 
 # Derive targets from sources
 TARGETS := $(patsubst %.c,$(BUILD_DIR)/%,$(SOURCES))

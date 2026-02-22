@@ -2,6 +2,7 @@
 #![no_main]
 
 use bitflags::bitflags;
+use core::ffi::CStr;
 use core::fmt::{self, Write};
 
 unsafe extern "C" {
@@ -152,12 +153,13 @@ fn spawn(path: &[u8], args: &[&[u8]]) -> i64 {
 /// Stress test binaries to run (8.3 FAT filenames)
 #[cfg(feature = "stress")]
 static STRESS_TESTS: &[(&[u8], &[&[u8]])] = &[
-    (b"/bin/forkstrm.elf\0", &[b"forkstrm\0"]),
-    (b"/bin/rapidspn.elf\0", &[b"rapidspn\0"]),
-    (b"/bin/schedfar.elf\0", &[b"schedfar\0"]),
-    (b"/bin/memexhst.elf\0", &[b"memexhst\0"]),
-    (b"/bin/orphzomb.elf\0", &[b"orphzomb\0"]),
-    (b"/bin/ansiclrs.elf\0", &[b"ansiclrs\0"]),
+    (b"/bin/ansiclrs\0", &[b"ansiclrs\0"]),
+    (b"/bin/memexhst\0", &[b"memexhst\0"]),
+    (b"/bin/schedfar\0", &[b"schedfar\0"]),
+    (b"/bin/fsconcrt\0", &[b"fsconcrt\0"]),
+    (b"/bin/orphzomb\0", &[b"orphzomb\0"]),
+    (b"/bin/forkstrm\0", &[b"forkstrm\0"]),
+    (b"/bin/rapidspn\0", &[b"rapidspn\0"]),
 ];
 
 #[cfg(feature = "stress")]
@@ -166,9 +168,6 @@ pub extern "C" fn main() -> ! {
     println!("=== Zenos Init: Stress Test Launcher ===");
 
     // Brief delay before stress tests
-    for _ in 0..1000000u32 {
-        core::hint::spin_loop();
-    }
 
     // Launch all stress tests
     println!("[init] Launching stress tests...");
@@ -187,7 +186,7 @@ pub extern "C" fn main() -> ! {
             println!("[init] Process PID {} exited with code {}", pid, exit_code);
             if exit_code < 0 {
                 println!("[init] Process PID {} crashed!", pid);
-                if path == b"/bin/memexhst.elf\0" {
+                if path == b"/bin/memexhst\0" {
                     println!("[init] memexhst crashed");
                     println!("       feature, not bug")
                 } else {
@@ -209,6 +208,9 @@ pub extern "C" fn main() -> ! {
 
         // Small delay between launches to avoid overwhelming the kernel
         unsafe { while waitpid(-1i64 as u64) > 0 {} }
+        for _ in 0..10000000u32 {
+            core::hint::spin_loop();
+        }
     }
 
     println!(

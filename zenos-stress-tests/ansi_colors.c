@@ -3,7 +3,6 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>
 
 /* ANSI escape codes */
 #define ESC "\x1b"

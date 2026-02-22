@@ -342,8 +342,8 @@ fn build_init(args: BuildArgs) {
     let out_dir = Path::new("iso").join("bin");
     std::fs::create_dir_all(&out_dir).expect("Could not create iso/bin directory");
 
-    let out_path = out_dir.join("init.elf");
-    std::fs::copy(&init_bin, &out_path).expect("Failed to stage init.elf");
+    let out_path = out_dir.join("init");
+    std::fs::copy(&init_bin, &out_path).expect("Failed to stage init");
 }
 
 /// Packages the kernel and the 'iso' directory into a UEFI-bootable disk image.
@@ -395,7 +395,7 @@ fn add_files_recursively(
     }
 }
 
-/// Builds the fuzzer. If --fuzz is enabled, this binary is renamed to 'init.elf'
+/// Builds the fuzzer. If --fuzz is enabled, this binary is renamed to 'init'
 /// to hijack the boot sequence and start fuzzing immediately.
 fn build_fuzz(args: BuildArgs) {
     println!("[BUILD] Compiling fuzzer...");
@@ -438,9 +438,9 @@ fn build_fuzz(args: BuildArgs) {
     // If fuzzing mode is on, we replace the standard init process with the fuzzer.
     let out_path = if args.fuzz {
         println!("[INFO] Fuzzing mode active: Fuzzer will act as init.");
-        out_dir.join("init.elf")
+        out_dir.join("init")
     } else {
-        out_dir.join("fuzz.elf")
+        out_dir.join("fuzz")
     };
 
     std::fs::copy(&fuzz_bin, &out_path).expect("Failed to stage fuzzer binary");
@@ -546,12 +546,13 @@ fn build_stress_tests(_args: BuildArgs) {
     std::fs::create_dir_all(&out_dir).unwrap();
 
     let stress_tests = [
-        ("fork_storm", "forkstrm.elf"),
-        ("rapid_spawn", "rapidspn.elf"),
-        ("sched_fairness", "schedfar.elf"),
-        ("mem_exhaust", "memexhst.elf"),
-        ("orphan_zombie", "orphzomb.elf"),
-        ("ansi_colors", "ansiclrs.elf"),
+        ("fork_storm", "forkstrm"),
+        ("rapid_spawn", "rapidspn"),
+        ("sched_fairness", "schedfar"),
+        ("mem_exhaust", "memexhst"),
+        ("orphan_zombie", "orphzomb"),
+        ("ansi_colors", "ansiclrs"),
+        ("fs_concurrent", "fsconcrt"),
     ];
 
     for (src_name, dst_name) in stress_tests {

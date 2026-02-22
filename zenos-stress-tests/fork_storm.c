@@ -50,10 +50,6 @@ int main(int argc, char *argv[]) {
         } else {
             /* Parent: track children */
             created++;
-            /* BUG CHECK: Are child PIDs unique and valid? */
-            if (pid <= 0) {
-                printf("[fork_storm] BUG: fork() returned invalid child PID %d\n", pid);
-            }
         }
     }
     
