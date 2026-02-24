@@ -200,7 +200,6 @@ fn run_qemu(uefi_path: &Path, debugger: bool, test: bool) {
             exit(format!("{}", status).parse().unwrap());
         }
     }
-
 }
 
 fn run_bochs(uefi_path: &Path, debugger: bool, _test: bool) {
