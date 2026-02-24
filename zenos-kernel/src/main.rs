@@ -135,6 +135,7 @@ fn ktest_main(bi: &'static mut BootInfo) -> ! {
     }
     if failed {
         exit_qemu(QemuExitCode::Failed);
+        loop {}
     }
     exit_qemu(QemuExitCode::Success);
     loop {}

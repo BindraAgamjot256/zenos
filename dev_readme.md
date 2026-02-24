@@ -307,7 +307,7 @@ Things I might implement if I ever finish what I started:
 - Pipes and IPC (because processes should talk to each other, even if they shouldn't)
 - A shell that does more than just print "Hello, world!" (maybe a REPL for testing syscalls?)
 - Every single syscall in Linux (because why not)
-- A real scheduler with priorities and maybe even a multilevel feedback queue (Copilot said so, i have no clue what it means)
+- A real scheduler with ~~priorities~~[DONE] and maybe even a multilevel feedback queue (Copilot said so, i have no clue what it means)
 - Network stack (serial is good enough for now)
 - SMP support (single-core is simpler)
 - Real hardware support (QEMU is our friend)

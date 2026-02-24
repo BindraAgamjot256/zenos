@@ -141,10 +141,11 @@ fn run_qemu(uefi_path: &Path, debugger: bool, test: bool) {
     cmd.arg("-smp").arg("2"); // 2 CPU cores
 
     // Debug/Exit behavior
-    cmd.arg("-no-reboot")
-        .arg("-no-shutdown")
-        .arg("-d")
-        .arg("cpu_reset"); // Log resets to help find triple faults
+    cmd.arg("-no-reboot");
+    if !test {
+        cmd.arg("-no-shutdown");
+    }
+    cmd.arg("-d").arg("cpu_reset"); // Log resets to help find triple faults
 
     // Storage: AHCI (SATA) controller configuration
     cmd.arg("-device").arg("ahci,id=ahci");
@@ -177,7 +178,29 @@ fn run_qemu(uefi_path: &Path, debugger: bool, test: bool) {
     let mut child = cmd.spawn().expect("Failed to launch QEMU");
     let status = child.wait().expect("Failed to wait on QEMU process");
 
-    println!("[DONE] QEMU exited with status: {}", status);
+    match status.code() {
+        Some(code) => {
+            if test {
+                if code == ((0x10 << 1) | 1) {
+                    println!("[TEST] QEMU reported SUCCESS via isa-debug-exit.");
+                } else if code == ((0x11 << 1) | 1) {
+                    println!("[TEST] QEMU reported FAILURE via isa-debug-exit.");
+                    exit(1);
+                } else {
+                    println!("[TEST] QEMU exited with unexpected code: {:#x}", code);
+                    exit(1);
+                }
+            } else {
+                println!("[INFO] QEMU exited with code: {}", code);
+            }
+            exit(-code);
+        }
+        None => {
+            println!("[TEST] QEMU terminated by signal, {}", status);
+            exit(format!("{}", status).parse().unwrap());
+        }
+    }
+
 }
 
 fn run_bochs(uefi_path: &Path, debugger: bool, _test: bool) {
