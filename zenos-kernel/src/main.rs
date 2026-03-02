@@ -14,6 +14,7 @@ extern crate alloc;
 
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
+use x86_64::instructions::interrupts;
 use zenos_kernel::kinit;
 
 static CONFIG: BootloaderConfig = {
@@ -46,6 +47,7 @@ static CONFIG: BootloaderConfig = {
 /// This function never returns (marked by `!` return type)
 #[cfg_attr(not(any(test, feature = "run-kunittest")), panic_handler)]
 fn _panic(info: &core::panic::PanicInfo) -> ! {
+    interrupts::disable();
     use log::error;
     zenos_kernel::print_stack_trace();
     error!("Kernel Panic: {info}");
@@ -90,6 +92,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         );
     }
 
+    interrupts::disable();
     // Create the kernel idle task first (pid 0)
     zenos_kernel::process::create_idle_task();
 
@@ -109,6 +112,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         let mut sched = zenos_kernel::process::SCHEDULER.lock();
         sched.set_current(pid);
     }
+    interrupts::enable();
 
     zenos_kernel::process::enter_user_mode(entry, stack);
 }

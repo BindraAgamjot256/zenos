@@ -149,7 +149,7 @@ impl InodeOps for Stdin {
             } else {
                 // No data available, block and yield to scheduler
                 block_current_process(&STDIN_BLOCKED);
-                // Enable interrupts and halt - timer will context switch
+                // Enable interrupts and halt atomically - keyboard interrupt will wake us
                 unsafe {
                     core::arch::asm!("sti; hlt", options(nomem, nostack));
                 }
@@ -161,11 +161,11 @@ impl InodeOps for Stdin {
     }
 
     fn write(&mut self, _offset: u64, _buf: &[u8]) -> Result<usize, FileError> {
-        Err(FileError::UnsupportedOperation)
+        todo!()
     }
 
     fn truncate(&mut self, _size: u64) -> Result<(), FileError> {
-        Err(FileError::UnsupportedOperation)
+        Ok(())
     }
 
     fn sync(&mut self) -> Result<(), FileError> {
@@ -173,7 +173,7 @@ impl InodeOps for Stdin {
     }
 
     fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
-        Err(FileError::UnsupportedOperation)
+        Err(FileError::NotADirectory)
     }
 
     fn create(
@@ -182,11 +182,11 @@ impl InodeOps for Stdin {
         _kind: FileType,
         _perms: Permissions,
     ) -> Result<Arc<Mutex<Inode>>, FileError> {
-        Err(FileError::UnsupportedOperation)
+        Err(FileError::NotADirectory)
     }
 
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
-        Err(FileError::UnsupportedOperation)
+        Err(FileError::NotADirectory)
     }
 }
 /// Global flag used to wake processes blocked on stdin when keyboard input arrives.

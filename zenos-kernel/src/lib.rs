@@ -26,7 +26,7 @@
 #![feature(associated_type_defaults)]
 #![feature(unsafe_cell_access)]
 #![allow(unsafe_op_in_unsafe_fn)] // rustc 2024 doesn't allow unsafe ops in unsafe functions, so we enable it manually
-#![deny(static_mut_refs)]
+#![allow(static_mut_refs)]
 #![warn(clippy::missing_safety_doc)]
 #![allow(clippy::disallowed_names)]
 

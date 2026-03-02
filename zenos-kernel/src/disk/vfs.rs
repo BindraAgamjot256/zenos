@@ -391,7 +391,7 @@ impl VFS {
         let parts: Vec<&str> = relative_path.split('/').filter(|p| !p.is_empty()).collect();
         debug!("VFS: path parts {:?}", parts);
         if parts.is_empty() {
-            return Err(FileError::NotFound);
+            return Ok(dir_inode);
         }
         for part in &parts[..parts.len() - 1] {
             debug!("VFS: looking up directory '{}'", part);
@@ -447,7 +447,7 @@ impl VFS {
 
         let parts: Vec<&str> = relative_path.split('/').filter(|p| !p.is_empty()).collect();
         if parts.is_empty() {
-            return Err(FileError::NotFound);
+            return Ok(dir_inode);
         }
         for part in &parts[..parts.len() - 1] {
             let di = dir_inode.lock().data.lookup(part)?;
@@ -592,5 +592,73 @@ mod tests {
         assert_eq!(FileOpenOptions::CREATE.bits(), 0o100);
         assert_eq!(FileOpenOptions::TRUNCATE.bits(), 0o1000);
         Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_open_dir_inode() -> Option<()> {
+        use crate::disk::fs::proc::ProcFs;
+
+        let procfs = ProcFs;
+        let root_inode = procfs.root_dir().ok()?;
+        let inode_guard = root_inode.lock();
+
+        // Verify it's a directory
+        match inode_guard.kind {
+            FileType::Directory => {}
+            _ => return None,
+        }
+
+        // Verify read permissions
+        crate::test_assert!(inode_guard.perms.contains(Permissions::OWNER_READ));
+
+        // Verify directory operations return IsADirectory for read/write
+        drop(inode_guard);
+        let mut inode_guard = root_inode.lock();
+        let mut buf = [0u8; 16];
+        match inode_guard.data.read(0, &mut buf) {
+            Err(crate::disk::FileError::IsADirectory) => {}
+            _ => return None,
+        }
+
+        // Verify read_dir works
+        let entries = inode_guard.data.read_dir().ok()?;
+        crate::test_assert!(!entries.is_empty());
+
+        Some(())
+    }
+
+    #[zenos_macros::test]
+    pub fn test_open_dir_from_vfs() -> Option<()> {
+        use crate::disk::fs::proc::ProcFs;
+
+        let mut vfs = VFS::new();
+        vfs.mount("/proc", Arc::new(ProcFs)).ok()?;
+
+        let inode = vfs.open_file("/proc").ok()?;
+        let inode_guard = inode.lock();
+
+        // Verify it's a directory
+        match inode_guard.kind {
+            FileType::Directory => {}
+            _ => return None,
+        }
+
+        // Verify read permissions
+        crate::test_assert!(inode_guard.perms.contains(Permissions::OWNER_READ));
+
+        // Verify directory operations return IsADirectory for read/write
+        drop(inode_guard);
+        let mut inode_guard = inode.lock();
+        let mut buf = [0u8; 16];
+        match inode_guard.data.read(0, &mut buf) {
+            Err(FileError::IsADirectory) => {}
+            _ => return None,
+        }
+
+        // Verify read_dir works
+        let entries = inode_guard.data.read_dir().ok()?;
+        crate::test_assert!(!entries.is_empty());
+
+        None
     }
 }

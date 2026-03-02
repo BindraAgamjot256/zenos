@@ -1,5 +1,9 @@
-use crate::process::{PROCESSES, ProcessState, ProcessStatus, set_current_pid};
-use log::{debug, trace};
+use crate::interrupts::gdt::GDT;
+use crate::memory::KERNEL_BASE;
+use crate::process;
+use crate::process::{IDLE_STACK, PROCESSES, ProcessState, ProcessStatus, set_current_pid};
+use log::{debug, info, trace};
+use x86_64::registers::control::Cr3;
 
 /// Priority-based scheduler for preemptive multitasking
 /// Lower priority number = higher priority (runs first)
@@ -46,7 +50,7 @@ impl Scheduler {
     /// Returns (next_pid, next_cr3, next_context) if there's a process to switch to
     /// Uses priority-based scheduling: lower priority number = higher priority
     pub fn schedule(&mut self, current_state: &ProcessState) -> Option<(u64, u64, ProcessState)> {
-        if self.quantum == self.time {
+        if self.quantum >= self.time {
             // Use try_lock to avoid deadlock with syscalls holding the lock
             let mut procs = PROCESSES.try_lock()?;
 
@@ -68,9 +72,6 @@ impl Scheduler {
                 return None;
             }
 
-            // Debug: log all processes and their states
-            debug!("Schedule: {} processes", len);
-
             // First pass: handle WaitingFor processes that can be woken up
             // and find the best candidate process index
             let mut best_idx: Option<usize> = None;
@@ -78,9 +79,7 @@ impl Scheduler {
             let mut reap_idx: Option<usize> = None;
             let mut wake_idx: Option<(usize, u64)> = None; // (idx, exit_code to set in rax)
 
-            for i in 0..len {
-                let proc = &procs[i];
-
+            for (i, proc) in procs.iter().enumerate() {
                 // Check if this is a WaitingFor process that can be woken
                 if let ProcessStatus::WaitingFor(target_pid) = proc.status {
                     let target_idx = procs.iter().position(|t| t.pid == target_pid);
@@ -92,6 +91,10 @@ impl Scheduler {
                             best_idx = Some(i);
                             wake_idx = Some((i, ec));
                             reap_idx = target_idx;
+                            info!(
+                                "Waking process pid {} (index {}, priority {}) waiting for pid {} with exit code {} (reap idx {:?})",
+                                proc.pid, i, proc.priority, target_pid, ec, reap_idx
+                            );
                         }
                         continue;
                     }
@@ -103,6 +106,10 @@ impl Scheduler {
                         if proc.priority < best_priority {
                             best_priority = proc.priority;
                             best_idx = Some(i);
+                            info!(
+                                "Unblocked process pid {} (index {}, priority {}) is now ready to run",
+                                proc.pid, i, proc.priority
+                            );
                         }
                         continue;
                     }
@@ -116,7 +123,19 @@ impl Scheduler {
             }
 
             // No runnable process found
-            let best_idx = best_idx?;
+            let mut pstate = ProcessState::default();
+            pstate.rflags = 0x202; // Interrupt Enable flag set
+            pstate.cs = GDT.code_selector.0 as u64;
+            pstate.ss = GDT._data_selector.0 as u64;
+            pstate.rip = process::idle_loop as *mut () as u64;
+            pstate.rsp = unsafe { IDLE_STACK.as_ptr() as u64 + IDLE_STACK.len() as u64 };
+
+            let best_idx = match best_idx {
+                Some(idx) => idx,
+                None => {
+                    return Some((0, Cr3::read().0.start_address().as_u64(), pstate)); // No process to run, return dummy values
+                }
+            };
 
             // Handle waking from wait if needed
             if let Some((_, exit_code)) = wake_idx {

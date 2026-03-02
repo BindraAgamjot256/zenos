@@ -3,6 +3,7 @@ pub(crate) mod file_handles;
 pub(crate) mod isolation;
 pub(crate) mod scheduler;
 
+use crate::percpu::swapgs;
 pub use crate::process::scheduler::Scheduler;
 use crate::{
     disk::FS,
@@ -711,12 +712,12 @@ pub fn schedule_next() -> ! {
 
     // Enable interrupts and halt - the next timer tick will context switch
     // When we're rescheduled, we'll return from this function
-    unsafe {
-        asm!("sti", "hlt", options(nomem, nostack),);
+    loop {
+        unsafe {
+            asm!("sti", "hlt", options(nomem, nostack),);
+        }
     }
-    unreachable!();
 }
-
 // Assembly routine to perform the actual context switch
 // Takes pointer to ProcessState in rdi
 // ProcessState layout (offsets in bytes):
@@ -732,7 +733,6 @@ core::arch::global_asm!(
 switch_to_next_asm:
     // rdi = pointer to ProcessState
     cli
-    swapgs
 
     // Restore FPU state (fxsave area at offset 0xa0)
     lea rax, [rdi + 0xa0]
@@ -788,6 +788,11 @@ pub fn switch_to_next() -> ! {
         (next_cr3, next_state)
     };
     // All locks released here
+    if !(next_state.cs & 3 == 0) {
+        unsafe {
+            swapgs();
+        }
+    }
 
     // Switch CR3 to new process
     unsafe {
@@ -1010,27 +1015,14 @@ pub fn init_process() -> &'static [u8] {
     buf
 }
 
+static mut IDLE_STACK: [u8; 4096] = [0; 4096];
+
 /// Kernel idle task - runs when no other processes are ready
 /// This is a kernel-mode task that simply halts the CPU until an interrupt occurs
 pub fn create_idle_task() {
     // Allocate a kernel stack for the idle task
-    let stack_size = 0x1000; // 4 KiB
-    kalloc_page(
-        VirtAddr::new(KERNEL_BASE + 0x200_0000), // Place it in kernel space
-        PageType::Arbitrary,
-    )
-    .expect("Failed to allocate idle task stack");
 
-    // Map additional pages for the stack
-    for i in 1..(stack_size / PAGE_4K) {
-        kalloc_page(
-            VirtAddr::new(KERNEL_BASE + 0x200_0000 + (i * PAGE_4K) as u64),
-            PageType::Arbitrary,
-        )
-        .expect("Failed to allocate idle task stack page");
-    }
-
-    let stack_top = KERNEL_BASE + 0x100_0000 + stack_size as u64;
+    let stack_top = unsafe { IDLE_STACK.as_ptr() as u64 + IDLE_STACK.len() as u64 };
     let cwd = {
         let fs = FS.lock();
         fs.root_dir().expect("Failed to get root dir").clone()
@@ -1077,7 +1069,7 @@ pub fn create_idle_task() {
 pub extern "C" fn idle_loop() -> ! {
     loop {
         unsafe {
-            asm!("hlt", options(nomem, nostack, preserves_flags));
+            asm!("hlt", options(nomem, nostack));
         }
     }
 }
