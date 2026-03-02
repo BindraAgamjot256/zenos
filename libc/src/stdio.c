@@ -1,8 +1,9 @@
 /**
  * stdio.c - Standard I/O for Zenos
  *
- * Implements printf() with basic format specifiers. All output goes directly
- * to stdout (fd 1) via the write() syscall—no buffering.
+ * printf() implemented using vsnprintf().
+ * All formatting logic lives in vsnprintf().
+ * printf() writes the formatted buffer to stdout (fd 1).
  *
  * Supported format specifiers:
  *   %d  - signed decimal integer
@@ -14,75 +15,83 @@
  *   %c  - single character
  *   %%  - literal percent sign
  *
- * Width and zero-padding supported (e.g., %08x for zero-padded hex).
+ * Width and zero-padding supported (e.g., %08x).
  */
 
 #include "unistd.h"
 #include "stdarg.h"
 #include "stdint.h"
-#include "string.h"
 
-/** Write a single character to stdout, returns 1 */
-static int write_char(char c) {
-    write(1, &c, 1);
-    return 1;
+/* ========================= INTERNAL BUFFER WRITER ========================= */
+
+typedef struct {
+    char *buf;
+    size_t size;
+    size_t pos;
+    int total;
+} sn_buf_t;
+
+static void sn_write_char(sn_buf_t *b, char c) {
+    if (b->pos + 1 < b->size) {
+        b->buf[b->pos] = c;
+    }
+    b->pos++;
+    b->total++;
 }
 
-/** Write a null-terminated string to stdout, returns bytes written */
-static int write_str(const char *s) {
-    const int len = (int) strlen(s);
-    write(1, s, len);
-    return len;
+static void sn_write_str(sn_buf_t *b, const char *s) {
+    while (*s) {
+        sn_write_char(b, *s++);
+    }
 }
 
-/** Print unsigned int in given base (10 or 16) with optional width/zero-padding */
-static int print_uint_base(unsigned int value, int base, int width, int zero_pad) {
+/* ========================= NUMBER PRINTING ========================= */
+
+static void sn_print_uint_base(sn_buf_t *b,
+                               unsigned int value,
+                               int base,
+                               int width,
+                               int zero_pad) {
     char buffer[32];
     int i = 0;
-    int bytes = 0;
 
     if (value == 0) {
         buffer[i++] = '0';
     } else {
         while (value > 0) {
-            unsigned int digit = value % (unsigned) base;
+            unsigned int digit = value % (unsigned)base;
             if (digit < 10)
-                buffer[i++] = (char) ('0' + digit);
+                buffer[i++] = (char)('0' + digit);
             else
-                buffer[i++] = (char) ('a' + (digit - 10));
-            value /= (unsigned) base;
+                buffer[i++] = (char)('a' + (digit - 10));
+            value /= (unsigned)base;
         }
     }
 
     int pad_len = width - i;
     char pad_char = zero_pad ? '0' : ' ';
 
-    while (pad_len-- > 0) {
-        bytes += write_char(pad_char);
-    }
+    while (pad_len-- > 0)
+        sn_write_char(b, pad_char);
 
-    while (i > 0) {
-        bytes += write_char(buffer[--i]);
-    }
-
-    return bytes;
+    while (i > 0)
+        sn_write_char(b, buffer[--i]);
 }
 
-/** Print signed int with optional width/zero-padding */
-static int print_int(int value, int width, int zero_pad) {
+static void sn_print_int(sn_buf_t *b, int value, int width, int zero_pad) {
     unsigned int u;
-    int bytes = 0;
     int is_neg = (value < 0);
 
-    if (is_neg) {
-        u = (unsigned int) (-(value + 1)) + 1;
-    } else {
-        u = (unsigned int) value;
-    }
+    if (is_neg)
+        u = (unsigned int)(-(value + 1)) + 1;
+    else
+        u = (unsigned int)value;
 
     int digit_count = 0;
     unsigned int tmp = u;
-    if (tmp == 0) digit_count = 1;
+
+    if (tmp == 0)
+        digit_count = 1;
     else {
         while (tmp > 0) {
             digit_count++;
@@ -90,33 +99,26 @@ static int print_int(int value, int width, int zero_pad) {
         }
     }
 
-    if (is_neg) {
-        bytes += write_char('-');
-    }
+    if (is_neg)
+        sn_write_char(b, '-');
 
-    int total_width = digit_count;
-    int pad_len = width - total_width;
+    int pad_len = width - digit_count;
     char pad_char = zero_pad ? '0' : ' ';
 
-    while (pad_len-- > 0) {
-        bytes += write_char(pad_char);
-    }
+    while (pad_len-- > 0)
+        sn_write_char(b, pad_char);
 
-    bytes += print_uint_base(u, 10, 0, 0);
-    return bytes;
+    sn_print_uint_base(b, u, 10, 0, 0);
 }
 
-/** Print signed long with optional width/zero-padding */
-static int print_long(long value, int width, int zero_pad) {
+static void sn_print_long(sn_buf_t *b, long value, int width, int zero_pad) {
     unsigned long u;
-    int bytes = 0;
     int is_neg = (value < 0);
 
-    if (is_neg) {
-        u = (unsigned long) (-(value + 1)) + 1;
-    } else {
-        u = (unsigned long) value;
-    }
+    if (is_neg)
+        u = (unsigned long)(-(value + 1)) + 1;
+    else
+        u = (unsigned long)value;
 
     char buffer[32];
     int i = 0;
@@ -125,58 +127,49 @@ static int print_long(long value, int width, int zero_pad) {
         buffer[i++] = '0';
     } else {
         while (u > 0) {
-            buffer[i++] = (char) ('0' + (u % 10));
+            buffer[i++] = (char)('0' + (u % 10));
             u /= 10;
         }
     }
 
-    if (is_neg) {
-        bytes += write_char('-');
-    }
+    if (is_neg)
+        sn_write_char(b, '-');
 
     int pad_len = width - i;
     char pad_char = zero_pad ? '0' : ' ';
 
-    while (pad_len-- > 0) {
-        bytes += write_char(pad_char);
-    }
+    while (pad_len-- > 0)
+        sn_write_char(b, pad_char);
 
-    while (i > 0) {
-        bytes += write_char(buffer[--i]);
-    }
-
-    return bytes;
+    while (i > 0)
+        sn_write_char(b, buffer[--i]);
 }
 
-/** Print pointer as "0x..." hex address */
-static int print_pointer(void *ptr) {
-    uintptr_t p = (uintptr_t) ptr;
-    int bytes = 0;
-
-    bytes += write_str("0x");
-    bytes += print_uint_base((unsigned int) p, 16, 0, 0);
-    return bytes;
+static void sn_print_pointer(sn_buf_t *b, void *ptr) {
+    uintptr_t p = (uintptr_t)ptr;
+    sn_write_str(b, "0x");
+    sn_print_uint_base(b, (unsigned int)p, 16, 0, 0);
 }
 
-/**
- * Formatted output to stdout.
- * @param format  Format string with % specifiers
- * @param ...     Arguments corresponding to format specifiers
- * @return        Number of bytes written
- */
-int printf(const char *format, ...) {
-    va_list args;
-    va_start(args, format);
+/* ========================= CORE FORMATTER ========================= */
 
-    int bytes = 0;
+int vsnprintf(char *str, size_t size, const char *format, va_list args) {
+    sn_buf_t buf;
+    buf.buf = str;
+    buf.size = size;
+    buf.pos = 0;
+    buf.total = 0;
+
+    if (size > 0)
+        str[0] = '\0';
 
     while (*format) {
         if (*format != '%') {
-            bytes += write_char(*format++);
+            sn_write_char(&buf, *format++);
             continue;
         }
 
-        format++; // skip '%'
+        format++;
 
         int zero_pad = 0;
         int width = 0;
@@ -186,73 +179,109 @@ int printf(const char *format, ...) {
             format++;
         }
 
-        // parse width
         while (*format >= '0' && *format <= '9') {
             width = width * 10 + (*format - '0');
             format++;
         }
 
-        if (*format == '\0') break;
+        if (*format == '\0')
+            break;
 
-        // Check for length modifier 'l'
         int is_long = 0;
         if (*format == 'l') {
             is_long = 1;
             format++;
-            if (*format == '\0') break;
+            if (*format == '\0')
+                break;
         }
 
         switch (*format) {
-            case 'd': {
-                if (is_long) {
-                    long v = va_arg(args, long);
-                    bytes += print_long(v, width, zero_pad);
-                } else {
-                    int v = va_arg(args, int);
-                    bytes += print_int(v, width, zero_pad);
-                }
+            case 'd':
+                if (is_long)
+                    sn_print_long(&buf, va_arg(args, long), width, zero_pad);
+                else
+                    sn_print_int(&buf, va_arg(args, int), width, zero_pad);
                 break;
-            }
-            case 'u': {
-                unsigned int v = va_arg(args, unsigned int);
-                bytes += print_uint_base(v, 10, width, zero_pad);
+
+            case 'u':
+                sn_print_uint_base(&buf,
+                                   va_arg(args, unsigned int),
+                                   10,
+                                   width,
+                                   zero_pad);
                 break;
-            }
-            case 'x': {
-                unsigned int v = va_arg(args, unsigned int);
-                bytes += print_uint_base(v, 16, width, zero_pad);
+
+            case 'x':
+                sn_print_uint_base(&buf,
+                                   va_arg(args, unsigned int),
+                                   16,
+                                   width,
+                                   zero_pad);
                 break;
-            }
-            case 'p': {
-                void *p = va_arg(args, void *);
-                bytes += print_pointer(p);
+
+            case 'p':
+                sn_print_pointer(&buf, va_arg(args, void *));
                 break;
-            }
+
             case 's': {
                 char *s = va_arg(args, char *);
-                if (!s) s = "(null)";
-                bytes += write_str(s);
+                if (!s)
+                    s = "(null)";
+                sn_write_str(&buf, s);
                 break;
             }
-            case 'c': {
-                int c = va_arg(args, int);
-                bytes += write_char((char) c);
+
+            case 'c':
+                sn_write_char(&buf, (char)va_arg(args, int));
                 break;
-            }
-            case '%': {
-                bytes += write_char('%');
+
+            case '%':
+                sn_write_char(&buf, '%');
                 break;
-            }
-            default: {
-                bytes += write_char('%');
-                bytes += write_char(*format);
+
+            default:
+                sn_write_char(&buf, '%');
+                sn_write_char(&buf, *format);
                 break;
-            }
         }
 
         format++;
     }
 
+    if (size > 0) {
+        if (buf.pos < size)
+            str[buf.pos] = '\0';
+        else
+            str[size - 1] = '\0';
+    }
+
+    return buf.total;
+}
+
+/* ========================= PUBLIC API ========================= */
+
+int snprintf(char *str, size_t size, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    int ret = vsnprintf(str, size, format, args);
     va_end(args);
-    return bytes;
+    return ret;
+}
+
+int printf(const char *format, ...) {
+    char buffer[4096];
+
+    va_list args;
+    va_start(args, format);
+    int len = vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    if (len > 0) {
+        int write_len = (len < (int)sizeof(buffer))
+                        ? len
+                        : (int)sizeof(buffer);
+        write(1, buffer, write_len);
+    }
+
+    return len;
 }

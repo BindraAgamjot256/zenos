@@ -33,6 +33,7 @@ char *strrchr(const char *s, int c);
 
 char *strstr(const char *haystack, const char *needle);
 
+char *strtok(char *s, const char *delim);
 #ifdef __cplusplus
 }
 #endif

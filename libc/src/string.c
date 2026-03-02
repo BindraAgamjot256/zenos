@@ -148,3 +148,69 @@ void *memmove(void *dest, const void *src, size_t n) {
     }
     return dest;
 }
+char *strtok(char *str, const char *delim)
+{
+    static char *next = NULL;
+    char *start;
+    const char *d;
+
+    if (str != NULL)
+        next = str;
+
+    if (next == NULL)
+        return NULL;
+
+    // Skip leading delimiters
+    start = next;
+    while (*start)
+    {
+        d = delim;
+        int is_delim = 0;
+        while (*d)
+        {
+            if (*start == *d)
+            {
+                is_delim = 1;
+                break;
+            }
+            d++;
+        }
+        if (!is_delim)
+            break;
+        start++;
+    }
+
+    if (*start == '\0')
+    {
+        next = NULL;
+        return NULL;
+    }
+
+    // Find end of token
+    char *end = start;
+    while (*end)
+    {
+        d = delim;
+        while (*d)
+        {
+            if (*end == *d)
+                break;
+            d++;
+        }
+        if (*d)
+            break;
+        end++;
+    }
+
+    if (*end)
+    {
+        *end = '\0';
+        next = end + 1;
+    }
+    else
+    {
+        next = NULL;
+    }
+
+    return start;
+}
