@@ -5,6 +5,9 @@
 #include "shell.h"
 #include <stdio.h>
 #include <unistd.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdio.h>
 
 /* ANSI color codes */
 #define RESET       "\x1b[0m"
@@ -39,8 +42,10 @@ int main(int argc, char *argv[]) {
         
         int len = shell_read_line(input, MAX_INPUT);
         if (len < 0) {
-            printf("\n" FG_YELLOW "[shell] EOF received, exiting" RESET "\n");
-            break;
+            /*printf("\n" FG_YELLOW "[shell] EOF received, exiting" RESET "\n");
+            printf("error: %d\n" , errno);*/
+            printf("\nread returned: %d %d\n", errno, len);
+            return errno;
         }
         
         if (len == 0) continue;
@@ -58,7 +63,5 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-    
-    exit(0);
-    return 0;
+
 }

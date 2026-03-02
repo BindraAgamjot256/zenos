@@ -195,9 +195,7 @@ int setgid(gid_t gid) {
 /* ========== Wait ========== */
 
 pid_t waitpid(pid_t pid, int *status, int options) {
-    (void)status;
-    (void)options;
-    return (pid_t)syscall_ret(syscall1(SYS_waitpid, pid));
+    return (pid_t)syscall_ret(syscall3(SYS_waitpid, pid, (long)status, options));
 }
 
 pid_t wait(int *status) {
@@ -212,13 +210,14 @@ int pause(void) {
 
 unsigned int alarm(unsigned int seconds) {
     (void)seconds;
-    return 0; /* Not implemented */
+    errno = ENOSYS;
+    return -1; /* Not implemented */
 }
 
 unsigned int sleep(unsigned int seconds) {
     (void)seconds;
-    pause();
-    return 0;
+    errno = ENOSYS;
+    return -1;
 }
 
 /* ========== File system ========== */
@@ -300,12 +299,14 @@ int fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, int flag
 
 int isatty(int fd) {
     (void)fd;
-    return 1; /* Assume everything is a tty for now */
+    errno = ENOSYS;
+    return -1; /* Assume nothing is a tty for now */
 }
 
 char *ttyname(int fd) {
     (void)fd;
-    return "/dev/tty";
+    errno = ENOSYS;
+    return NULL;
 }
 
 long sysconf(int name) {

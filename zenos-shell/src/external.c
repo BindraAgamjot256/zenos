@@ -7,9 +7,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <sys/wait.h>
-#include <stdio.h>
+#include <fcntl.h>
 
 #define PATH_MAX 1024
 
