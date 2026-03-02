@@ -23,9 +23,7 @@ int main(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
     
-    char input[MAX_INPUT];
-    char *args[MAX_ARGS];
-    
+
 
     printf("\n");
     printf(FG_CYAN "=================================" RESET "\n");
@@ -38,6 +36,8 @@ int main(int argc, char *argv[]) {
     shell_register_builtins();
     
     while (1) {
+        char input[MAX_INPUT];
+        char *args[MAX_ARGS];
         printf(BOLD FG_BLUE "zenos" FG_MAGENTA "> " RESET);
         
         int len = shell_read_line(input, MAX_INPUT);

@@ -1,12 +1,15 @@
 use crate::disk::FS;
-use crate::disk::vfs::Permissions;
+use crate::disk::vfs::{FileType, Permissions};
 use crate::process::PROCESSES;
 use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_from_user;
-use crate::syscall::errors::{EFAULT, EINVAL, EMFILE, ESRCH, file_error_to_errno};
+use crate::syscall::errors::{
+    EFAULT, EINVAL, EISDIR, EMFILE, ENAMETOOLONG, ESRCH, file_error_to_errno,
+};
 use crate::syscall::table::SyscallPtr;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use core::sync::atomic::Ordering;
 use log::{debug, error, info};
 use zenos_macros::syscall;
 
@@ -48,11 +51,13 @@ fn open(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 
 fn copy_string(user_ptr: *const u8, max_len: usize) -> Result<String, u64> {
     let mut vec = Vec::new();
+    let mut found_null = false;
     unsafe {
         for i in 0..max_len {
             let byte = copy_from_user(user_ptr.add(i), 1).map_err(|_| -EFAULT as u64)?[0];
             vec.push(byte);
             if byte == 0 {
+                found_null = true;
                 break;
             }
         }
@@ -61,16 +66,24 @@ fn copy_string(user_ptr: *const u8, max_len: usize) -> Result<String, u64> {
         error!("invalid UTF-8 in filename: {}", e);
         -EINVAL as u64
     })?;
+    if !found_null {
+        return Err(-ENAMETOOLONG as u64);
+    }
     Ok(s.trim_end_matches('\0').to_string())
 }
 
-pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u64> {
+fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u64> {
     use x86_64::instructions::interrupts;
 
     debug!("open_inner: attempting to lock FS for '{}'", file_name);
 
     // Disable interrupts to prevent deadlock with spinlocks during preemption
     let file = interrupts::without_interrupts(|| {
+        if foo.contains(FileOpenOptions::TRUNCATE)
+            && !foo.intersects(FileOpenOptions::WRITE_ONLY | FileOpenOptions::READ_WRITE)
+        {
+            return Err(-EINVAL as u64);
+        }
         let fs = FS.lock();
         debug!("open_inner: FS lock acquired for '{}'", file_name);
         let res = fs.open_file(file_name);
@@ -92,18 +105,37 @@ pub(crate) fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u
             } else {
                 return Err(file_error_to_errno(&res.err().unwrap()));
             }
+        } else {
+            if foo.contains(FileOpenOptions::TRUNCATE) {
+                let file = res.as_ref().unwrap();
+                let mut guard = file.lock();
+                guard.size.store(0, Ordering::SeqCst);
+                let res = guard.data.truncate(0);
+                if res.is_err() {
+                    return Err(file_error_to_errno(&res.err().unwrap()));
+                }
+            }
+            return Ok(res.unwrap());
         }
         Ok(fs.open_file(file_name).unwrap())
     })?;
+
+    let wants_write = foo.contains(FileOpenOptions::WRITE_ONLY)
+        || foo.contains(FileOpenOptions::READ_WRITE)
+        || foo.contains(FileOpenOptions::TRUNCATE);
+
+    if matches!(file.lock().kind, FileType::Directory) && wants_write {
+        return Err(-EISDIR as u64);
+    }
 
     let process = crate::process::current_pid();
     let mut binding = PROCESSES.lock();
     let process = binding
         .iter_mut()
         .find(move |proc| proc.pid == process)
-        .ok_or(ESRCH as u64)?;
+        .ok_or(-ESRCH as u64)?;
     let fd = process
         .add_file_handle(file, foo)
-        .map_err(|_| EMFILE as u64)?;
+        .map_err(|_| -EMFILE as u64)?;
     Ok(fd)
 }

@@ -2,20 +2,20 @@
  * input.c - Input handling
  */
 
+#include <errno.h>
+#include <stdio.h>
 #include "shell.h"
 #include <unistd.h>
 
 int shell_read_line(char *buf, int max) {
-    ssize_t n = read(0, buf, max - 1);
-    if (n <= 0) {
+    ssize_t n = read(STDIN_FILENO, buf, max - 1);
+    if (n == -1) {
+        printf("error: %d\n", errno);
         return -1;
     }
     
     /* Remove trailing newline if present */
-    if (n > 0 && buf[n - 1] == '\n') {
-        n--;
-    }
-    if (n > 0 && buf[n - 1] == '\r') {
+    while (n > 0 && buf[n-1] == '\n') {
         n--;
     }
     

@@ -57,10 +57,19 @@ impl Scheduler {
             // Save state of current process if there is one
             if let Some(current_pid) = self.current_pid {
                 if let Some(current_proc) = procs.iter_mut().find(|p| p.pid == current_pid) {
-                    if current_proc.status == ProcessStatus::Running {
-                        current_proc.save_context(current_state);
-                        current_proc.status = ProcessStatus::Ready;
-                        trace!("Saved context for pid {}", current_pid);
+                    match current_proc.status {
+                        ProcessStatus::Running => {
+                            current_proc.save_context(current_state);
+                            current_proc.status = ProcessStatus::Ready;
+                            trace!("Saved context for pid {}", current_pid);
+                        }
+                        ProcessStatus::Blocked(_) => {
+                            // Also save context for blocked processes so they resume correctly
+                            // when unblocked (e.g., from stdin read inside syscall)
+                            current_proc.save_context(current_state);
+                            trace!("Saved context for blocked pid {}", current_pid);
+                        }
+                        _ => {}
                     }
                 }
             } else if let None = self.current_pid {

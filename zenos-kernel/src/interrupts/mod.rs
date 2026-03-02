@@ -9,7 +9,7 @@ use crate::{
     serial::SERIAL,
 };
 use core::arch::global_asm;
-use log::{error, info, warn};
+use log::{error, info, trace, warn};
 use spin::Lazy;
 use x86_64::instructions::tlb;
 use x86_64::registers::rflags::RFlags;
@@ -185,12 +185,12 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
     };
 
     if let Some((new_pid, new_cr3, new_state)) = switch_info {
+        trace!("switching to pid {}, cr3 {:#x}, rip {:#x}", new_pid, new_cr3, new_state.rip);
         // Switch CR3 to new process
         let frame = PhysFrame::containing_address(x86_64::PhysAddr::new(new_cr3));
         Cr3::write(frame, Cr3::read().1);
         tlb::flush_all();
 
-        info!("Switched to process {}", new_pid);
         // Update the interrupt context with new process state
         context.rax = new_state.rax;
         context.rbx = new_state.rbx;
@@ -223,7 +223,6 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
             // the odds are 1/2**64 for this, 1/3 for russian roulette...
         }
         let rfl = RFlags::from_bits_retain(new_state.rflags);
-        info!("rflags after switch: {rfl:?}");
         assert!(rfl.contains(RFlags::INTERRUPT_FLAG));
 
         return 1;

@@ -1,8 +1,9 @@
-use crate::process::PROCESSES;
-use crate::syscall::errors::{EBADF, EFAULT, ESRCH, file_error_to_errno};
+use crate::process::{PROCESSES, current_pid};
+use crate::syscall::copy_to_user;
+use crate::syscall::errors::{EBADF, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
-use crate::syscall::{copy_from_user, copy_to_user};
 use crate::tty::TTY;
+use alloc::rc::Rc;
 use log::{debug, info};
 use zenos_macros::syscall;
 
@@ -16,46 +17,56 @@ fn read(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         "syscall read: fd={:#x}, buf={:#x}, len={:#x}",
         fd, buf_ptr, len
     );
-    let buf = copy_from_user(buf_ptr as *mut u8, len as usize);
-    if buf.is_err() {
-        return (-EFAULT) as u64;
-    }
-    let mut buf = buf.unwrap();
-    match read_inner(fd, &mut buf) {
+    let len = core::cmp::min(len, 0x10000);
+
+    let mut kernel_buf = alloc::vec![0u8; len as usize];
+
+    match read_inner(fd, &mut kernel_buf) {
         Ok(n) => {
-            // Safe to unwrap: we already validated the user pointer above
-            copy_to_user(buf_ptr as *mut u8, &buf).unwrap();
+            copy_to_user(buf_ptr as *mut u8, &kernel_buf[..n]).unwrap();
+            info!("read returning {} bytes", n);
             n as u64
         }
-        Err(errno) => errno,
+        Err(errno) => {
+            if (errno as i64) < 0 {
+                debug!("read error: errno={:#x}", errno);
+                errno
+            } else {
+                debug!("read unknown error: {}", errno);
+                -(errno as i64) as u64
+            }
+        }
     }
 }
 
 fn read_inner(fd: u64, buf: &mut [u8]) -> Result<usize, u64> {
     info!("read_inner called with fd: {}, buf len: {}", fd, buf.len());
-
-    let mut processes = crate::process::PROCESSES.lock();
-    let curr_pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
+    let mut processes = PROCESSES.lock();
+    let curr_pid = current_pid();
     let process = processes
         .iter_mut()
         .find(|p| p.pid == curr_pid)
         .ok_or((-ESRCH) as u64)?;
-    let file_handle = process.get_file_handle(fd).ok_or((-EBADF) as u64)?;
-    let handle = &mut *file_handle;
+    let file_handle = Rc::clone(process.get_file_handle(fd).ok_or((-EBADF) as u64)?);
+    let handle = file_handle;
     let mut handle = handle.lock();
+    drop(processes);
 
     // allow blocking read on stdin, but not on other fds
     if fd == 0 {
         unsafe {
-            PROCESSES.force_unlock();
-            TTY.force_unlock();
+            TTY.force_unlock(); // todo: Fix this.
         }
     }
     let read_res = handle.read(buf).map_err(|e| {
         let errno = file_error_to_errno(&e);
-        debug!("read_inner: read error for fd {}: {:?}", fd, e);
+        log::error!(
+            "read_inner: read error for fd {}: {:?}, errno={}",
+            fd,
+            e,
+            errno as i64
+        );
         errno
     })?;
-    info!("read_inner read {} bytes", read_res);
     Ok(read_res)
 }
