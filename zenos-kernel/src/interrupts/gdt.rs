@@ -10,11 +10,11 @@ use x86_64::{
 };
 
 pub(super) const DOUBLE_FAULT_IST_INDEX: usize = 0;
-pub static TSS: Lazy<TaskStateSegment> = Lazy::new(|| {
+static TSS: Lazy<TaskStateSegment> = Lazy::new(|| {
     let mut tss = TaskStateSegment::new();
 
     // Allocate and map a page for the double fault stack
-    let stack_phys = kalloc_page(VirtAddr::new(0xFFFF_FF00_0000_0000), PageType::Arbitrary)
+    let stack_phys = kalloc_page(VirtAddr::new(0xFFFF_FFF0_0000_0000), PageType::Arbitrary)
         .expect("Failed to allocate stack for double fault IST");
 
     let stack_virt = VirtAddr::new(HIGHER_HALF_BASE + stack_phys.as_u64());
@@ -27,7 +27,7 @@ pub static TSS: Lazy<TaskStateSegment> = Lazy::new(|| {
     // Allocate and map a page for the privilege stack (Ring 0)
     // IDK why it works but it does, so I'm gonna leave it like this.
     // Anyone who touches this will be fucked in the ass.
-    let stack_phys = kalloc_page(VirtAddr::new(0xFFFF_FF00_0001_0000), PageType::Arbitrary)
+    let stack_phys = kalloc_page(VirtAddr::new(0xFFFF_FFF0_0001_0000), PageType::Arbitrary)
         .expect("Failed to allocate stack for RSP0");
     let stack_virt = VirtAddr::new(HIGHER_HALF_BASE + stack_phys.as_u64());
     let stack_top = stack_virt + 4096;
@@ -58,7 +58,7 @@ pub struct GdtWrapper {
     pub gdt: GlobalDescriptorTable,
     pub code_selector: SegmentSelector,
     pub tss_selector: SegmentSelector,
-    pub _data_selector: SegmentSelector,
+    pub data_selector: SegmentSelector,
     pub user_code_segment: SegmentSelector,
     pub user_data_segment: SegmentSelector,
 }
@@ -78,7 +78,7 @@ impl GdtWrapper {
             gdt: slop.0,
             code_selector: slop.1,
             tss_selector: slop.2,
-            _data_selector: slop.3,
+            data_selector: slop.3,
             user_code_segment: slop.4,
             user_data_segment: slop.5,
         }

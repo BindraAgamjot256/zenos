@@ -1,5 +1,4 @@
 use crate::interrupts::gdt::GDT;
-use crate::memory::KERNEL_BASE;
 use crate::process;
 use crate::process::{IDLE_STACK, PROCESSES, ProcessState, ProcessStatus, set_current_pid};
 use log::{debug, info, trace};
@@ -135,7 +134,7 @@ impl Scheduler {
             let mut pstate = ProcessState::default();
             pstate.rflags = 0x202; // Interrupt Enable flag set
             pstate.cs = GDT.code_selector.0 as u64;
-            pstate.ss = GDT._data_selector.0 as u64;
+            pstate.ss = GDT.data_selector.0 as u64;
             pstate.rip = process::idle_loop as *mut () as u64;
             pstate.rsp = unsafe { IDLE_STACK.as_ptr() as u64 + IDLE_STACK.len() as u64 };
 
