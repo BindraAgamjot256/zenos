@@ -95,14 +95,21 @@ pub(crate) mod block;
 pub mod fs;
 pub mod vfs;
 
-use crate::disk::block::BlockDeviceDriver;
-use crate::disk::vfs::{Inode, VFS};
+use crate::disk::block::{BlockDeviceDriver, GPTPartitionEntry};
+use crate::disk::{
+    block::{BlockDevice, ahci::init_ahcibd},
+    vfs::VFS,
+};
 use alloc::boxed::Box;
-use alloc::string::String;
-use alloc::sync::Arc;
-use block::ahci::{AhciBlockDevice, init};
-use core::sync::atomic::Ordering;
+use alloc::vec::Vec;
+use alloc::{
+    format,
+    string::{String, ToString},
+    sync::Arc,
+};
+use core::str::FromStr;
 use fs::fat::FatFileSystem;
+use log::info;
 use spin::{Lazy, Mutex};
 
 #[derive(Debug, Clone)]
@@ -132,22 +139,94 @@ pub enum FileError {
 }
 
 /// Global FAT filesystem instance backed by the AHCI block device on port 0.
-pub static FS: Lazy<Mutex<VFS>> = Lazy::new(|| {
-    unsafe { init() }
-    let device = BlockDeviceDriver::new(Box::new(
-        AhciBlockDevice::new(0).expect("Port 0 unavailable"),
-    ));
-    let fatfs = FatFileSystem::mount(device).expect("Failed to mount FAT filesystem");
-    let mut vfs = VFS::new();
-    vfs.mount("/", Arc::new(fatfs))
-        .expect("Failed to mount FAT filesystem at /");
-    // Mount procfs at /proc
-    vfs.mount("/proc", Arc::new(fs::proc::ProcFs))
-        .expect("Failed to mount procfs at /proc");
-    Mutex::new(vfs)
-});
+pub static FS: Lazy<Mutex<VFS>> = Lazy::new(|| Mutex::new(VFS::new()));
 
-#[allow(dead_code)]
-pub(crate) fn get_len(file: &mut Arc<Inode>) -> Result<u64, ()> {
-    Ok(file.size.load(Ordering::SeqCst))
+static BLOCKDEVICES: &[(u8, unsafe fn() -> Option<Arc<Mutex<dyn BlockDevice>>>)] = &[(0, || {
+    let ahcibd = unsafe { init_ahcibd() };
+    if let Some(ahcibd) = ahcibd {
+        Some(Arc::new(Mutex::new(ahcibd)))
+    } else {
+        None
+    }
+})];
+static FILESYSTEMS: &[(
+    &str,
+    fn(
+        blockdev: BlockDeviceDriver,
+        part_entry: &GPTPartitionEntry,
+    ) -> Option<Arc<dyn vfs::FileSystem>>,
+)] = &[("FAT", |blockdev, part_entry| {
+    assert!(
+        part_entry.is_used(),
+        "Partition entry must be used to mount filesystem"
+    );
+    if let Ok(fatfs) = FatFileSystem::mount(blockdev, part_entry.starting_lba * 512) {
+        Some(Arc::new(fatfs))
+    } else {
+        None
+    }
+})];
+
+pub fn init() {
+    let mut vfs = FS.lock();
+    for (blocdev_id, devinit_fn) in BLOCKDEVICES.iter() {
+        if let Some(mut blockdev) = unsafe { devinit_fn() } {
+            info!("found block device, id: {}", blocdev_id);
+            let gpt = blockdev.get_header().unwrap();
+            let mut guard = blockdev.lock();
+
+            let entries = gpt.get_partition_entries(&mut *guard).unwrap();
+
+            let mut partitions = entries
+                .iter()
+                .filter(|entry| entry.is_used())
+                .collect::<Vec<_>>();
+            drop(guard);
+            info!("GPT found {} partitions", partitions.len());
+            let mut root_mounted = false;
+            for (partition, (name, fsinitfn)) in partitions.iter_mut().zip(FILESYSTEMS.iter()) {
+                info!(
+                    "Trying to mount partition {} with filesystem {name}",
+                    String::from_utf16_lossy(&partition.partition_name).trim_matches(char::from(0))
+                );
+                if let Some(fs) = fsinitfn(
+                    BlockDeviceDriver::new(Box::new(blockdev.clone())),
+                    *partition,
+                ) {
+                    info!(
+                        "Mounted partition \"{}\" with filesystem {name}",
+                        String::from_utf16_lossy(&partition.partition_name)
+                            .trim_matches(char::from(0))
+                    );
+                    if !root_mounted {
+                        vfs.mount("/", fs).unwrap();
+                        root_mounted = true;
+                    } else {
+                        // For simplicity, we mount additional filesystems at /mnt/partitionN
+                        let mount_point = format!(
+                            "/mnt/{}",
+                            String::from_utf16_lossy(&partition.partition_name)
+                                .trim_matches(char::from(0))
+                        );
+                        vfs.mount(&mount_point, fs).unwrap();
+                        info!(
+                            "Mounted partition {} at {}",
+                            String::from_utf16_lossy(&partition.partition_name)
+                                .trim_matches(char::from(0)),
+                            mount_point
+                        );
+                    }
+                } else {
+                    info!(
+                        "Failed to mount partition {} with filesystem {name}",
+                        String::from_utf16_lossy(&partition.partition_name)
+                            .trim_matches(char::from(0))
+                    );
+                }
+            }
+        } else {
+            info!("No block device found at port {}", blocdev_id);
+        }
+    }
+    vfs.mount("/proc", Arc::new(fs::proc::ProcFs)).unwrap();
 }

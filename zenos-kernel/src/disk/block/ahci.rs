@@ -77,12 +77,17 @@ use crate::memory::{
     kfree_dma_pages, kfree_page,
 };
 use crate::pci::scan_pci_for_ahci;
+use crate::process::{block_current_process, has_current_process};
 use core::ptr::{read_volatile, write_volatile};
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 use heapless::Vec;
 use log::{debug, error, info, trace};
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr};
+
+/// Global flag used to wake processes blocked on AHCI I/O when command completes.
+/// Set to `false` by the timer tick check when CI bit clears.
+pub static AHCI_BLOCKED: AtomicBool = AtomicBool::new(false);
 
 // Fixed virtual address where we map the AHCI structures (Command Lists, etc.)
 const AHCI_VIRT_BASE: u64 = KERNEL_BASE + 0x2000_0000;
@@ -489,7 +494,9 @@ impl Port {
         res
     }
 
-    /// Busy-waits until hardware clears the corresponding bit in CI (Command Issue) register.
+    /// Waits until hardware clears the corresponding bit in CI (Command Issue) register.
+    /// Uses the process blocking mechanism to yield CPU while waiting, or falls back
+    /// to spin-loop if called during kernel initialization (no process context).
     unsafe fn wait_for_completion(&self, slot: u8) -> Result<(), ()> {
         for _ in 0..TIMEOUT_MAX {
             let ci = self.read_reg(reg::CI);
@@ -510,7 +517,16 @@ impl Port {
                 return Err(());
             }
 
-            core::hint::spin_loop();
+            // If we have a process context, block and yield to scheduler
+            // Otherwise (during init), just spin
+            if has_current_process() {
+                AHCI_BLOCKED.store(true, Ordering::SeqCst);
+                block_current_process(&AHCI_BLOCKED);
+                // Enable interrupts and halt atomically - timer interrupt will wake us
+                core::arch::asm!("sti; hlt", options(nomem, nostack));
+            } else {
+                core::hint::spin_loop();
+            }
         }
 
         error!("AHCI command timeout on slot {}", slot);
@@ -535,6 +551,30 @@ impl Port {
 /// Stores PortInfo objects so we can access virtual mapping info later.
 static PORTS: Mutex<Option<Vec<PortInfo, 32>>> = Mutex::new(None);
 
+/// Called from timer interrupt to check if AHCI I/O has completed.
+/// If so, unblocks any process waiting on AHCI_BLOCKED.
+pub fn check_ahci_completion() {
+    // Only check if something is actually blocked on AHCI
+    if !AHCI_BLOCKED.load(Ordering::SeqCst) {
+        return;
+    }
+
+    // Try to get the ports lock without blocking (we're in an interrupt)
+    if let Some(ports) = PORTS.try_lock() {
+        if let Some(ref port_list) = *ports {
+            for pinfo in port_list.iter() {
+                let port = unsafe { Port::new(*pinfo) };
+                let ci = unsafe { port.read_reg(reg::CI) };
+                // If no commands are pending, I/O is complete
+                if ci == 0 {
+                    AHCI_BLOCKED.store(false, Ordering::SeqCst);
+                    return;
+                }
+            }
+        }
+    }
+}
+
 // ============================================================================
 // Initialization
 // ============================================================================
@@ -550,9 +590,9 @@ static PORTS: Mutex<Option<Vec<PortInfo, 32>>> = Mutex::new(None);
 ///    - Maps these pages to fixed virtual addresses.
 ///    - Configures the Port registers ([`CLB`](Port), [`FB`](Port)) with physical addresses.
 ///    - Starts the engine.
-pub(crate) unsafe fn init() {
+pub(crate) unsafe fn init_ahcibd() -> Option<AhciBlockDevice> {
     info!("AHCI: initializing controller");
-    let pci = scan_pci_for_ahci().expect("No AHCI controller found");
+    let pci = scan_pci_for_ahci()?;
     debug!("AHCI: found controller at BAR5={:#x}", pci.bar5);
 
     // Replace the kalloc_page BAR5 line with
@@ -649,8 +689,14 @@ pub(crate) unsafe fn init() {
 
             let _ = ports.push(pinfo);
 
-            // Simplification: Stop after first valid drive
-            break;
+            *PORTS.lock() = Some(ports);
+            info!("AHCI: initialization complete");
+
+            return AhciBlockDevice::new(0) // We only support the first detected drive for simplicity
+                .or_else(|| {
+                    error!("Failed to create AhciBlockDevice for port {}", port_num);
+                    None
+                });
         } else {
             // Cleanup if no drive (optional in simple kernel)
             for slot in 0..MAX_SLOTS {
@@ -660,9 +706,7 @@ pub(crate) unsafe fn init() {
             }
         }
     }
-
-    *PORTS.lock() = Some(ports);
-    info!("AHCI: initialization complete");
+    None
 }
 
 // ============================================================================
@@ -684,7 +728,6 @@ pub struct AhciBlockDevice {
     port_base: usize,
     sector_size: usize,
     cursor: u64,
-    partition_offset: u64, // LBA where partition starts
 }
 
 impl AhciBlockDevice {
@@ -703,7 +746,6 @@ impl AhciBlockDevice {
                 port_base: pinfo.port_base,
                 sector_size: SECTOR_SIZE,
                 cursor: 0,
-                partition_offset: 34, // Hardcoded GPT Data start LBA (TODO: Parse partition table)
             }
         })
     }
@@ -732,7 +774,7 @@ impl BlockDevice for AhciBlockDevice {
             let current_cursor = self.cursor + total_read as u64;
 
             // 1. Calculate alignment for this chunk
-            let start_lba = (current_cursor / self.sector_size as u64) + self.partition_offset;
+            let start_lba = current_cursor / self.sector_size as u64;
             let sector_offset = (current_cursor % self.sector_size as u64) as usize;
 
             // 2. Determine chunk size
@@ -805,7 +847,7 @@ impl BlockDevice for AhciBlockDevice {
         while total_written < buf.len() {
             let current_cursor = self.cursor + total_written as u64;
 
-            let start_lba = (current_cursor / self.sector_size as u64) + self.partition_offset;
+            let start_lba = current_cursor / self.sector_size as u64;
             let sector_offset = (current_cursor % self.sector_size as u64) as usize;
 
             let bytes_left = buf.len() - total_written;

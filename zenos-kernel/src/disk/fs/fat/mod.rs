@@ -1,7 +1,7 @@
 //! FAT filesystem implementation (FAT12/FAT16/FAT32).
 //!
 //! This module provides a native FAT filesystem implementation that integrates
-//! with the VFS traits defined in [`crate::disk::vfs`].
+//! with the VFS traits defined in [`vfs`].
 //!
 //! # Overview
 //!
@@ -34,10 +34,10 @@
 //! - [`FatFileSystem`]: Main filesystem handle, created via `mount()`. Provides
 //!   access to the root directory and manages the underlying block device.
 //!
-//! - [`FatDirectory`]: Directory handle implementing [`Directory`](crate::disk::vfs::Directory).
+//! - [`FatDirectory`]: Directory handle implementing [`Directory`](InodeOps).
 //!   Supports listing, creating, and removing files and subdirectories.
 //!
-//! - [`FatFile`]: File handle implementing [`File`](crate::disk::vfs::File).
+//! - [`FatFile`]: File handle implementing [`File`](InodeOps).
 //!   Supports read, write, seek, and flush with automatic cluster allocation.
 //!
 //! # Limitations
@@ -103,7 +103,8 @@ struct FatFileSystemInner<D: BlockDevice> {
     device: D,
     bpb: BiosParameterBlock,
     fat_type: FatType,
-    pub ino_cache: HashMap<InodeKey, Weak<Mutex<Inode>>>,
+    partition_offset: u64,
+    ino_cache: HashMap<InodeKey, Weak<Mutex<Inode>>>,
 }
 
 /// FAT filesystem instance.
@@ -113,14 +114,16 @@ pub struct FatFileSystem<D: BlockDevice + 'static> {
 
 impl<D: BlockDevice + 'static> FatFileSystem<D> {
     /// Mount a FAT filesystem from the given block device.
-    pub fn mount(mut device: D) -> Result<Self, FileError> {
+    pub fn mount(mut device: D, partition_offset: u64) -> Result<Self, FileError> {
         debug!("FatFileSystem: mounting filesystem");
         // Read boot sector
         let mut boot_sector = [0u8; 512];
-        device.seek(SeekFrom::Start(0)).map_err(|e| {
-            error!("FatFileSystem: failed to seek to boot sector: {:?}", e);
-            FileError::SeekError
-        })?;
+        device
+            .seek(SeekFrom::Start(0 + partition_offset))
+            .map_err(|e| {
+                error!("FatFileSystem: failed to seek to boot sector: {:?}", e);
+                FileError::SeekError
+            })?;
         device.read(&mut boot_sector).map_err(|e| {
             error!("FatFileSystem: failed to read boot sector: {:?}", e);
             FileError::ReadError
@@ -139,6 +142,7 @@ impl<D: BlockDevice + 'static> FatFileSystem<D> {
                 device,
                 bpb,
                 fat_type,
+                partition_offset,
                 ino_cache: HashMap::new(),
             })),
         })
@@ -209,7 +213,8 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             );
 
             let mut buf = vec![0u8; root_dir_size];
-            let offset = root_dir_sector as u64 * bpb.bytes_per_sector as u64;
+            let offset =
+                (root_dir_sector as u64 * bpb.bytes_per_sector as u64) + inner.partition_offset;
 
             inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
                 error!("FatDirectory: failed to seek to root dir: {:?}", e);
@@ -239,7 +244,8 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             let mut global_idx = 0;
 
             loop {
-                read_cluster(&mut inner.device, &bpb, cluster, &mut buf)?;
+                let po = inner.partition_offset;
+                read_cluster(&mut inner.device, &bpb, cluster, &mut buf, po)?;
 
                 for chunk in buf.chunks(FatDirEntry::SIZE) {
                     if chunk[0] == 0x00 {
@@ -254,7 +260,8 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
                 }
 
                 // Follow cluster chain
-                let mut fat = FatTable::new(&mut inner.device, &bpb);
+                let po = inner.partition_offset;
+                let mut fat = FatTable::new(&mut inner.device, &bpb, po);
                 let next = fat.read_entry(cluster)?;
                 if fat.is_eoc(next) {
                     break;
@@ -292,12 +299,13 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
 
         // Allocate a cluster for the new file/directory
         let new_cluster = if is_dir {
-            let mut fat = FatTable::new(&mut inner.device, &bpb);
+            let po = inner.partition_offset;
+            let mut fat = FatTable::new(&mut inner.device, &bpb, po);
             let cluster = fat.allocate_cluster()?;
             // Zero out the new directory cluster
             let cluster_size = bpb.bytes_per_cluster() as usize;
             let zeros = vec![0u8; cluster_size];
-            write_cluster(&mut inner.device, &bpb, cluster, &zeros)?;
+            write_cluster(&mut inner.device, &bpb, cluster, &zeros, po)?;
             cluster
         } else {
             0 // Files start with no clusters until data is written
@@ -334,7 +342,8 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             let root_dir_size = bpb.root_entry_count as usize * FatDirEntry::SIZE;
 
             let mut buf = vec![0u8; root_dir_size];
-            let offset = root_dir_sector as u64 * bpb.bytes_per_sector as u64;
+            let offset =
+                root_dir_sector as u64 * bpb.bytes_per_sector as u64 + inner.partition_offset;
 
             inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
                 error!(
@@ -375,7 +384,8 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             let mut cluster = self.cluster;
 
             loop {
-                read_cluster(&mut inner.device, &bpb, cluster, &mut buf).map_err(|e| {
+                let po = inner.partition_offset;
+                read_cluster(&mut inner.device, &bpb, cluster, &mut buf, po).map_err(|e| {
                     error!(
                         "FatDirectory: failed to read cluster {} for create_entry: {:?}",
                         cluster, e
@@ -383,10 +393,11 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
                     e
                 })?;
 
+                let po = inner.partition_offset;
                 for chunk in buf.chunks_mut(FatDirEntry::SIZE) {
                     if chunk[0] == 0x00 || chunk[0] == 0xE5 {
                         chunk.copy_from_slice(&entry_data);
-                        write_cluster(&mut inner.device, &bpb, cluster, &buf).map_err(|e| {
+                        write_cluster(&mut inner.device, &bpb, cluster, &buf, po).map_err(|e| {
                             error!(
                                 "FatDirectory: failed to write cluster {} for create_entry: {:?}",
                                 cluster, e
@@ -398,7 +409,7 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
                 }
 
                 // Follow or extend cluster chain
-                let mut fat = FatTable::new(&mut inner.device, &bpb);
+                let mut fat = FatTable::new(&mut inner.device, &bpb, po);
                 let next = fat.read_entry(cluster)?;
                 if fat.is_eoc(next) {
                     // Allocate new cluster for directory
@@ -411,7 +422,7 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
                     // Zero out new cluster and write entry
                     let mut new_buf = vec![0u8; cluster_size];
                     new_buf[0..FatDirEntry::SIZE].copy_from_slice(&entry_data);
-                    write_cluster(&mut inner.device, &bpb, new_dir_cluster, &new_buf)?;
+                    write_cluster(&mut inner.device, &bpb, new_dir_cluster, &new_buf, po)?;
                     debug!(
                         "FatDirectory: extended directory with new cluster {}",
                         new_dir_cluster
@@ -589,7 +600,8 @@ impl<D: BlockDevice + 'static> FatFile<D> {
             let root_dir_sector =
                 bpb.reserved_sector_count as u32 + (bpb.num_fats as u32 * bpb.fat_size());
             let offset = root_dir_sector as u64 * bpb.bytes_per_sector as u64
-                + (self.entry_index * FatDirEntry::SIZE) as u64;
+                + (self.entry_index * FatDirEntry::SIZE) as u64
+                + inner.partition_offset;
 
             inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
                 error!("FatFile: failed to seek for sync_entry: {:?}", e);
@@ -608,19 +620,20 @@ impl<D: BlockDevice + 'static> FatFile<D> {
 
             // Navigate to correct cluster
             let mut cluster = self.dir_cluster;
+            let po = inner.partition_offset;
             for _ in 0..target_cluster_idx {
-                let mut fat = FatTable::new(&mut inner.device, &bpb);
+                let mut fat = FatTable::new(&mut inner.device, &bpb, po);
                 cluster = fat.read_entry(cluster)?;
             }
 
             let mut buf = vec![0u8; cluster_size];
-            read_cluster(&mut inner.device, &bpb, cluster, &mut buf).map_err(|e| {
+            read_cluster(&mut inner.device, &bpb, cluster, &mut buf, po).map_err(|e| {
                 error!("FatFile: failed to read cluster for sync_entry: {:?}", e);
                 e
             })?;
             buf[offset_in_cluster..offset_in_cluster + FatDirEntry::SIZE]
                 .copy_from_slice(&entry_data);
-            write_cluster(&mut inner.device, &bpb, cluster, &buf).map_err(|e| {
+            write_cluster(&mut inner.device, &bpb, cluster, &buf, po).map_err(|e| {
                 error!("FatFile: failed to write cluster for sync_entry: {:?}", e);
                 e
             })?;
@@ -652,12 +665,13 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
         let mut cluster = self.entry.first_cluster();
 
         // Skip to the cluster containing the cursor
+        let po = inner.partition_offset;
         let cluster_idx = self.cursor / cluster_size;
         for _ in 0..cluster_idx {
             if cluster < 2 {
                 return Ok(0);
             }
-            let mut fat = FatTable::new(&mut inner.device, &bpb);
+            let mut fat = FatTable::new(&mut inner.device, &bpb, po);
             let next = fat.read_entry(cluster)?;
             if fat.is_eoc(next) {
                 return Ok(0);
@@ -676,7 +690,7 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
                 break;
             }
 
-            read_cluster(&mut inner.device, &bpb, cluster, &mut cluster_buf).map_err(|e| {
+            read_cluster(&mut inner.device, &bpb, cluster, &mut cluster_buf, po).map_err(|e| {
                 error!(
                     "FatFile: failed to read cluster {} during file read: {:?}",
                     cluster, e
@@ -699,7 +713,7 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
             offset_in_cluster = 0;
 
             // Move to next cluster
-            let mut fat = FatTable::new(&mut inner.device, &bpb);
+            let mut fat = FatTable::new(&mut inner.device, &bpb, po);
             let next = fat.read_entry(cluster)?;
             if fat.is_eoc(next) {
                 break;
@@ -729,10 +743,11 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
 
         let cluster_size = bpb.bytes_per_cluster() as u64;
         let mut bytes_written = 0;
+        let po = inner.partition_offset;
 
         // Allocate first cluster if needed
         if self.entry.first_cluster() < 2 {
-            let mut fat = FatTable::new(&mut inner.device, &bpb);
+            let mut fat = FatTable::new(&mut inner.device, &bpb, po);
             let new_cluster = fat.allocate_cluster().map_err(|e| {
                 error!("FatFile: failed to allocate first cluster: {:?}", e);
                 e
@@ -746,7 +761,7 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
         // Skip to the cluster containing the cursor
         let cluster_idx = self.cursor / cluster_size;
         for _ in 0..cluster_idx {
-            let mut fat = FatTable::new(&mut inner.device, &bpb);
+            let mut fat = FatTable::new(&mut inner.device, &bpb, po);
             let next = fat.read_entry(cluster)?;
             if fat.is_eoc(next) {
                 // Allocate new cluster
@@ -764,13 +779,15 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
         while bytes_written < buf.len() {
             // Read existing cluster data for partial writes
             if offset_in_cluster != 0 || buf.len() - bytes_written < cluster_size as usize {
-                read_cluster(&mut inner.device, &bpb, cluster, &mut cluster_buf).map_err(|e| {
-                    error!(
-                        "FatFile: failed to read cluster {} for partial write: {:?}",
-                        cluster, e
-                    );
-                    e
-                })?;
+                read_cluster(&mut inner.device, &bpb, cluster, &mut cluster_buf, po).map_err(
+                    |e| {
+                        error!(
+                            "FatFile: failed to read cluster {} for partial write: {:?}",
+                            cluster, e
+                        );
+                        e
+                    },
+                )?;
             }
 
             let remaining_in_cluster = cluster_size as usize - offset_in_cluster;
@@ -780,7 +797,7 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
             cluster_buf[offset_in_cluster..offset_in_cluster + to_copy]
                 .copy_from_slice(&buf[bytes_written..bytes_written + to_copy]);
 
-            write_cluster(&mut inner.device, &bpb, cluster, &cluster_buf).map_err(|e| {
+            write_cluster(&mut inner.device, &bpb, cluster, &cluster_buf, po).map_err(|e| {
                 error!("FatFile: failed to write cluster {}: {:?}", cluster, e);
                 e
             })?;
@@ -790,7 +807,7 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
 
             if bytes_written < buf.len() {
                 // Need more clusters
-                let mut fat = FatTable::new(&mut inner.device, &bpb);
+                let mut fat = FatTable::new(&mut inner.device, &bpb, po);
                 let next = fat.read_entry(cluster)?;
                 if fat.is_eoc(next) {
                     let new_cluster = fat.allocate_cluster().map_err(|e| {

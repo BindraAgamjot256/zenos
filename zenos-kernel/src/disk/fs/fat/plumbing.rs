@@ -30,7 +30,7 @@ use crate::disk::vfs::SeekFrom;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
-use log::{error, trace};
+use log::{error, info, trace};
 
 /// FAT filesystem type variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,6 +115,24 @@ impl BiosParameterBlock {
         trace!(
             "BiosParameterBlock: parsed BPB (bytes_per_sector={}, sectors_per_cluster={})",
             bytes_per_sector, sectors_per_cluster
+        );
+
+        info!(
+            "BPB: bytes_per_sector={}, sectors_per_cluster={}, reserved_sector_count={}, num_fats={}, root_entry_count={}, total_sectors_16={}, media_type={:#x}, fat_size_16={}, sectors_per_track={}, num_heads={}, hidden_sectors={}, total_sectors_32={}, fat_size_32={}, root_cluster={}",
+            bytes_per_sector,
+            sectors_per_cluster,
+            reserved_sector_count,
+            num_fats,
+            root_entry_count,
+            total_sectors_16,
+            media_type,
+            fat_size_16,
+            sectors_per_track,
+            num_heads,
+            hidden_sectors,
+            total_sectors_32,
+            fat_size_32,
+            root_cluster
         );
 
         Ok(Self {
@@ -359,14 +377,16 @@ pub struct FatTable<'a, D: BlockDevice> {
     device: &'a mut D,
     bpb: &'a BiosParameterBlock,
     fat_type: FatType,
+    partition_offset: u64,
 }
 
 impl<'a, D: BlockDevice> FatTable<'a, D> {
-    pub fn new(device: &'a mut D, bpb: &'a BiosParameterBlock) -> Self {
+    pub fn new(device: &'a mut D, bpb: &'a BiosParameterBlock, partition_offset: u64) -> Self {
         Self {
             device,
             bpb,
             fat_type: bpb.fat_type(),
+            partition_offset,
         }
     }
 
@@ -536,7 +556,7 @@ impl<'a, D: BlockDevice> FatTable<'a, D> {
     }
 
     fn read_sector(&mut self, sector: u32, buf: &mut [u8]) -> Result<(), FileError> {
-        let offset = sector as u64 * self.bpb.bytes_per_sector as u64;
+        let offset = sector as u64 * self.bpb.bytes_per_sector as u64 + self.partition_offset;
         self.device.seek(SeekFrom::Start(offset)).map_err(|e| {
             error!("FatTable: failed to seek to sector {}: {:?}", sector, e);
             FileError::SeekError
@@ -549,7 +569,7 @@ impl<'a, D: BlockDevice> FatTable<'a, D> {
     }
 
     fn write_sector(&mut self, sector: u32, buf: &[u8]) -> Result<(), FileError> {
-        let offset = sector as u64 * self.bpb.bytes_per_sector as u64;
+        let offset = sector as u64 * self.bpb.bytes_per_sector as u64 + self.partition_offset;
         self.device.seek(SeekFrom::Start(offset)).map_err(|e| {
             error!(
                 "FatTable: failed to seek to sector {} for write: {:?}",
@@ -571,10 +591,11 @@ pub fn read_cluster<D: BlockDevice>(
     bpb: &BiosParameterBlock,
     cluster: u32,
     buf: &mut [u8],
+    partition_offset: u64,
 ) -> Result<(), FileError> {
     trace!("read_cluster: reading cluster {}", cluster);
     let sector = bpb.cluster_to_sector(cluster);
-    let offset = sector as u64 * bpb.bytes_per_sector as u64;
+    let offset = (sector as u64 * bpb.bytes_per_sector as u64) + partition_offset;
 
     device.seek(SeekFrom::Start(offset)).map_err(|e| {
         error!(
@@ -596,10 +617,11 @@ pub fn write_cluster<D: BlockDevice>(
     bpb: &BiosParameterBlock,
     cluster: u32,
     buf: &[u8],
+    partition_offset: u64,
 ) -> Result<(), FileError> {
     trace!("write_cluster: writing cluster {}", cluster);
     let sector = bpb.cluster_to_sector(cluster);
-    let offset = sector as u64 * bpb.bytes_per_sector as u64;
+    let offset = sector as u64 * bpb.bytes_per_sector as u64 + partition_offset;
 
     device.seek(SeekFrom::Start(offset)).map_err(|e| {
         error!(
@@ -623,10 +645,11 @@ pub fn get_cluster_chain<D: BlockDevice>(
     device: &mut D,
     bpb: &BiosParameterBlock,
     start_cluster: u32,
+    partition_offset: u64,
 ) -> Result<Vec<u32>, FileError> {
     trace!("get_cluster_chain: starting from cluster {}", start_cluster);
     let mut chain = Vec::new();
-    let mut fat = FatTable::new(device, bpb);
+    let mut fat = FatTable::new(device, bpb, partition_offset);
     let mut cluster = start_cluster;
 
     while cluster >= 2 && !fat.is_eoc(cluster) {

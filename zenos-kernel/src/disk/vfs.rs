@@ -199,32 +199,34 @@ impl OpenFile {
     }
 
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FileError> {
+        let mut ino = self.inode.lock();
         if !self
             .file_open_options
             .contains(FileOpenOptions::READ_ONLY | FileOpenOptions::READ_WRITE)
-            && !self.inode.lock().perms.contains(Permissions::OWNER_READ)
+            && !ino.perms.contains(Permissions::OWNER_READ)
         {
             return Err(FileError::PermissionDenied);
         }
         let offset = *self.cursor.lock();
-        let bytes_read = self.inode.lock().data.read(offset, buf)?;
+        let bytes_read = ino.data.read(offset, buf)?;
         *self.cursor.lock() += bytes_read as u64;
-        self.inode.lock().data.sync()?;
+        ino.data.sync()?;
         Ok(bytes_read)
     }
     pub fn write(&mut self, buf: &[u8]) -> Result<usize, FileError> {
+        let mut ino = self.inode.lock();
         if !(self
             .file_open_options
             .contains(FileOpenOptions::WRITE_ONLY | FileOpenOptions::READ_WRITE)
-            || self.inode.lock().perms.contains(Permissions::OWNER_WRITE))
+            || ino.perms.contains(Permissions::OWNER_WRITE))
         {
             // if someone wonders how this works, I used de Morgan's law.
             return Err(FileError::PermissionDenied);
         }
         let offset = *self.cursor.lock();
-        let bytes_written = self.inode.lock().data.write(offset, buf)?;
+        let bytes_written = ino.data.write(offset, buf)?;
         *self.cursor.lock() += bytes_written as u64;
-        self.inode.lock().data.sync()?;
+        ino.data.sync()?;
         Ok(bytes_written)
     }
 }

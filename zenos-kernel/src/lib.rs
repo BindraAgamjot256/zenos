@@ -221,6 +221,8 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
         asm!("finit");
     }
 
+    disk::init();
+
     debug!("Kernel initialization complete");
     debug!("everything initialized, enabling interrupts now");
     x86_64::instructions::interrupts::enable();

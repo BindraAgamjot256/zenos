@@ -1034,7 +1034,7 @@ pub fn create_idle_task() {
     state.rsp = stack_top;
     state.rflags = 0x202; // IF=1 (interrupts enabled)
     state.cs = GDT.code_selector.0 as u64; // Kernel code segment
-    state.ss = GDT._data_selector.0 as u64; // Kernel data segment
+    state.ss = GDT.data_selector.0 as u64; // Kernel data segment
 
     let idle_process = Process {
         pid: 0,
@@ -1080,6 +1080,11 @@ pub static SCHEDULER: Lazy<Mutex<Scheduler>> = Lazy::new(|| Mutex::new(Scheduler
 /// Get the current process PID
 pub fn current_pid() -> u64 {
     SCHEDULER.lock().current_pid().unwrap()
+}
+
+/// Check if there's a current process running (safe to call during init)
+pub fn has_current_process() -> bool {
+    SCHEDULER.lock().current_pid().is_some()
 }
 
 /// Set the current process PID

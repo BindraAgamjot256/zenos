@@ -9,7 +9,7 @@ use crate::{
     serial::SERIAL,
 };
 use core::arch::global_asm;
-use log::{error, info, trace, warn};
+use log::{error, trace, warn};
 use spin::Lazy;
 use x86_64::instructions::tlb;
 use x86_64::registers::rflags::RFlags;
@@ -140,6 +140,10 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
     // Increment the tick counter for timekeeping
     crate::disk::fs::proc::tick();
     crate::tty::update_cursor();
+
+    // Check if any AHCI I/O has completed and unblock waiting processes
+    crate::disk::block::ahci::check_ahci_completion();
+
     // Send EOI first
     {
         let mut guard = crate::hardware::APIC_MANAGER.lock();
@@ -185,7 +189,10 @@ pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext
     };
 
     if let Some((new_pid, new_cr3, new_state)) = switch_info {
-        trace!("switching to pid {}, cr3 {:#x}, rip {:#x}", new_pid, new_cr3, new_state.rip);
+        trace!(
+            "switching to pid {}, cr3 {:#x}, rip {:#x}",
+            new_pid, new_cr3, new_state.rip
+        );
         // Switch CR3 to new process
         let frame = PhysFrame::containing_address(x86_64::PhysAddr::new(new_cr3));
         Cr3::write(frame, Cr3::read().1);
@@ -301,6 +308,7 @@ extern "x86-interrupt" fn page_fault_handler(
     }
 
     if error_code.contains(PageFaultErrorCode::USER_MODE) {
+        //todo: replace with sending SIGSEGV.
         let current_pid = {
             let sched = SCHEDULER.lock();
             let cpid = sched.current_pid();
@@ -336,6 +344,9 @@ extern "x86-interrupt" fn page_fault_handler(
         }
         kprint!("segmentation fault. core not dumped\n");
         SCHEDULER.lock().force_reschedule();
+        if current_pid == 1 {
+            panic!("init cannot exit. fuck you.")
+        }
         return; // return, don't panic the kernel, will reschedule next timer interrupt.
     }
     error!("stack frame: {ist:#?}");
