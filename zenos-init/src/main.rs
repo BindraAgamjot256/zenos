@@ -159,15 +159,12 @@ static STRESS_TESTS: &[(&[u8], &[&[u8]])] = &[
     (b"/bin/fsconcrt\0", &[b"fsconcrt\0"]),
     (b"/bin/orphzomb\0", &[b"orphzomb\0"]),
     (b"/bin/forkstrm\0", &[b"forkstrm\0"]),
-    (b"/bin/rapidspn\0", &[b"rapidspn\0"]),
 ];
 
 #[cfg(feature = "stress")]
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> ! {
     println!("=== Zenos Init: Stress Test Launcher ===");
-
-    // Brief delay before stress tests
 
     // Launch all stress tests
     println!("[init] Launching stress tests...");

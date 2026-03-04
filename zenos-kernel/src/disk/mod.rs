@@ -6,8 +6,8 @@
 //! # Layers
 //!
 //! - **Block layer** ([`block`]): Low-level sector-addressable storage abstraction.
-//!   Provides the [`BlockDevice`](block::BlockDevice) trait and concrete drivers.
-//!   Currently implements an AHCI driver ([`block::ahci`]) for SATA drives using DMA.
+//!   Provides the [`BlockDevice`](BlockDevice) trait and concrete drivers.
+//!   Currently, implements an AHCI driver ([`block::ahci`]) for SATA drives using DMA.
 //!
 //! - **VFS layer** ([`vfs`]): Virtual File System abstraction providing unified
 //!   filesystem traits ([`FileSystem`](vfs::FileSystem), [`Inode`](vfs::InodeOps)) that can be implemented by multiple backends. Handles
@@ -102,12 +102,7 @@ use crate::disk::{
 };
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use alloc::{
-    format,
-    string::{String, ToString},
-    sync::Arc,
-};
-use core::str::FromStr;
+use alloc::{format, string::String, sync::Arc};
 use fs::fat::FatFileSystem;
 use log::info;
 use spin::{Lazy, Mutex};

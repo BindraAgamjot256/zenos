@@ -180,7 +180,7 @@ pub unsafe extern "C" fn syscall_main(sframe: *mut SyscallFrame) -> u64 {
         }
     }
 
-    let mut ret = 0;
+    let ret: u64;
     let table = table::SYSCALL_TABLE.deref();
     if syscall_num >= table.len() as u64 {
         info!("invalid syscall number: {}", syscall_num);
@@ -198,6 +198,12 @@ pub unsafe extern "C" fn syscall_main(sframe: *mut SyscallFrame) -> u64 {
         "returning from syscall number: {}, return value: {:#x}",
         syscall_num, ret
     );
+    if (ret as i64) < 0 {
+        info!(
+            "syscall number: {} returned error code: {}",
+            syscall_num, ret
+        );
+    }
     ret
 }
 
