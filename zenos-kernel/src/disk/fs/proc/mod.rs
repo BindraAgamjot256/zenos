@@ -540,7 +540,7 @@ fn generate_version() -> String {
     format!(
         "zenos version {} (rustc {})\n",
         env!("CARGO_PKG_VERSION"),
-        "nightly"
+        "1.95.0-nightly"
     )
 }
 

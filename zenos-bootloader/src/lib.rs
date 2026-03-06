@@ -25,8 +25,8 @@ use tempfile::NamedTempFile;
 use crate::file_data_source::FileDataSource;
 pub use bootloader_boot_config::BootConfig;
 
-const KERNEL_FILE_NAME: &str = "kernel-x86_64";
-const RAMDISK_FILE_NAME: &str = "ramdisk";
+const KERNEL_FILE_NAME: &str = "zenos_kernel";
+const RAMDISK_FILE_NAME: &str = "initrd";
 
 #[cfg(feature = "uefi")]
 const UEFI_BOOTLOADER: &[u8] = include_bytes!(env!("UEFI_BOOTLOADER_PATH"));

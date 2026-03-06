@@ -183,7 +183,7 @@ fn load_ramdisk(
     st: &mut SystemTable<Boot>,
     boot_mode: BootMode,
 ) -> Option<&'static mut [u8]> {
-    load_file_from_boot_method(image, st, "ramdisk\0", boot_mode)
+    load_file_from_boot_method(image, st, "initrd\0", boot_mode)
 }
 
 fn load_config_file(
@@ -199,7 +199,7 @@ fn load_kernel(
     st: &mut SystemTable<Boot>,
     boot_mode: BootMode,
 ) -> Option<Kernel<'static>> {
-    let kernel_slice = load_file_from_boot_method(image, st, "kernel-x86_64\0", boot_mode)?;
+    let kernel_slice = load_file_from_boot_method(image, st, "zenos_kernel\0", boot_mode)?;
     Some(Kernel::parse(kernel_slice))
 }
 
