@@ -54,4 +54,24 @@ impl FileDataSource {
 
         Ok(())
     }
+
+    /// Write this data source to a file at the specified path
+    pub fn write_to_path(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        match self {
+            FileDataSource::File(file_path) => {
+                fs::copy(file_path, path).with_context(|| {
+                    format!(
+                        "failed to copy `{}` to `{}`",
+                        file_path.display(),
+                        path.display()
+                    )
+                })?;
+            }
+            FileDataSource::Bytes(contents) => {
+                fs::write(path, contents)
+                    .with_context(|| format!("failed to write bytes to `{}`", path.display()))?;
+            }
+        };
+        Ok(())
+    }
 }

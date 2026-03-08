@@ -9,6 +9,7 @@ extern crate alloc;
 #[cfg(feature = "uefi")]
 mod gpt;
 
+mod ext;
 mod fat;
 mod file_data_source;
 
@@ -35,7 +36,10 @@ const UEFI_BOOTLOADER: &[u8] = include_bytes!(env!("UEFI_BOOTLOADER_PATH"));
 ///
 /// It can currently create `GPT` (UEFI), and `TFTP` (UEFI) images.
 pub struct DiskImageBuilder {
-    files: BTreeMap<Cow<'static, str>, FileDataSource>,
+    /// Files for the boot partition (FAT): kernel, ramdisk
+    boot_files: BTreeMap<Cow<'static, str>, FileDataSource>,
+    /// Files for the data partition (ext2): everything added via set_file()
+    data_files: BTreeMap<Cow<'static, str>, FileDataSource>,
 }
 
 impl DiskImageBuilder {
@@ -49,30 +53,43 @@ impl DiskImageBuilder {
     /// Create a new, empty instance of DiskImageBuilder
     pub fn empty() -> Self {
         Self {
-            files: BTreeMap::new(),
+            boot_files: BTreeMap::new(),
+            data_files: BTreeMap::new(),
         }
     }
 
     /// Add or replace a kernel to be included in the final image.
     pub fn set_kernel(&mut self, path: PathBuf) -> &mut Self {
-        self.set_file_source(KERNEL_FILE_NAME.into(), FileDataSource::File(path))
+        self.boot_files
+            .insert(KERNEL_FILE_NAME.into(), FileDataSource::File(path));
+        self
     }
 
     /// Add or replace a ramdisk to be included in the final image.
     pub fn set_ramdisk(&mut self, path: PathBuf) -> &mut Self {
-        self.set_file_source(RAMDISK_FILE_NAME.into(), FileDataSource::File(path))
+        self.boot_files
+            .insert(RAMDISK_FILE_NAME.into(), FileDataSource::File(path));
+        self
     }
 
-    /// Add a file with the specified source file to the disk image
+    /// Add a file with the specified source file to the disk image (ext2 data partition).
     ///
     /// Note that the bootloader only loads the kernel and ramdisk files into memory on boot.
-    /// Other files need to be loaded manually by the kernel.
+    /// Other files need to be loaded manually by the kernel from the ext2 data partition.
     pub fn set_file(&mut self, destination: String, file_path: PathBuf) -> &mut Self {
-        self.set_file_source(destination.into(), FileDataSource::File(file_path))
+        self.data_files
+            .insert(destination.into(), FileDataSource::File(file_path));
+        self
     }
 
     #[cfg(feature = "uefi")]
     /// Create a GPT disk image for booting on UEFI systems.
+    ///
+    /// Creates a FAT partition with kernel/ramdisk/bootloader, and if any data files
+    /// were added via `set_file()`, creates an ext2 data partition containing them.
+    ///
+    /// For ext2 creation: tries genext2fs first (macOS), falls back to mkfs.ext2,
+    /// or panics if neither is available.
     pub fn create_uefi_image(&self, image_path: &Path) -> anyhow::Result<()> {
         const UEFI_BOOT_FILENAME: &str = "efi/boot/bootx64.efi";
 
@@ -81,23 +98,33 @@ impl DiskImageBuilder {
         let fat_partition = self
             .create_fat_filesystem_image(internal_files)
             .context("failed to create FAT partition")?;
-        gpt::create_gpt_disk(fat_partition.path(), image_path)
-            .context("failed to create UEFI GPT disk image")?;
+
+        // Create ext2 partition if there are data files
+        let ext2_partition = if !self.data_files.is_empty() {
+            Some(
+                self.create_ext2_filesystem_image()
+                    .context("failed to create ext2 partition")?,
+            )
+        } else {
+            None
+        };
+
+        gpt::create_gpt_disk_with_partitions(
+            fat_partition.path(),
+            ext2_partition.as_ref().map(|f| f.path()),
+            image_path,
+        )
+        .context("failed to create UEFI GPT disk image")?;
+
         fat_partition
             .close()
             .context("failed to delete FAT partition after disk image creation")?;
+        if let Some(ext2) = ext2_partition {
+            ext2.close()
+                .context("failed to delete ext2 partition after disk image creation")?;
+        }
 
         Ok(())
-    }
-
-    /// Add a file source to the disk image
-    fn set_file_source(
-        &mut self,
-        destination: Cow<'static, str>,
-        source: FileDataSource,
-    ) -> &mut Self {
-        self.files.insert(destination, source);
-        self
     }
 
     fn create_fat_filesystem_image(
@@ -106,8 +133,8 @@ impl DiskImageBuilder {
     ) -> anyhow::Result<NamedTempFile> {
         let mut local_map: BTreeMap<&str, _> = BTreeMap::new();
 
-        for (name, source) in &self.files {
-            local_map.insert(name, source);
+        for (name, source) in &self.boot_files {
+            local_map.insert(name.as_ref(), source);
         }
 
         for k in &internal_files {
@@ -122,6 +149,20 @@ impl DiskImageBuilder {
         let out_file = NamedTempFile::new().context("failed to create temp file")?;
         fat::create_fat_filesystem(local_map, out_file.path())
             .context("failed to create FAT filesystem")?;
+
+        Ok(out_file)
+    }
+
+    fn create_ext2_filesystem_image(&self) -> anyhow::Result<NamedTempFile> {
+        let mut local_map: BTreeMap<&str, _> = BTreeMap::new();
+
+        for (name, source) in &self.data_files {
+            local_map.insert(name.as_ref(), source);
+        }
+
+        let out_file = NamedTempFile::new().context("failed to create temp file")?;
+        ext::create_ext2_filesystem(local_map, out_file.path())
+            .context("failed to create ext2 filesystem")?;
 
         Ok(out_file)
     }
