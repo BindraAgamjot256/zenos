@@ -75,9 +75,9 @@
 
 mod plumbing;
 
-use crate::disk::FileError;
 use crate::disk::block::BlockDevice;
 use crate::disk::vfs::{self, DirEntry, FileType, Inode, InodeOps, Permissions, SeekFrom};
+use crate::disk::{FileError, FsMountError};
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::sync::{Arc, Weak};
@@ -114,7 +114,7 @@ pub struct FatFileSystem<D: BlockDevice + 'static> {
 
 impl<D: BlockDevice + 'static> FatFileSystem<D> {
     /// Mount a FAT filesystem from the given block device.
-    pub fn mount(mut device: D, partition_offset: u64) -> Result<Self, FileError> {
+    pub fn mount(mut device: D, partition_offset: u64) -> Result<Self, FsMountError> {
         debug!("FatFileSystem: mounting filesystem");
         // Read boot sector
         let mut boot_sector = [0u8; 512];
@@ -122,16 +122,20 @@ impl<D: BlockDevice + 'static> FatFileSystem<D> {
             .seek(SeekFrom::Start(0 + partition_offset))
             .map_err(|e| {
                 error!("FatFileSystem: failed to seek to boot sector: {:?}", e);
-                FileError::SeekError
+                FsMountError::ReadError
             })?;
         device.read(&mut boot_sector).map_err(|e| {
             error!("FatFileSystem: failed to read boot sector: {:?}", e);
-            FileError::ReadError
+            FsMountError::ReadError
         })?;
 
         // Parse BPB
         let bpb = BiosParameterBlock::parse(&boot_sector).map_err(|e| {
             error!("FatFileSystem: failed to parse BPB: {:?}", e);
+            FsMountError::ReadError
+        })?;
+        bpb.validate().map_err(|e| {
+            error!("FatFileSystem: invalid BPB: {:?}", e);
             e
         })?;
         let fat_type = bpb.fat_type();

@@ -133,6 +133,20 @@ pub enum FileError {
     Other(String),
 }
 
+#[derive(Debug, Clone)]
+pub enum FsMountError {
+    /// Invalid Metadata Header
+    InvalidSuperblock,
+    /// Failed to read from block device during filesystem creation
+    ReadError,
+    /// Corrupted Filesystem detected during creation
+    Corrupted,
+    /// Unsupported filesystem type or version
+    Unsupported,
+    /// Generic error with a message.
+    Other(String),
+}
+
 /// Global FAT filesystem instance backed by the AHCI block device on port 0.
 pub static FS: Lazy<Mutex<VFS>> = Lazy::new(|| Mutex::new(VFS::new()));
 
@@ -149,17 +163,14 @@ static FILESYSTEMS: &[(
     fn(
         blockdev: BlockDeviceDriver,
         part_entry: &GPTPartitionEntry,
-    ) -> Option<Arc<dyn vfs::FileSystem>>,
+    ) -> Result<Arc<dyn vfs::FileSystem>, FsMountError>,
 )] = &[("FAT", |blockdev, part_entry| {
     assert!(
         part_entry.is_used(),
         "Partition entry must be used to mount filesystem"
     );
-    if let Ok(fatfs) = FatFileSystem::mount(blockdev, part_entry.starting_lba * 512) {
-        Some(Arc::new(fatfs))
-    } else {
-        None
-    }
+    let fat = FatFileSystem::mount(blockdev, part_entry.starting_lba * 512)?;
+    Ok(Arc::new(fat))
 })];
 
 pub fn init() {
@@ -179,44 +190,49 @@ pub fn init() {
             drop(guard);
             info!("GPT found {} partitions", partitions.len());
             let mut root_mounted = false;
-            for (partition, (name, fsinitfn)) in partitions.iter_mut().zip(FILESYSTEMS.iter()) {
-                info!(
-                    "Trying to mount partition {} with filesystem {name}",
-                    String::from_utf16_lossy(&partition.partition_name).trim_matches(char::from(0))
-                );
-                if let Some(fs) = fsinitfn(
-                    BlockDeviceDriver::new(Box::new(blockdev.clone())),
-                    *partition,
-                ) {
+            for partition in partitions.iter_mut() {
+                for (name, fsinitfn) in FILESYSTEMS.iter() {
                     info!(
-                        "Mounted partition \"{}\" with filesystem {name}",
+                        "Trying to mount partition {} with filesystem {name}",
                         String::from_utf16_lossy(&partition.partition_name)
                             .trim_matches(char::from(0))
                     );
-                    if !root_mounted {
-                        vfs.mount("/", fs).unwrap();
-                        root_mounted = true;
-                    } else {
-                        // For simplicity, we mount additional filesystems at /mnt/partitionN
-                        let mount_point = format!(
-                            "/mnt/{}",
+                    let res = fsinitfn(
+                        BlockDeviceDriver::new(Box::new(blockdev.clone())),
+                        *partition,
+                    );
+                    if let Ok(fs) = res {
+                        info!(
+                            "Mounted partition \"{}\" with filesystem {name}",
                             String::from_utf16_lossy(&partition.partition_name)
                                 .trim_matches(char::from(0))
                         );
-                        vfs.mount(&mount_point, fs).unwrap();
+                        if !root_mounted {
+                            vfs.mount("/", fs).unwrap();
+                            root_mounted = true;
+                        } else {
+                            // For simplicity, we mount additional filesystems at /mnt/partitionN
+                            let mount_point = format!(
+                                "/mnt/{}",
+                                String::from_utf16_lossy(&partition.partition_name)
+                                    .trim_matches(char::from(0))
+                            );
+                            vfs.mount(&mount_point, fs).unwrap();
+                            info!(
+                                "Mounted partition {} at {}",
+                                String::from_utf16_lossy(&partition.partition_name)
+                                    .trim_matches(char::from(0)),
+                                mount_point
+                            );
+                        }
+                    } else {
                         info!(
-                            "Mounted partition {} at {}",
+                            "Failed to mount partition \"{}\" with filesystem {name}, error: {:?}",
                             String::from_utf16_lossy(&partition.partition_name)
                                 .trim_matches(char::from(0)),
-                            mount_point
+                            res.err().unwrap(),
                         );
                     }
-                } else {
-                    info!(
-                        "Failed to mount partition {} with filesystem {name}",
-                        String::from_utf16_lossy(&partition.partition_name)
-                            .trim_matches(char::from(0))
-                    );
                 }
             }
         } else {

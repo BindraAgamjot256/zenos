@@ -24,9 +24,9 @@
 //! ```
 #![allow(dead_code)]
 
-use crate::disk::FileError;
 use crate::disk::block::BlockDevice;
 use crate::disk::vfs::SeekFrom;
+use crate::disk::{FileError, FsMountError};
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -67,6 +67,8 @@ pub struct BiosParameterBlock {
 impl BiosParameterBlock {
     /// Parse BPB from the first 512 bytes of the volume.
     pub fn parse(boot_sector: &[u8]) -> Result<Self, FileError> {
+        // todo: check if this is a valid fat boot sector, reading bytes 510/511 either here or
+        //  in BiosParameterBlock::validate(); currently we just assume the caller has already verified this.
         if boot_sector.len() < 512 {
             error!(
                 "BiosParameterBlock: boot sector too small ({} bytes)",
@@ -151,6 +153,76 @@ impl BiosParameterBlock {
             fat_size_32,
             root_cluster,
         })
+    }
+    pub fn validate(&self) -> Result<(), FsMountError> {
+        // Bytes per sector must be valid
+        match self.bytes_per_sector {
+            512 | 1024 | 2048 | 4096 => {}
+            _ => return Err(FsMountError::InvalidSuperblock),
+        }
+
+        // Sectors per cluster must be power of two (1–128)
+        if self.sectors_per_cluster == 0
+            || self.sectors_per_cluster > 128
+            || !self.sectors_per_cluster.is_power_of_two()
+        {
+            return Err(FsMountError::InvalidSuperblock);
+        }
+
+        // Reserved sector count must exist
+        if self.reserved_sector_count == 0 {
+            return Err(FsMountError::InvalidSuperblock);
+        }
+
+        // Must have at least one FAT
+        if self.num_fats == 0 {
+            return Err(FsMountError::InvalidSuperblock);
+        }
+
+        // Total sectors must exist
+        if self.total_sectors() == 0 {
+            return Err(FsMountError::InvalidSuperblock);
+        }
+
+        // FAT size must exist
+        if self.fat_size() == 0 {
+            return Err(FsMountError::InvalidSuperblock);
+        }
+
+        let fat_type = self.fat_type();
+
+        match fat_type {
+            FatType::Fat12 | FatType::Fat16 => {
+                if self.root_entry_count == 0 {
+                    return Err(FsMountError::Corrupted);
+                }
+            }
+
+            FatType::Fat32 => {
+                if self.root_entry_count != 0 {
+                    return Err(FsMountError::Corrupted);
+                }
+
+                if self.root_cluster < 2 {
+                    return Err(FsMountError::Corrupted);
+                }
+
+                if self.fat_size_32 == 0 {
+                    return Err(FsMountError::Corrupted);
+                }
+            }
+        }
+
+        // Layout sanity check
+        let required_sectors = self.reserved_sector_count as u32
+            + (self.num_fats as u32 * self.fat_size())
+            + self.root_dir_sectors();
+
+        if required_sectors >= self.total_sectors() {
+            return Err(FsMountError::Corrupted);
+        }
+
+        Ok(())
     }
 
     /// Determine the FAT type based on cluster count.
