@@ -17,6 +17,7 @@ SOURCES := fork_storm.c \
            orphan_zombie.c \
            ansi_colors.c  \
            fs_concurrent.c \
+           fs_write.c \
 
 # Derive targets from sources
 TARGETS := $(patsubst %.c,$(BUILD_DIR)/%,$(SOURCES))
@@ -83,5 +84,6 @@ help:
 	@echo "  mem_exhaust    - Memory exhaustion"
 	@echo "  orphan_zombie  - Orphan/zombie handling"
 	@echo "  fs_concurrent  - Concurrent filesystem access"
+	@echo "  fs_write       - Concurrent file write stress"
 	@echo "  procfs_churn   - Procfs stress during churn"
 	@echo "  syscall_abuse  - Invalid syscall arguments"

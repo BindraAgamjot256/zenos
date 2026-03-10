@@ -47,6 +47,8 @@
 //! ```
 
 use super::FileError;
+use crate::kprintln;
+use alloc::collections::BTreeMap;
 use alloc::{
     boxed::Box,
     format,
@@ -56,7 +58,6 @@ use alloc::{
 };
 use bitflags::bitflags;
 use core::{fmt::Debug, sync::atomic::AtomicU64};
-use hashbrown::HashMap;
 use log::{debug, trace};
 use spin::Mutex;
 
@@ -106,9 +107,11 @@ pub(crate) enum FileType {
     File,
     Directory,
     Symlink,
-    Device,
     Socket,
     Pipe,
+    CharDevice,
+    BlockDevice,
+    Fifo,
 }
 
 bitflags! {
@@ -136,6 +139,7 @@ pub(crate) trait InodeOps {
     fn sync(&mut self) -> Result<(), FileError>;
 
     // directory-only ops (return Err(NotADirectory) otherwise)
+    fn unlink(&mut self, name: &str) -> Result<(), FileError>;
     fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError>;
     fn create(
         &mut self,
@@ -273,7 +277,7 @@ pub trait FileSystem: Send + Sync {
 }
 
 /// Mapping of filesystem mount points to their drivers.
-type FSMap = HashMap<String, Arc<dyn FileSystem + Send + Sync>>;
+type FSMap = BTreeMap<String, Arc<dyn FileSystem + Send + Sync>>;
 
 /// Virtual File System manager.
 ///
@@ -288,7 +292,9 @@ pub struct VFS {
 impl VFS {
     /// Creates a new empty VFS with no mounted file systems.
     pub fn new() -> Self {
-        VFS { fs: HashMap::new() }
+        VFS {
+            fs: BTreeMap::new(),
+        }
     }
 
     /// Mounts a file system at the specified path.
@@ -331,6 +337,51 @@ impl VFS {
     pub fn get_fs(&self, path: &str) -> Option<Arc<dyn FileSystem + Sync + Send>> {
         trace!("VFS: looking up filesystem for path '{}'", path);
         self.fs.get(path).cloned()
+    }
+
+    /// Recursively lists all files in the VFS by traversing all mounted filesystems.
+    ///
+    /// This method visits each mount point and recursively explores directories,
+    /// printing the full path of every file and directory found.
+    pub fn list_all_files(&self) {
+        debug!("VFS: listing all files");
+        for (mount_point, fs) in &self.fs {
+            debug!("VFS: exploring mount point '{}'", mount_point);
+            if let Ok(root_inode) = fs.root_dir() {
+                self.list_files_recursive(mount_point, root_inode);
+            }
+        }
+    }
+
+    /// Helper method to recursively list files starting from a given inode.
+    fn list_files_recursive(&self, current_path: &str, inode: Arc<Mutex<Inode>>) {
+        let mut inode_guard = inode.lock();
+
+        // Print current path
+        kprintln!("{}", current_path);
+
+        // If it's a directory, recursively explore its contents
+        match inode_guard.kind {
+            FileType::Directory => {
+                if let Ok(entries) = inode_guard.data.read_dir() {
+                    drop(inode_guard);
+                    for entry in entries {
+                        if entry.name == "." || entry.name == ".." {
+                            continue;
+                        }
+                        let new_path = if current_path == "/" {
+                            format!("/{}", entry.name)
+                        } else {
+                            format!("{}/{}", current_path, entry.name)
+                        };
+                        self.list_files_recursive(&new_path, entry.inode);
+                    }
+                }
+            }
+            _ => {
+                // Already printed above, nothing more to do for files
+            }
+        }
     }
 
     /// Returns the root directory of the file system mounted at "/".

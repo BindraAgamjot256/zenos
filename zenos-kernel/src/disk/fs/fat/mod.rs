@@ -73,6 +73,10 @@
 //! new_file.flush().expect("Flush failed");
 //! ```
 
+//todo: note: rewrite the fatfs to be more standards compliant, support LFN, and add more features.
+// this is just a basic implementation to get something working, made with ❤️ by github copilot.
+// see the FatFs crate for a more complete reference implementation.
+
 mod plumbing;
 
 use crate::disk::block::BlockDevice;
@@ -462,15 +466,22 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             })
         };
 
+        let perms = if entry.attr & FatDirEntry::ATTR_READ_ONLY != 0 {
+            Permissions::all()
+                & !(Permissions::OWNER_WRITE | Permissions::GROUP_WRITE | Permissions::OTHER_WRITE)
+        } else {
+            Permissions::all()
+        };
+
         let inode = Arc::new(Mutex::new(Inode {
-            num: idx as u64,
+            num: ((self.cluster as u64) << 32) | idx as u64,
             kind: if entry.is_directory() {
                 FileType::Directory
             } else {
                 FileType::File
             },
             size: AtomicU64::new(entry.file_size as u64),
-            perms: Permissions::all(),
+            perms,
             links: AtomicU64::new(1),
             data: inode_ops,
         }));
@@ -489,6 +500,111 @@ impl<D: BlockDevice + 'static> InodeOps for FatDirectory<D> {
         Err(FileError::IsADirectory)
     }
 
+    fn unlink(&mut self, name: &str) -> Result<(), FileError> {
+        trace!("FatDirectory: unlinking '{}'", name);
+
+        // Find the entry to unlink
+        let (entry, entry_index) = self.find_entry(name)?.ok_or(FileError::NotFound)?;
+
+        // Don't allow unlinking directories (use rmdir for that)
+        if entry.is_directory() {
+            return Err(FileError::IsADirectory);
+        }
+
+        let mut inner = self.inner.lock();
+        let bpb = inner.bpb.clone();
+        let fat_type = inner.fat_type;
+        let po = inner.partition_offset;
+
+        // Free cluster chain if file has clusters
+        if entry.first_cluster() >= 2 {
+            let mut fat = FatTable::new(&mut inner.device, &bpb, po);
+            let mut cluster = entry.first_cluster();
+
+            loop {
+                let next = fat.read_entry(cluster)?;
+                fat.write_entry(cluster, 0)?; // Mark cluster as free
+
+                if fat.is_eoc(next) {
+                    break;
+                }
+                cluster = next;
+            }
+            debug!(
+                "FatDirectory: freed cluster chain starting at {}",
+                entry.first_cluster()
+            );
+        }
+
+        // Mark directory entry as deleted
+        if self.is_root && fat_type != FatType::Fat32 {
+            // FAT12/16 root directory
+            let root_dir_sector =
+                bpb.reserved_sector_count as u32 + (bpb.num_fats as u32 * bpb.fat_size());
+            let offset = root_dir_sector as u64 * bpb.bytes_per_sector as u64
+                + (entry_index * FatDirEntry::SIZE) as u64
+                + inner.partition_offset;
+
+            let mut entry_data = [0u8; FatDirEntry::SIZE];
+            inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
+                error!("FatDirectory: failed to seek for unlink: {:?}", e);
+                FileError::SeekError
+            })?;
+            inner.device.read(&mut entry_data).map_err(|e| {
+                error!("FatDirectory: failed to read for unlink: {:?}", e);
+                FileError::ReadError
+            })?;
+
+            entry_data[0] = 0xE5; // Mark as deleted
+
+            inner.device.seek(SeekFrom::Start(offset)).map_err(|e| {
+                error!("FatDirectory: failed to seek for unlink write: {:?}", e);
+                FileError::SeekError
+            })?;
+            inner.device.write(&entry_data).map_err(|e| {
+                error!("FatDirectory: failed to write for unlink: {:?}", e);
+                FileError::WriteError
+            })?;
+        } else {
+            // Cluster-based directory
+            let cluster_size = bpb.bytes_per_cluster() as usize;
+            let entries_per_cluster = cluster_size / FatDirEntry::SIZE;
+            let target_cluster_idx = entry_index / entries_per_cluster;
+            let offset_in_cluster = (entry_index % entries_per_cluster) * FatDirEntry::SIZE;
+
+            // Navigate to correct cluster
+            let mut cluster = self.cluster;
+            for _ in 0..target_cluster_idx {
+                let mut fat = FatTable::new(&mut inner.device, &bpb, po);
+                cluster = fat.read_entry(cluster)?;
+            }
+
+            let mut buf = vec![0u8; cluster_size];
+            read_cluster(&mut inner.device, &bpb, cluster, &mut buf, po).map_err(|e| {
+                error!("FatDirectory: failed to read cluster for unlink: {:?}", e);
+                e
+            })?;
+
+            buf[offset_in_cluster] = 0xE5; // Mark as deleted
+
+            write_cluster(&mut inner.device, &bpb, cluster, &buf, po).map_err(|e| {
+                error!("FatDirectory: failed to write cluster for unlink: {:?}", e);
+                e
+            })?;
+        }
+
+        // Remove from inode cache if present
+        let key = InodeKey {
+            dir_cluster: self.cluster,
+            entry_index,
+            in_root: self.is_root,
+        };
+        inner.ino_cache.remove(&key);
+
+        debug!("FatDirectory: unlink '{}' complete", name);
+        Ok(())
+    }
+
     fn truncate(&mut self, _size: u64) -> Result<(), FileError> {
         Err(FileError::IsADirectory)
     }
@@ -496,7 +612,6 @@ impl<D: BlockDevice + 'static> InodeOps for FatDirectory<D> {
     fn sync(&mut self) -> Result<(), FileError> {
         Ok(())
     }
-
     fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
         let (entry, idx) = self.find_entry(name)?.ok_or(FileError::NotFound)?;
 
@@ -842,6 +957,10 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
 
         trace!("FatFile: write complete, {} bytes written", bytes_written);
         Ok(bytes_written)
+    }
+
+    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
+        Err(FileError::NotADirectory)
     }
 
     fn truncate(&mut self, size: u64) -> Result<(), FileError> {

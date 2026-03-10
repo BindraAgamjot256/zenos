@@ -13,5 +13,6 @@
 //!   Mounted at `/proc`, provides Linux-compatible files like `cpuinfo`,
 //!   `meminfo`, `uptime`, and per-process directories.
 
+pub(crate) mod ext2;
 pub mod fat;
 pub mod proc;

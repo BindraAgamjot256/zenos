@@ -1,16 +1,11 @@
 use anyhow::Context;
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::Path,
-    process::Command,
-};
+use std::{collections::BTreeMap, fs, path::Path, process::Command};
 use tempfile::TempDir;
 
 use crate::file_data_source::FileDataSource;
 
 /// Create an ext2 filesystem image containing the specified files.
-/// 
+///
 /// Tries genext2fs first (preferred on macOS), falls back to mkfs.ext2,
 /// and panics if neither is available.
 pub fn create_ext2_filesystem(
@@ -27,15 +22,14 @@ pub fn create_ext2_filesystem(
 
         // Create parent directories
         if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent).with_context(|| {
-                format!("failed to create directory `{}`", parent.display())
-            })?;
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create directory `{}`", parent.display()))?;
         }
 
         // Write the file
-        source.write_to_path(&target_path).with_context(|| {
-            format!("failed to write file to `{}`", target_path.display())
-        })?;
+        source
+            .write_to_path(&target_path)
+            .with_context(|| format!("failed to write file to `{}`", target_path.display()))?;
     }
 
     // Calculate needed size (add padding for ext2 overhead)
@@ -98,12 +92,19 @@ pub fn create_ext2_filesystem(
 
 /// Try to create ext2 filesystem using genext2fs.
 /// Returns Ok(true) if successful, Ok(false) if genext2fs is not available.
-fn try_genext2fs(staging_path: &Path, out_path: &Path, size_mb: u64, inode_count: u64) -> anyhow::Result<bool> {
+fn try_genext2fs(
+    staging_path: &Path,
+    out_path: &Path,
+    size_mb: u64,
+    inode_count: u64,
+) -> anyhow::Result<bool> {
     let status = Command::new("genext2fs")
         .arg("-b")
         .arg((size_mb * 1024).to_string()) // size in 1K blocks
         .arg("-N")
-        .arg(inode_count.to_string()) // number of inodes
+        .arg(inode_count.to_string())
+        .arg("-L")
+        .arg("data") // ← volume name
         .arg("-d")
         .arg(staging_path)
         .arg(out_path)
@@ -119,7 +120,12 @@ fn try_genext2fs(staging_path: &Path, out_path: &Path, size_mb: u64, inode_count
 
 /// Try to create ext2 filesystem using mkfs.ext2.
 /// Returns Ok(true) if successful, Ok(false) if mkfs.ext2 is not available.
-fn try_mkfs_ext2(staging_path: &Path, out_path: &Path, size_mb: u64, inode_count: u64) -> anyhow::Result<bool> {
+fn try_mkfs_ext2(
+    staging_path: &Path,
+    out_path: &Path,
+    size_mb: u64,
+    inode_count: u64,
+) -> anyhow::Result<bool> {
     // Create an empty file of the required size
     let file = fs::OpenOptions::new()
         .read(true)
@@ -133,9 +139,29 @@ fn try_mkfs_ext2(staging_path: &Path, out_path: &Path, size_mb: u64, inode_count
     drop(file);
 
     // Format it as ext2
-    let status = Command::new("mkfs.ext2")
+    let mut cmd = Command::new("mkfs.ext2");
+
+    if cfg!(target_os = "macos") {
+        // on macos, mkfs.ext2 is not added to path when installed by homebrew, so we need to specify the full path
+        let brew_prefix = Command::new("brew")
+            .arg("--prefix")
+            .arg("e2fsprogs")
+            .output()
+            .context("failed to run brew --prefix")?;
+
+        let brew_prefix_str = String::from_utf8(brew_prefix.stdout)
+            .context("brew --prefix output is not valid UTF-8")?
+            .trim()
+            .to_string();
+        let brew_prefix = format!("{brew_prefix_str}/sbin/mkfs.ext2");
+        cmd = Command::new(brew_prefix);
+    }
+
+    let status = cmd
+        .arg("-L")
+        .arg("data") // ← volume name
         .arg("-N")
-        .arg(inode_count.to_string()) // number of inodes
+        .arg(inode_count.to_string())
         .arg("-d")
         .arg(staging_path)
         .arg(out_path)

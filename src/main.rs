@@ -24,6 +24,10 @@ struct Cli {
     /// Run using Bochs instead of QEMU
     #[arg(long, global = true)]
     bochs: bool,
+
+    /// Use FAT filesystem for data partition instead of ext2
+    #[arg(long, global = true)]
+    fat: bool,
 }
 
 #[derive(Subcommand, Clone, Copy, Default)]
@@ -53,6 +57,7 @@ struct BuildArgs {
     test_stub: bool,
     test: bool,
     stress: bool,
+    fat: bool,
 }
 
 fn main() {
@@ -65,6 +70,7 @@ fn main() {
         test_stub: matches!(command, Command::Stub),
         test: matches!(command, Command::Test),
         stress: matches!(command, Command::Stress),
+        fat: cli.fat,
     };
 
     match command {
@@ -115,7 +121,7 @@ fn main() {
     let kernel_path = kernel_binding.as_path();
 
     println!("[DISK] Creating bootable UEFI image...");
-    let image_binding = disk_img_builder(kernel_path);
+    let image_binding = disk_img_builder(kernel_path, build_args.fat);
     let uefi_path = image_binding.as_path();
 
     println!("[INFO] Kernel binary: {}", kernel_path.display());
@@ -369,7 +375,8 @@ fn build_init(args: BuildArgs) {
 }
 
 /// Packages the kernel and the 'iso' directory into a UEFI-bootable disk image.
-fn disk_img_builder(kernel_path: &Path) -> PathBuf {
+/// If `use_fat` is true, uses FAT for the data partition; otherwise uses ext2.
+fn disk_img_builder(kernel_path: &Path, use_fat: bool) -> PathBuf {
     let mut builder = zenos_bootloader::DiskImageBuilder::new(kernel_path.to_path_buf());
     let uefi_out_path = PathBuf::from("uefi.img");
     let iso_dir = Path::new("iso");
@@ -382,7 +389,7 @@ fn disk_img_builder(kernel_path: &Path) -> PathBuf {
     }
 
     builder
-        .create_uefi_image(uefi_out_path.as_path())
+        .create_uefi_image(uefi_out_path.as_path(), use_fat)
         .expect("Failed to generate UEFI disk image");
 
     uefi_out_path
@@ -528,7 +535,7 @@ fn build_coreutils(_args: BuildArgs) {
     std::fs::create_dir_all(&out_dir).unwrap();
 
     let utilities = [
-        "ls", "cat", "grep", "echo", "true", "false", "yes", "wc", "head", "tail",
+        "ls", "cat", "grep", "echo", "true", "false", "yes", "wc", "head", "tail", "od",
     ];
 
     for util in utilities {
@@ -575,6 +582,7 @@ fn build_stress_tests(_args: BuildArgs) {
         ("orphan_zombie", "orphzomb"),
         ("ansi_colors", "ansiclrs"),
         ("fs_concurrent", "fsconcrt"),
+        ("fs_write", "fswrite"),
     ];
 
     for (src_name, dst_name) in stress_tests {

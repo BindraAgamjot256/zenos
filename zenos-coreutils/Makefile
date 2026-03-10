@@ -17,6 +17,7 @@ SOURCES := ls.c \
            false.c \
            yes.c \
            wc.c \
+           od.c \
 
 # Derive targets from sources
 TARGETS := $(patsubst %.c,$(BUILD_DIR)/%,$(SOURCES))
@@ -84,3 +85,4 @@ help:
 	@echo "  false   - Return failure"
 	@echo "  yes     - Output a string repeatedly"
 	@echo "  wc      - Count lines, words, and bytes"
+	@echo "  od      - Octal dump"

@@ -22,14 +22,12 @@
 //! - 0x00000002 - 0x0FFFFFEF: Next cluster in chain
 //! - 0x0FFFFFF8 - 0x0FFFFFFF: End of chain (EOC)
 //! ```
-#![allow(dead_code)]
 
 use crate::disk::block::BlockDevice;
 use crate::disk::vfs::SeekFrom;
 use crate::disk::{FileError, FsMountError};
 use alloc::string::{String, ToString};
 use alloc::vec;
-use alloc::vec::Vec;
 use log::{error, info, trace};
 
 /// FAT filesystem type variants.
@@ -42,7 +40,6 @@ pub enum FatType {
 
 /// Special FAT entry values.
 pub const FAT_FREE: u32 = 0x00000000;
-pub const FAT_EOC_MIN: u32 = 0x0FFFFFF8; // End of chain marker (FAT32)
 
 /// BIOS Parameter Block (common fields).
 #[derive(Debug, Clone)]
@@ -53,11 +50,11 @@ pub struct BiosParameterBlock {
     pub num_fats: u8,
     pub root_entry_count: u16,
     pub total_sectors_16: u16,
-    pub media_type: u8,
+    pub _media_type: u8,
     pub fat_size_16: u16,
-    pub sectors_per_track: u16,
-    pub num_heads: u16,
-    pub hidden_sectors: u32,
+    pub _sectors_per_track: u16,
+    pub _num_heads: u16,
+    pub _hidden_sectors: u32,
     pub total_sectors_32: u32,
     // FAT32 extended fields
     pub fat_size_32: u32,
@@ -144,11 +141,11 @@ impl BiosParameterBlock {
             num_fats,
             root_entry_count,
             total_sectors_16,
-            media_type,
+            _media_type: media_type,
             fat_size_16,
-            sectors_per_track,
-            num_heads,
-            hidden_sectors,
+            _sectors_per_track: sectors_per_track,
+            _num_heads: num_heads,
+            _hidden_sectors: hidden_sectors,
             total_sectors_32,
             fat_size_32,
             root_cluster,
@@ -319,8 +316,8 @@ pub struct FatDirEntry {
 impl FatDirEntry {
     pub const SIZE: usize = 32;
     pub const ATTR_READ_ONLY: u8 = 0x01;
-    pub const ATTR_HIDDEN: u8 = 0x02;
-    pub const ATTR_SYSTEM: u8 = 0x04;
+    pub const _ATTR_HIDDEN: u8 = 0x02;
+    pub const _ATTR_SYSTEM: u8 = 0x04;
     pub const ATTR_VOLUME_ID: u8 = 0x08;
     pub const ATTR_DIRECTORY: u8 = 0x10;
     pub const ATTR_ARCHIVE: u8 = 0x20;
@@ -615,18 +612,6 @@ impl<'a, D: BlockDevice> FatTable<'a, D> {
         }
     }
 
-    /// Free a cluster chain starting at `cluster`.
-    pub fn free_chain(&mut self, mut cluster: u32) -> Result<(), FileError> {
-        trace!("FatTable: freeing cluster chain starting at {}", cluster);
-        while cluster >= 2 && !self.is_eoc(cluster) {
-            let next = self.read_entry(cluster)?;
-            self.write_entry(cluster, FAT_FREE)?;
-            trace!("FatTable: freed cluster {}", cluster);
-            cluster = next;
-        }
-        Ok(())
-    }
-
     fn read_sector(&mut self, sector: u32, buf: &mut [u8]) -> Result<(), FileError> {
         let offset = sector as u64 * self.bpb.bytes_per_sector as u64 + self.partition_offset;
         self.device.seek(SeekFrom::Start(offset)).map_err(|e| {
@@ -710,29 +695,4 @@ pub fn write_cluster<D: BlockDevice>(
         FileError::WriteError
     })?;
     Ok(())
-}
-
-/// Get the cluster chain for a file/directory.
-pub fn get_cluster_chain<D: BlockDevice>(
-    device: &mut D,
-    bpb: &BiosParameterBlock,
-    start_cluster: u32,
-    partition_offset: u64,
-) -> Result<Vec<u32>, FileError> {
-    trace!("get_cluster_chain: starting from cluster {}", start_cluster);
-    let mut chain = Vec::new();
-    let mut fat = FatTable::new(device, bpb, partition_offset);
-    let mut cluster = start_cluster;
-
-    while cluster >= 2 && !fat.is_eoc(cluster) {
-        chain.push(cluster);
-        cluster = fat.read_entry(cluster)?;
-    }
-
-    if cluster >= 2 {
-        chain.push(cluster);
-    }
-
-    trace!("get_cluster_chain: chain has {} clusters", chain.len());
-    Ok(chain)
 }

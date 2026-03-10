@@ -129,6 +129,8 @@ pub enum FileError {
     IsADirectory,
     /// Operation not permitted due to insufficient permissions.
     PermissionDenied,
+    /// Filesystem is mounted read-only.
+    ReadOnlyFilesystem,
     /// Generic error with a message.
     Other(String),
 }
@@ -137,6 +139,8 @@ pub enum FileError {
 pub enum FsMountError {
     /// Invalid Metadata Header
     InvalidSuperblock,
+    /// Error Parsing Metadata
+    ParseError,
     /// Failed to read from block device during filesystem creation
     ReadError,
     /// Corrupted Filesystem detected during creation
@@ -164,14 +168,24 @@ static FILESYSTEMS: &[(
         blockdev: BlockDeviceDriver,
         part_entry: &GPTPartitionEntry,
     ) -> Result<Arc<dyn vfs::FileSystem>, FsMountError>,
-)] = &[("FAT", |blockdev, part_entry| {
-    assert!(
-        part_entry.is_used(),
-        "Partition entry must be used to mount filesystem"
-    );
-    let fat = FatFileSystem::mount(blockdev, part_entry.starting_lba * 512)?;
-    Ok(Arc::new(fat))
-})];
+)] = &[
+    ("FAT", |blockdev, part_entry| {
+        assert!(
+            part_entry.is_used(),
+            "Partition entry must be used to mount filesystem"
+        );
+        let fat = FatFileSystem::mount(blockdev, part_entry.starting_lba * 512)?;
+        Ok(Arc::new(fat))
+    }),
+    ("Ext2", |blockdev, part_entry| {
+        assert!(
+            part_entry.is_used(),
+            "Partition entry must be used to mount filesystem"
+        );
+        let ext2 = fs::ext2::Ext2::mount(blockdev, part_entry.starting_lba * 512)?;
+        Ok(Arc::new(ext2))
+    }),
+];
 
 pub fn init() {
     let mut vfs = FS.lock();
@@ -191,7 +205,7 @@ pub fn init() {
             info!("GPT found {} partitions", partitions.len());
             let mut root_mounted = false;
             for partition in partitions.iter_mut() {
-                for (name, fsinitfn) in FILESYSTEMS.iter() {
+                'inner: for (name, fsinitfn) in FILESYSTEMS.iter() {
                     info!(
                         "Trying to mount partition {} with filesystem {name}",
                         String::from_utf16_lossy(&partition.partition_name)
@@ -208,8 +222,17 @@ pub fn init() {
                                 .trim_matches(char::from(0))
                         );
                         if !root_mounted {
+                            if String::from_utf16_lossy(&partition.partition_name)
+                                .trim_matches(char::from(0))
+                                == "boot"
+                            {
+                                info!("Mounting partition \"boot\" at /boot");
+                                vfs.mount("/boot", fs).unwrap();
+                                break 'inner;
+                            }
                             vfs.mount("/", fs).unwrap();
                             root_mounted = true;
+                            break 'inner;
                         } else {
                             // For simplicity, we mount additional filesystems at /mnt/partitionN
                             let mount_point = format!(
@@ -232,6 +255,7 @@ pub fn init() {
                                 .trim_matches(char::from(0)),
                             res.err().unwrap(),
                         );
+                        continue 'inner;
                     }
                 }
             }

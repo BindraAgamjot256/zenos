@@ -130,14 +130,14 @@ impl Process {
             Rc::new(Mutex::new(OpenFile {
                 inode: Arc::new(Mutex::new(Inode {
                     num: 0,
-                    kind: FileType::Device,
+                    kind: FileType::CharDevice,
                     size: Default::default(),
-                    perms: Permissions::all(),
+                    perms: Permissions::OWNER_READ,
                     links: Default::default(),
                     data: Box::new(Stdin::new(pid)),
                 })),
                 cursor: Mutex::new(0),
-                file_open_options: FileOpenOptions::READ_WRITE,
+                file_open_options: FileOpenOptions::READ_ONLY | FileOpenOptions::TRUNCATE,
             })),
         );
         file_handles.insert(
@@ -145,9 +145,9 @@ impl Process {
             Rc::new(Mutex::new(OpenFile {
                 inode: Arc::new(Mutex::new(Inode {
                     num: 0,
-                    kind: FileType::Device,
+                    kind: FileType::CharDevice,
                     size: Default::default(),
-                    perms: Permissions::all(),
+                    perms: Permissions::OWNER_WRITE,
                     links: Default::default(),
                     data: Box::new(Stdout::new(pid)),
                 })),
@@ -160,9 +160,9 @@ impl Process {
             Rc::new(Mutex::new(OpenFile {
                 inode: Arc::new(Mutex::new(Inode {
                     num: 0,
-                    kind: FileType::Device,
+                    kind: FileType::CharDevice,
                     size: Default::default(),
-                    perms: Permissions::all(),
+                    perms: Permissions::OWNER_WRITE,
                     links: Default::default(),
                     data: Box::new(Stderr::new(pid)),
                 })),
@@ -952,7 +952,7 @@ pub fn init_process() -> &'static [u8] {
         Rc::new(Mutex::new(OpenFile {
             inode: Arc::new(Mutex::new(Inode {
                 num: 0,
-                kind: FileType::Device,
+                kind: FileType::CharDevice,
                 size: Default::default(),
                 perms: Permissions::all(),
                 links: Default::default(),
@@ -967,7 +967,7 @@ pub fn init_process() -> &'static [u8] {
         Rc::new(Mutex::new(OpenFile {
             inode: Arc::new(Mutex::new(Inode {
                 num: 0,
-                kind: FileType::Device,
+                kind: FileType::CharDevice,
                 size: Default::default(),
                 perms: Permissions::all(),
                 links: Default::default(),
@@ -982,7 +982,7 @@ pub fn init_process() -> &'static [u8] {
         Rc::new(Mutex::new(OpenFile {
             inode: Arc::new(Mutex::new(Inode {
                 num: 0,
-                kind: FileType::Device,
+                kind: FileType::CharDevice,
                 size: Default::default(),
                 perms: Permissions::all(),
                 links: Default::default(),

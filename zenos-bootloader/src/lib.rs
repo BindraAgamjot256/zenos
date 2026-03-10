@@ -86,11 +86,12 @@ impl DiskImageBuilder {
     /// Create a GPT disk image for booting on UEFI systems.
     ///
     /// Creates a FAT partition with kernel/ramdisk/bootloader, and if any data files
-    /// were added via `set_file()`, creates an ext2 data partition containing them.
+    /// were added via `set_file()`, creates a data partition containing them.
     ///
+    /// If `use_fat` is true, uses FAT for the data partition; otherwise uses ext2.
     /// For ext2 creation: tries genext2fs first (macOS), falls back to mkfs.ext2,
     /// or panics if neither is available.
-    pub fn create_uefi_image(&self, image_path: &Path) -> anyhow::Result<()> {
+    pub fn create_uefi_image(&self, image_path: &Path, use_fat: bool) -> anyhow::Result<()> {
         const UEFI_BOOT_FILENAME: &str = "efi/boot/bootx64.efi";
 
         let mut internal_files = BTreeMap::new();
@@ -99,19 +100,16 @@ impl DiskImageBuilder {
             .create_fat_filesystem_image(internal_files)
             .context("failed to create FAT partition")?;
 
-        // Create ext2 partition if there are data files
-        let ext2_partition = if !self.data_files.is_empty() {
-            Some(
-                self.create_ext2_filesystem_image()
-                    .context("failed to create ext2 partition")?,
-            )
+        // Create data partition if there are data files
+        let data_partition = if !self.data_files.is_empty() {
+            Some(self.create_data_filesystem_image(use_fat)?)
         } else {
             None
         };
 
         gpt::create_gpt_disk_with_partitions(
             fat_partition.path(),
-            ext2_partition.as_ref().map(|f| f.path()),
+            data_partition.as_ref().map(|f| f.path()),
             image_path,
         )
         .context("failed to create UEFI GPT disk image")?;
@@ -119,9 +117,9 @@ impl DiskImageBuilder {
         fat_partition
             .close()
             .context("failed to delete FAT partition after disk image creation")?;
-        if let Some(ext2) = ext2_partition {
-            ext2.close()
-                .context("failed to delete ext2 partition after disk image creation")?;
+        if let Some(data) = data_partition {
+            data.close()
+                .context("failed to delete data partition after disk image creation")?;
         }
 
         Ok(())
@@ -165,5 +163,31 @@ impl DiskImageBuilder {
             .context("failed to create ext2 filesystem")?;
 
         Ok(out_file)
+    }
+
+    fn create_fat_data_filesystem_image(&self) -> anyhow::Result<NamedTempFile> {
+        let mut local_map: BTreeMap<&str, _> = BTreeMap::new();
+
+        for (name, source) in &self.data_files {
+            local_map.insert(name.as_ref(), source);
+        }
+
+        let out_file = NamedTempFile::new().context("failed to create temp file")?;
+        fat::create_fat_filesystem(local_map, out_file.path())
+            .context("failed to create FAT data filesystem")?;
+
+        Ok(out_file)
+    }
+
+    /// Create the data partition filesystem image.
+    /// If `use_fat` is true, creates a FAT filesystem; otherwise creates ext2.
+    fn create_data_filesystem_image(&self, use_fat: bool) -> anyhow::Result<NamedTempFile> {
+        if use_fat {
+            self.create_fat_data_filesystem_image()
+                .context("failed to create FAT data partition")
+        } else {
+            self.create_ext2_filesystem_image()
+                .context("failed to create ext2 data partition")
+        }
     }
 }

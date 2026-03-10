@@ -96,6 +96,10 @@ impl InodeOps for ProcRootDir {
         Err(FileError::IsADirectory)
     }
 
+    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
+        Err(FileError::ReadOnlyFilesystem)
+    }
+
     fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
         match name {
             "cpuinfo" => Ok(Arc::new(Mutex::new(Inode {
@@ -183,7 +187,7 @@ impl InodeOps for ProcRootDir {
         _kind: FileType,
         _perms: Permissions,
     ) -> Result<Arc<Mutex<Inode>>, FileError> {
-        Err(FileError::UnsupportedOperation)
+        Err(FileError::ReadOnlyFilesystem)
     }
 
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
@@ -229,6 +233,10 @@ impl InodeOps for ProcessDir {
     fn sync(&mut self) -> Result<(), FileError> {
         Err(FileError::IsADirectory)
     }
+
+    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
+        Err(FileError::ReadOnlyFilesystem)
+    }
     fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
         match name {
             "stat" => Ok(Arc::new(Mutex::new(Inode {
@@ -270,7 +278,7 @@ impl InodeOps for ProcessDir {
         _kind: FileType,
         _perms: Permissions,
     ) -> Result<Arc<Mutex<Inode>>, FileError> {
-        Err(FileError::UnsupportedOperation)
+        Err(FileError::ReadOnlyFilesystem)
     }
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
         Ok(vec![
@@ -350,15 +358,19 @@ impl InodeOps for ProcFile {
     }
 
     fn write(&mut self, _offset: u64, _buf: &[u8]) -> Result<usize, FileError> {
-        Err(FileError::UnsupportedOperation)
+        Err(FileError::ReadOnlyFilesystem)
     }
 
     fn truncate(&mut self, _size: u64) -> Result<(), FileError> {
-        Err(FileError::UnsupportedOperation)
+        Err(FileError::ReadOnlyFilesystem)
     }
 
     fn sync(&mut self) -> Result<(), FileError> {
         Ok(())
+    }
+
+    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
+        Err(FileError::ReadOnlyFilesystem)
     }
 
     fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {

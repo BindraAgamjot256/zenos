@@ -60,6 +60,10 @@ impl InodeOps for Stdout {
         Ok(())
     }
 
+    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
+        Err(FileError::UnsupportedOperation)
+    }
+
     fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
         Err(FileError::UnsupportedOperation)
     }
@@ -95,6 +99,10 @@ impl InodeOps for Stderr {
 
     fn sync(&mut self) -> Result<(), FileError> {
         Ok(())
+    }
+
+    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
+        Err(FileError::UnsupportedOperation)
     }
 
     fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
@@ -161,7 +169,7 @@ impl InodeOps for Stdin {
     }
 
     fn write(&mut self, _offset: u64, _buf: &[u8]) -> Result<usize, FileError> {
-        todo!()
+        Err(FileError::UnsupportedOperation)
     }
 
     fn truncate(&mut self, _size: u64) -> Result<(), FileError> {
@@ -170,6 +178,10 @@ impl InodeOps for Stdin {
 
     fn sync(&mut self) -> Result<(), FileError> {
         Ok(())
+    }
+
+    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
+        Err(FileError::UnsupportedOperation)
     }
 
     fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {

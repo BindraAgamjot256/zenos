@@ -15,6 +15,7 @@ extern crate alloc;
 use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
 use core::arch::asm;
 use x86_64::instructions::interrupts;
+use zenos_kernel::disk::FS;
 use zenos_kernel::kinit;
 
 static CONFIG: BootloaderConfig = {
@@ -93,6 +94,10 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     }
 
     interrupts::disable();
+
+    #[cfg(debug_assertions)]
+    FS.lock().list_all_files();
+
     // Create the kernel idle task first (pid 0)
     zenos_kernel::process::create_idle_task();
 
