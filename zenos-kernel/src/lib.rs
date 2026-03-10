@@ -184,7 +184,7 @@ pub fn kinit(boot_info: &'static mut BootInfo) {
                     .as_mut()
                     .unwrap()
                     .push((i.isa_source as u64, i.global_system_interrupt as u64)); // 128 isr overrides is unlikely if I do say so myself...
-                trace!(
+                warn!(
                     "ISR Override: {} -> {}",
                     i.isa_source, i.global_system_interrupt
                 )

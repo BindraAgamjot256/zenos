@@ -7,7 +7,7 @@ use crate::disk::{
     },
     vfs::{DirEntry, FileSystem, FileType, Inode, InodeOps, Permissions, SeekFrom},
 };
-use alloc::{boxed::Box, string::ToString, sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use log::{error, info, warn};
 use spin::Mutex;
 
