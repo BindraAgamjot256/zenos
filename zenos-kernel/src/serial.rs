@@ -86,7 +86,7 @@ impl log::Log for SerialLogger {
         serial_println!(
             "{}[{}: {}: {}]{}: {}",
             level_color,
-            crate::time::RtcTime::read(),
+            crate::time::CurrentTime::read(),
             record.module_path().unwrap_or("unknown"),
             record.level(),
             reset,

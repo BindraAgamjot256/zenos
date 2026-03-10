@@ -138,7 +138,7 @@ macro_rules! kernel_busy_wait {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn timer_interrupt_handler_rust(ctx: *mut InterruptContext) -> u64 {
     // Increment the tick counter for timekeeping
-    crate::disk::fs::proc::tick();
+    crate::time::tick();
     crate::tty::update_cursor();
 
     // Check if any AHCI I/O has completed and unblock waiting processes

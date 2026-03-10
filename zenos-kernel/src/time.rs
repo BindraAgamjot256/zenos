@@ -1,11 +1,10 @@
 //! This module provides an interface to read the Real-Time Clock (RTC) using the CMOS registers.
-//! It is duplicated in the zenos-bootloader crate(logger implementation) for bootloader use.
+//! A similar version is used in the bootloader, for logs, but this one is optimized for the kernel's needs.
 //!
 //! After boot, the module tracks time using a combination of the initial RTC reading
 //! and the kernel tick counter (10ms per tick) for efficient timestamp generation.
 
 use crate::arch::{inb, outb};
-use crate::disk::fs::proc::TICK_COUNT;
 use core::fmt::{self, Display, Formatter};
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -25,17 +24,19 @@ static BOOT_YEAR: AtomicU64 = AtomicU64::new(0);
 /// Whether boot time has been initialized
 static BOOT_TIME_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-/// Get system uptime in seconds
-pub fn uptime_secs() -> u64 {
-    // TICK_COUNT.load(Ordering::Relaxed) / 100 // 10ms per tick = 100 ticks per second
-    0
+/// Global tick counter incremented by the timer interrupt (10ms per tick)
+pub static TICK_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Increment the tick counter (called from timer interrupt)
+pub fn tick() {
+    TICK_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Get the current time using boot RTC + tick counter for efficiency
-pub fn current_time() -> RtcTime {
+pub fn current_time() -> CurrentTime {
     if !BOOT_TIME_INITIALIZED.load(Ordering::Acquire) {
         // First call - read RTC and initialize boot time
-        let rtc = RtcTime::read_rtc();
+        let rtc = CurrentTime::read_rtc();
         let boot_secs = rtc.to_seconds_since_midnight();
         BOOT_TIME_SECS.store(boot_secs, Ordering::Release);
         BOOT_DAY.store(rtc.day as u64, Ordering::Release);
@@ -57,7 +58,7 @@ pub fn current_time() -> RtcTime {
     let month = BOOT_MONTH.load(Ordering::Acquire) as u8;
     let year = BOOT_YEAR.load(Ordering::Acquire) as u16;
 
-    RtcTime::from_seconds_with_date(total_secs, day, month, year)
+    CurrentTime::from_seconds_with_date(total_secs, day, month, year)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -66,7 +67,7 @@ pub fn current_time() -> RtcTime {
 /// month, and full year.
 ///
 /// The time is read from the CMOS registers, which are part of the RTC interrupts.
-pub struct RtcTime {
+pub struct CurrentTime {
     /// The second (0-59)
     pub second: u8,
     /// The minute (0-59)
@@ -81,7 +82,7 @@ pub struct RtcTime {
     pub year: u16,
 }
 
-impl RtcTime {
+impl CurrentTime {
     /// Reads an RTC register via CMOS
     unsafe fn read_cmos(reg: u8) -> u8 {
         unsafe {
@@ -103,7 +104,7 @@ impl RtcTime {
         self.hour as u64 * 3600 + self.minute as u64 * 60 + self.second as u64
     }
 
-    /// Create RtcTime from seconds since midnight with given date
+    /// Create CurrentTime from seconds since midnight with given date
     fn from_seconds_with_date(mut secs: u64, day: u8, month: u8, year: u16) -> Self {
         // Handle day rollover (simplified - doesn't handle month boundaries)
         let days_elapsed = secs / 86400;
@@ -210,9 +211,58 @@ impl RtcTime {
     pub fn read() -> Self {
         current_time()
     }
+
+    pub fn as_unix_epoch(&self) -> u64 {
+        const SECS_PER_MIN: u64 = 60;
+        const SECS_PER_HOUR: u64 = 3600;
+        const SECS_PER_DAY: u64 = 86400;
+
+        const DAYS_IN_MONTH: [u32; 12] = [
+            31, // Jan
+            28, // Feb
+            31, // Mar
+            30, // Apr
+            31, // May
+            30, // Jun
+            31, // Jul
+            31, // Aug
+            30, // Sep
+            31, // Oct
+            30, // Nov
+            31, // Dec
+        ];
+
+        fn is_leap(year: u32) -> bool {
+            (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+        }
+
+        let year = self.year as u32;
+        let mut days: u64 = 0;
+
+        // Years since 1970
+        for y in 1970..year {
+            days += if is_leap(y) { 366 } else { 365 } as u64;
+        }
+
+        // Months of current year
+        for m in 0..(self.month as usize - 1) {
+            days += DAYS_IN_MONTH[m] as u64;
+            if m == 1 && is_leap(year) {
+                days += 1;
+            }
+        }
+
+        // Days in current month
+        days += (self.day as u64) - 1;
+
+        days * SECS_PER_DAY
+            + (self.hour as u64) * SECS_PER_HOUR
+            + (self.minute as u64) * SECS_PER_MIN
+            + self.second as u64
+    }
 }
 
-impl Display for RtcTime {
+impl Display for CurrentTime {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -225,6 +275,10 @@ impl Display for RtcTime {
 /// Convert BCD to binary
 const fn bcd_to_bin(val: u8) -> u8 {
     (val & 0x0F) + ((val >> 4) * 10)
+}
+
+fn local_time_to_unix_epoch() -> u64 {
+    CurrentTime::read().as_unix_epoch()
 }
 
 #[cfg(feature = "run-kunittest")]
@@ -256,7 +310,7 @@ mod tests {
 
     #[zenos_macros::test]
     pub fn test_to_seconds_since_midnight() -> Option<()> {
-        let time = RtcTime {
+        let time = CurrentTime {
             second: 30,
             minute: 15,
             hour: 10,
@@ -271,7 +325,7 @@ mod tests {
 
     #[zenos_macros::test]
     pub fn test_from_seconds_with_date() -> Option<()> {
-        let time = RtcTime::from_seconds_with_date(36930, 15, 6, 2025);
+        let time = CurrentTime::from_seconds_with_date(36930, 15, 6, 2025);
         assert_eq!(time.hour, 10);
         assert_eq!(time.minute, 15);
         assert_eq!(time.second, 30);

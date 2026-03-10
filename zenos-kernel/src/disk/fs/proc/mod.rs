@@ -38,6 +38,7 @@ use crate::disk::FileError;
 use crate::disk::vfs::{DirEntry, FileSystem, FileType, Inode, InodeOps, Permissions};
 use crate::memory;
 use crate::process::{PROCESSES, SCHEDULER};
+use crate::time::TICK_COUNT;
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
@@ -46,14 +47,6 @@ use alloc::{format, vec};
 use core::arch::x86_64::__cpuid;
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
-
-/// Global tick counter incremented by the timer interrupt (10ms per tick)
-pub static TICK_COUNT: AtomicU64 = AtomicU64::new(0);
-
-/// Increment the tick counter (called from timer interrupt)
-pub fn tick() {
-    TICK_COUNT.fetch_add(1, Ordering::Relaxed);
-}
 
 /// Get system uptime in seconds
 pub fn uptime_secs() -> u64 {
@@ -558,7 +551,6 @@ fn generate_version() -> String {
 
 /// Generate /proc/uptime content
 fn generate_uptime() -> String {
-    unsafe { PROCESSES.force_unlock() }
     let ticks = TICK_COUNT.load(Ordering::Relaxed);
     let secs = ticks / 100; // 10ms per tick
     let centisecs = ticks % 100;
@@ -654,15 +646,6 @@ fn generate_process_cmdline(pid: u64) -> String {
 mod tests {
     use super::*;
     use crate::Test;
-
-    #[zenos_macros::test]
-    pub fn test_tick_counter() -> Option<()> {
-        let before = TICK_COUNT.load(Ordering::Relaxed);
-        tick();
-        let after = TICK_COUNT.load(Ordering::Relaxed);
-        crate::test_assert!(after > before);
-        Some(())
-    }
 
     #[zenos_macros::test]
     pub fn test_cpuinfo_not_empty() -> Option<()> {
