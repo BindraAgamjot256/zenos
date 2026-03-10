@@ -712,6 +712,6 @@ mod tests {
         let entries = inode_guard.data.read_dir().ok()?;
         crate::test_assert!(!entries.is_empty());
 
-        None
+        Some(())
     }
 }

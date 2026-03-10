@@ -1,6 +1,6 @@
-#[cfg(feature = "run-kunittest")]
-use crate::disk::fs::proc::TICK_COUNT;
 use crate::serial_print;
+#[cfg(feature = "run-kunittest")]
+use crate::time::TICK_COUNT;
 use core::fmt::Debug;
 #[cfg(feature = "run-kunittest")]
 use core::sync::atomic::Ordering;

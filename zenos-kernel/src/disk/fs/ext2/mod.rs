@@ -7,6 +7,7 @@ use crate::disk::{
     },
     vfs::{DirEntry, FileSystem, FileType, Inode, InodeOps, Permissions, SeekFrom},
 };
+use crate::time::local_time_to_unix_epoch;
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use log::{error, info, warn};
 use spin::Mutex;
@@ -35,7 +36,7 @@ impl<D: BlockDevice + 'static> Ext2FSInner<D> {
 
         let byte_offset = index as u64 * superblock.inode_size as u64;
         let block = bgdt.bg_inode_table as u64 + (byte_offset / superblock.block_size() as u64);
-        let offset = byte_offset as u64 % superblock.block_size() as u64;
+        let offset = byte_offset % superblock.block_size() as u64;
         Ok(guard.partition_offset + block * superblock.block_size() as u64 + offset)
     }
 
@@ -110,10 +111,10 @@ impl<D: BlockDevice + 'static> Ext2FSInner<D> {
 
         self.device
             .seek(SeekFrom::Start(bitmap_offset))
-            .map_err(|e| FileError::SeekError)?;
+            .map_err(|_| FileError::SeekError)?;
         self.device
             .read_exact(&mut bitmap)
-            .map_err(|e| FileError::ReadError)?;
+            .map_err(|_| FileError::ReadError)?;
 
         let byte = (index / 8) as usize;
         let bit = (index % 8) as u8;
@@ -122,10 +123,10 @@ impl<D: BlockDevice + 'static> Ext2FSInner<D> {
 
         self.device
             .seek(SeekFrom::Start(bitmap_offset))
-            .map_err(|e| FileError::SeekError)?;
+            .map_err(|_| FileError::SeekError)?;
         self.device
             .write(&bitmap)
-            .map_err(|e| FileError::WriteError)?;
+            .map_err(|_| FileError::WriteError)?;
 
         bgdt.bg_free_inodes_count += 1;
         self.superblock.free_inodes += 1;
@@ -136,8 +137,9 @@ impl<D: BlockDevice + 'static> Ext2FSInner<D> {
     /// Free a block back to the filesystem.
     pub fn free_block(&mut self, block_num: u32) -> Result<(), FileError> {
         let block_size = self.superblock.block_size() as usize;
-        let group = block_num / self.superblock.blocks_per_grp;
-        let index = block_num % self.superblock.blocks_per_grp;
+        let rel = block_num - self.superblock.first_data_blk;
+        let group = rel / self.superblock.blocks_per_grp;
+        let index = rel % self.superblock.blocks_per_grp;
 
         if group as usize >= self.block_group_descriptors.len() {
             return Err(FileError::Other("Block number out of range".into()));
@@ -244,8 +246,8 @@ impl<D: BlockDevice + 'static> Ext2FSInner<D> {
 
     /// Sync superblock to disk, updating write time and all backup copies.
     pub fn sync_superblock(&mut self) -> Result<(), FileError> {
-        // Update write time with magic value 0xDEADBEEFCAFEBABE (truncated to u32)
-        self.superblock.wrt_time = 0xCAFEBABE;
+        // Update write time
+        self.superblock.wrt_time = local_time_to_unix_epoch() as u32;
 
         let block_size = self.superblock.block_size() as u64;
         let groups = self.get_superblock_groups();
@@ -273,6 +275,36 @@ impl<D: BlockDevice + 'static> Ext2FSInner<D> {
 
         // Restore block_group_nr to 0 for the primary superblock in memory
         self.superblock.block_group_nr = 0;
+
+        // Also sync the BGDT
+        self.sync_bgdt()?;
+
+        Ok(())
+    }
+
+    /// Sync block group descriptor table to disk.
+    pub fn sync_bgdt(&mut self) -> Result<(), FileError> {
+        let block_size = self.superblock.block_size() as u64;
+
+        // BGDT location: block 2 for 1K blocks, block 1 otherwise
+        let bgdt_block = if block_size == MIN_BLOCK_SIZE {
+            BGDT_BLOCK_1K
+        } else {
+            BGDT_BLOCK_DEFAULT
+        };
+
+        let bgdt_offset = self.partition_offset + (bgdt_block * block_size);
+
+        // Serialize all BGDT entries
+        let mut buf = Vec::with_capacity(self.block_group_descriptors.len() * BGDT_ENTRY_SIZE);
+        for bgdt in &self.block_group_descriptors {
+            buf.extend_from_slice(&bgdt.serialize());
+        }
+
+        self.device
+            .seek(SeekFrom::Start(bgdt_offset))
+            .map_err(|_| FileError::SeekError)?;
+        self.device.write(&buf).map_err(|_| FileError::WriteError)?;
 
         Ok(())
     }
@@ -304,7 +336,7 @@ impl<D: BlockDevice + 'static> Ext2<D> {
             superblock_buf[56], superblock_buf[57]
         );
 
-        let superblock =
+        let mut superblock =
             Ext2Superblock::deserialize(&superblock_buf).ok_or(FsMountError::ParseError)?;
 
         superblock.validate()?;
@@ -381,14 +413,27 @@ impl<D: BlockDevice + 'static> Ext2<D> {
             );
         }
 
+        // Update mount time and count
+        superblock.mnt_time = local_time_to_unix_epoch() as u32;
+        superblock.mnt_count = superblock.mnt_count.saturating_add(1);
+
+        let mut inner = Ext2FSInner {
+            device,
+            partition_offset,
+            superblock,
+            block_group_descriptors: descriptors,
+            read_only,
+        };
+
+        // Sync superblock to disk with updated mount info
+        if !read_only {
+            if let Err(e) = inner.sync_superblock() {
+                warn!("ext2: failed to sync superblock on mount: {:?}", e);
+            }
+        }
+
         Ok(Self {
-            inner: Arc::new(Mutex::new(Ext2FSInner {
-                device,
-                partition_offset,
-                superblock,
-                block_group_descriptors: descriptors,
-                read_only,
-            })),
+            inner: Arc::new(Mutex::new(inner)),
         })
     }
 }
@@ -457,9 +502,7 @@ impl<D: BlockDevice + 'static> ExtDirInodeOps<D> {
 
         for chunk in buf.chunks_exact(4) {
             let val = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            if val != 0 {
-                ptrs.push(val);
-            }
+            ptrs.push(val);
         }
 
         Ok(ptrs)
@@ -544,7 +587,11 @@ impl<D: BlockDevice + 'static> ExtDirInodeOps<D> {
                 if let Some(dentry) = dentry {
                     let rec_len = dentry.rec_len as usize;
 
-                    if rec_len == 0 || offset + rec_len > block_buf.len() {
+                    if rec_len == 0
+                        || offset + rec_len > block_buf.len()
+                        || rec_len < 8
+                        || rec_len % 4 != 0
+                    {
                         error!("Invalid rec_len {} at offset {}", rec_len, offset);
                         break;
                     }
@@ -591,6 +638,8 @@ impl<D: BlockDevice + 'static> InodeOps for ExtDirInodeOps<D> {
             return Err(FileError::ReadOnlyFilesystem);
         }
 
+        guard.free_inode(0)?;
+
         todo!();
     }
 
@@ -636,11 +685,11 @@ impl<D: BlockDevice + 'static> InodeOps for ExtDirInodeOps<D> {
             }
         };
 
-        return Ok(Arc::new(Mutex::new(convert_ext2_inode_to_vfs_inode(
+        Ok(Arc::new(Mutex::new(convert_ext2_inode_to_vfs_inode(
             ext2_inode.clone(),
             entry.inode as u64,
             data,
-        ))));
+        ))))
     }
 
     fn create(
@@ -663,14 +712,11 @@ impl<D: BlockDevice + 'static> InodeOps for ExtDirInodeOps<D> {
 
         let mut vec = Vec::new();
 
+        let mut guard = self.inner.lock();
+
         for i in dentries {
             let ino = i.inode as u64;
-            let inode_offset = self
-                .inner
-                .lock()
-                .get_block_offset_for_inode_num(ino as u32)?;
-
-            let mut guard = self.inner.lock();
+            let inode_offset = guard.get_block_offset_for_inode_num(ino as u32)?;
             let mut buf = vec![0u8; guard.superblock.inode_size as usize];
 
             guard
@@ -1005,6 +1051,12 @@ impl<D: BlockDevice + 'static> InodeOps for ExtFileInodeOps<D> {
             current_offset += bytes_from_block as u64;
         }
 
+        // Update access time
+        if bytes_read > 0 && !guard.read_only {
+            self.ext2inode.i_atime = local_time_to_unix_epoch() as u32;
+            let _ = Self::sync_inode(&self.ext2inode, self.inode_num, &mut guard);
+        }
+
         Ok(bytes_read)
     }
 
@@ -1058,14 +1110,15 @@ impl<D: BlockDevice + 'static> InodeOps for ExtFileInodeOps<D> {
             self.ext2inode.i_size = new_end as u32;
         }
 
+        // Update modification time
+        let now = local_time_to_unix_epoch() as u32;
+        self.ext2inode.i_mtime = now;
+        self.ext2inode.i_ctime = now;
+
         // Sync inode metadata
         Self::sync_inode(&self.ext2inode, self.inode_num, &mut guard)?;
 
         Ok(bytes_written)
-    }
-
-    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
-        Err(FileError::NotADirectory)
     }
 
     fn truncate(&mut self, size: u64) -> Result<(), FileError> {
@@ -1080,6 +1133,9 @@ impl<D: BlockDevice + 'static> InodeOps for ExtFileInodeOps<D> {
         if size >= current_size {
             // Extending the file - just update size, blocks allocated lazily on write
             self.ext2inode.i_size = size as u32;
+            let now = local_time_to_unix_epoch() as u32;
+            self.ext2inode.i_mtime = now;
+            self.ext2inode.i_ctime = now;
             Self::sync_inode(&self.ext2inode, self.inode_num, &mut guard)?;
             return Ok(());
         }
@@ -1134,6 +1190,9 @@ impl<D: BlockDevice + 'static> InodeOps for ExtFileInodeOps<D> {
         }
 
         self.ext2inode.i_size = size as u32;
+        let now = local_time_to_unix_epoch() as u32;
+        self.ext2inode.i_mtime = now;
+        self.ext2inode.i_ctime = now;
         Self::sync_inode(&self.ext2inode, self.inode_num, &mut guard)?;
 
         Ok(())
@@ -1142,6 +1201,10 @@ impl<D: BlockDevice + 'static> InodeOps for ExtFileInodeOps<D> {
     fn sync(&mut self) -> Result<(), FileError> {
         let mut guard = self.inner.lock();
         Self::sync_inode(&self.ext2inode, self.inode_num, &mut guard)
+    }
+
+    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
+        Err(FileError::NotADirectory)
     }
 
     fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {

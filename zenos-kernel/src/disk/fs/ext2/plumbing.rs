@@ -377,6 +377,18 @@ impl BlockGroupDescriptorTable {
             _padding: bytes[18..32].try_into().unwrap(), // just store the padding as-is, we don't care about it
         })
     }
+
+    pub(crate) fn serialize(&self) -> [u8; 32] {
+        let mut buf = [0u8; 32];
+        buf[0..4].copy_from_slice(&self.bg_block_bitmap.to_le_bytes());
+        buf[4..8].copy_from_slice(&self.bg_inode_bitmap.to_le_bytes());
+        buf[8..12].copy_from_slice(&self.bg_inode_table.to_le_bytes());
+        buf[12..14].copy_from_slice(&self.bg_free_blocks_count.to_le_bytes());
+        buf[14..16].copy_from_slice(&self.bg_free_inodes_count.to_le_bytes());
+        buf[16..18].copy_from_slice(&self.bg_used_dirs_count.to_le_bytes());
+        buf[18..32].copy_from_slice(&self._padding);
+        buf
+    }
 }
 
 impl Debug for BlockGroupDescriptorTable {
@@ -537,14 +549,16 @@ impl DirEntry {
         if bytes.len() < rec_len as usize || name_len as usize > (rec_len as usize - 8) {
             return None;
         }
-        let name_bytes = &bytes[8..(8 + name_len as usize)];
-        let name = String::from_utf8_lossy(name_bytes).to_string();
-        Some(DirEntry {
+        let mut tdirentry = (DirEntry {
             inode,
             rec_len,
             name_len,
             file_type,
-            name,
-        })
+            name: String::new(),
+        });
+        let name_bytes = &bytes[8..(8 + tdirentry.name_len as usize)];
+        let name = String::from_utf8_lossy(name_bytes).to_string();
+        tdirentry.name = name;
+        Some(tdirentry)
     }
 }
