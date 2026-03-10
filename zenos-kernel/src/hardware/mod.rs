@@ -1,7 +1,137 @@
-//! APIC Abstraction for x86_64 Kernel
+//! Hardware abstraction layer for x86_64 interrupt controllers.
 //!
-//! Provides Local APIC (xAPIC/x2APIC) with calibrated 10 ms periodic timer,
-//! multiple IOAPIC support, and 8259 PIC fallback (panics if none available).
+//! This module provides abstractions for interrupt controller hardware on x86_64
+//! systems, supporting multiple APIC modes with automatic fallback to legacy PIC.
+//!
+//! # Overview
+//!
+//! The hardware module manages the interrupt delivery infrastructure, including:
+//!
+//! - **Local APIC (LAPIC)**: Per-CPU interrupt controller for timer, IPI, and local interrupts
+//! - **I/O APIC**: System-wide interrupt routing for external devices (keyboard, disk, etc.)
+//! - **Legacy 8259 PIC**: Fallback for older systems without APIC support
+//!
+//! # Architecture
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────────────────┐
+//! │                           Interrupt Sources                             │
+//! │   (Keyboard, Timer, Disk, Network, etc.)                                │
+//! └───────────────────────────────┬─────────────────────────────────────────┘
+//!                                 │
+//!                                 ▼
+//! ┌─────────────────────────────────────────────────────────────────────────┐
+//! │                         I/O APIC (or 8259 PIC)                          │
+//! │                                                                         │
+//! │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
+//! │  │  IRQ 0-7    │  │  IRQ 8-15   │  │  IRQ 16-23  │  │   ...       │    │
+//! │  │ (ISA/Legacy)│  │ (ISA/Legacy)│  │  (PCI/MSI)  │  │             │    │
+//! │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘    │
+//! │         │                │                │                │           │
+//! │         └────────────────┴────────────────┴────────────────┘           │
+//! │                                 │                                       │
+//! │                    Redirection Table Entries                            │
+//! └─────────────────────────────────┬───────────────────────────────────────┘
+//!                                   │
+//!                                   ▼
+//! ┌─────────────────────────────────────────────────────────────────────────┐
+//! │                           Local APIC (LAPIC)                            │
+//! │                                                                         │
+//! │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
+//! │  │   Timer (10ms)   │  │   IPI Delivery   │  │  External IRQs   │      │
+//! │  │   Periodic IRQ   │  │   (Inter-CPU)    │  │  (from IOAPIC)   │      │
+//! │  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘      │
+//! │           │                     │                     │                │
+//! │           └─────────────────────┴─────────────────────┘                │
+//! │                                 │                                       │
+//! │                          IDT Vector Delivery                            │
+//! └─────────────────────────────────┬───────────────────────────────────────┘
+//!                                   │
+//!                                   ▼
+//!                          CPU Interrupt Handler
+//! ```
+//!
+//! # Supported Modes
+//!
+//! The module automatically detects and enables the best available mode:
+//!
+//! | Mode       | Detection      | Features                                    |
+//! |------------|----------------|---------------------------------------------|
+//! | x2APIC     | CPUID.01H:ECX[21] | MSR-based access, 32-bit APIC IDs        |
+//! | xAPIC      | CPUID.01H:EDX[9]  | MMIO-based access, 8-bit APIC IDs        |
+//! | Legacy PIC | Always present | Basic IRQ 0-15 only, no SMP support        |
+//!
+//! # Components
+//!
+//! - [`ApicManager`]: Central manager coordinating LAPIC and all IOAPICs
+//! - [`LocalApic`]: Per-CPU local APIC with timer calibration
+//! - [`IoApic`]: I/O APIC for external interrupt routing
+//! - [`idt_vectors`]: IDT vector number assignments
+//! - [`keyboard`]: PS/2 keyboard input handling
+//!
+//! # IDT Vector Layout
+//!
+//! ```text
+//! Vector Range    Purpose
+//! ──────────────────────────────────────────
+//! 0x00 - 0x1F     CPU Exceptions (reserved)
+//! 0x20 - 0x2F     Remapped IRQs 0-15
+//!   0x20          PIT Timer / LAPIC Timer
+//!   0x21          Keyboard (IRQ1)
+//!   0x22          Cascade (PIC internal)
+//!   0x2E          Primary ATA (IRQ14)
+//!   0x2F          Secondary ATA (IRQ15)
+//! 0x30 - 0xFE     Available for devices
+//! 0xFF            Spurious interrupt vector
+//! ```
+//!
+//! # Timer Calibration
+//!
+//! The LAPIC timer is calibrated using the PIT (Programmable Interval Timer)
+//! as a reference clock:
+//!
+//! 1. Configure PIT for a 10ms one-shot countdown
+//! 2. Set LAPIC timer to maximum value (0xFFFFFFFF)
+//! 3. Busy-wait until PIT reaches zero
+//! 4. Read elapsed LAPIC ticks to determine frequency
+//! 5. Configure LAPIC timer for 10ms periodic interrupts
+//!
+//! # Initialization Sequence
+//!
+//! ```rust,ignore
+//! use crate::hardware::{init, APIC_MANAGER};
+//!
+//! // Initialize with ACPI-discovered addresses
+//! init(
+//!     0xFEE00000,           // LAPIC base address
+//!     &[0xFEC00000],        // IOAPIC base addresses
+//!     &[(0, 2), (9, 9)],    // Interrupt Source Overrides (ISA IRQ, GSI)
+//! );
+//!
+//! // Send EOI after handling an interrupt
+//! if let Some(ref manager) = *APIC_MANAGER.lock() {
+//!     manager.send_eoi();
+//! }
+//! ```
+//!
+//! # Interrupt Source Overrides (ISO)
+//!
+//! ACPI provides Interrupt Source Override entries that remap legacy ISA IRQs
+//! to different Global System Interrupt (GSI) numbers. Common overrides:
+//!
+//! | ISA IRQ | Typical GSI | Device          |
+//! |---------|-------------|-----------------|
+//! | 0       | 2           | PIT Timer       |
+//! | 9       | 9           | ACPI SCI        |
+//!
+//! # Safety
+//!
+//! This module performs low-level hardware access:
+//! - MMIO reads/writes for xAPIC mode
+//! - MSR reads/writes for x2APIC mode  
+//! - I/O port access for PIT and legacy PIC
+//!
+//! All hardware access is encapsulated within safe abstractions.
 #![allow(dead_code)] // the IPI infrastructure is never used... we silence the warnings for now.
 pub(crate) mod keyboard;
 
@@ -12,58 +142,178 @@ use log::{debug, error, info, trace, warn};
 use spin::{Lazy, Mutex};
 use x86_64::{VirtAddr, registers::model_specific::Msr};
 
-/// Maximum number of IOAPICs supported
+/// Maximum number of IOAPICs supported by the kernel.
+///
+/// Most systems have only 1-2 IOAPICs, but server systems may have more.
+/// This limit is enforced by the heapless Vec used in [`ApicManager`].
 pub(crate) const MAX_IOAPICS: usize = 8;
 
-/// IDT vector assignments (central place for all vectors
+/// IDT vector assignments for interrupt routing.
+///
+/// This module defines the interrupt vector numbers used throughout the kernel.
+/// IRQs are remapped to start at `0x20` to avoid conflicts with CPU exceptions
+/// (vectors `0x00`-`0x1F`).
+///
+/// # Vector Layout
+///
+/// | Range       | Purpose                          |
+/// |-------------|----------------------------------|
+/// | 0x00 - 0x1F | CPU exceptions (reserved by Intel) |
+/// | 0x20 - 0x2F | Legacy ISA IRQs (remapped)       |
+/// | 0x30 - 0xFE | Available for PCI/MSI devices    |
+/// | 0xFF        | Spurious interrupt vector        |
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use crate::hardware::idt_vectors;
+///
+/// // Check if an interrupt vector is the keyboard
+/// if vector == idt_vectors::IRQ1_KEYBOARD {
+///     handle_keyboard_interrupt();
+/// }
+/// ```
 #[allow(dead_code)]
 pub mod idt_vectors {
-    /// First remapped IRQ (PIC master offset)
+    /// Base vector for remapped IRQs (PIC master offset).
+    ///
+    /// IRQ 0 maps to vector 0x20, IRQ 1 to 0x21, etc.
     pub const IRQ_BASE: u8 = 0x20;
 
-    /// PIC slave offset
+    /// PIC slave offset for IRQs 8-15.
+    ///
+    /// Used during legacy PIC remapping to place slave PIC
+    /// interrupts at vectors 0x28-0x2F.
     pub const IRQ_SLAVE_BASE: u8 = 0x28;
 
-    /// Spurious interrupt vector (for SVR)
+    /// Spurious interrupt vector for LAPIC SVR register.
+    ///
+    /// Set to 0xFF (highest priority) to ensure spurious interrupts
+    /// don't accidentally trigger real interrupt handlers.
     pub const SPURIOUS: u8 = 0xFF;
 
-    /// LAPIC timer interrupt vector
+    /// LAPIC timer interrupt vector.
+    ///
+    /// Configured to fire every 10ms for preemptive scheduling.
+    /// Shares the same vector as IRQ0 (PIT) since only one is active.
     pub const LAPIC_TIMER: u8 = IRQ0_PIT;
 
-    /// Common IRQs (convenience aliases)
-    pub const IRQ0_PIT: u8 = IRQ_BASE; // PIT
-    pub const IRQ1_KEYBOARD: u8 = IRQ_BASE + 1; // Keyboard
-    pub const IRQ2_CASCADE: u8 = IRQ_BASE + 2; // Cascade / slave PIC
+    // ─────────────────────────────────────────────────────────────────
+    // Legacy ISA IRQ mappings (after remapping from 0-15 to 0x20-0x2F)
+    // ─────────────────────────────────────────────────────────────────
+
+    /// IRQ 0: Programmable Interval Timer (PIT) / LAPIC Timer.
+    pub const IRQ0_PIT: u8 = IRQ_BASE;
+
+    /// IRQ 1: PS/2 Keyboard controller.
+    pub const IRQ1_KEYBOARD: u8 = IRQ_BASE + 1;
+
+    /// IRQ 2: Cascade interrupt (internal PIC wiring, not usable).
+    pub const IRQ2_CASCADE: u8 = IRQ_BASE + 2;
+
+    /// IRQ 3: COM2 / COM4 serial port.
     pub const IRQ3_SERIAL2: u8 = IRQ_BASE + 3;
+
+    /// IRQ 4: COM1 / COM3 serial port.
     pub const IRQ4_SERIAL1: u8 = IRQ_BASE + 4;
+
+    /// IRQ 5: LPT2 parallel port (or sound card on some systems).
     pub const IRQ5_LPT2: u8 = IRQ_BASE + 5;
+
+    /// IRQ 6: Floppy disk controller.
     pub const IRQ6_FLOPPY: u8 = IRQ_BASE + 6;
+
+    /// IRQ 7: LPT1 parallel port (may generate spurious interrupts).
     pub const IRQ7_LPT1: u8 = IRQ_BASE + 7;
-    pub const IRQ8_RTC: u8 = IRQ_BASE + 8; // Real-time clock
+
+    /// IRQ 8: Real-Time Clock (RTC).
+    pub const IRQ8_RTC: u8 = IRQ_BASE + 8;
+
+    /// IRQ 9: ACPI SCI / legacy coprocessor redirect.
     pub const IRQ9_COPROC: u8 = IRQ_BASE + 9;
+
+    /// IRQ 10: Available (often used by network cards).
     pub const IRQ10_RESERVED: u8 = IRQ_BASE + 10;
+
+    /// IRQ 11: Available (often used by sound cards).
     pub const IRQ11_RESERVED: u8 = IRQ_BASE + 11;
-    pub const IRQ12_MOUSE: u8 = IRQ_BASE + 12; // PS/2 Mouse
+
+    /// IRQ 12: PS/2 Mouse controller.
+    pub const IRQ12_MOUSE: u8 = IRQ_BASE + 12;
+
+    /// IRQ 13: FPU / Coprocessor error.
     pub const IRQ13_FPU: u8 = IRQ_BASE + 13;
-    pub const IRQ14_ATA_PRIMARY: u8 = IRQ_BASE + 14; // Primary ATA
-    pub const IRQ15_ATA_SECONDARY: u8 = IRQ_BASE + 15; // Secondary ATA
+
+    /// IRQ 14: Primary ATA controller.
+    pub const IRQ14_ATA_PRIMARY: u8 = IRQ_BASE + 14;
+
+    /// IRQ 15: Secondary ATA controller.
+    pub const IRQ15_ATA_SECONDARY: u8 = IRQ_BASE + 15;
 }
 
-/// APIC register offsets (for documentation)
+/// APIC register offsets for MMIO/MSR access.
+///
+/// These offsets are used for both xAPIC (MMIO) and x2APIC (MSR) modes:
+/// - **xAPIC**: Add offset to MMIO base address (e.g., `base + 0x20`)
+/// - **x2APIC**: Convert to MSR: `0x800 + (offset >> 4)` (e.g., `0x802` for APIC_ID)
 mod apic_regs {
+    /// APIC ID Register - identifies this LAPIC.
     pub const APIC_ID: u64 = 0x20;
+
+    /// APIC Version Register - hardware version and max LVT entries.
     pub const APIC_VERSION: u64 = 0x30;
+
+    /// End-Of-Interrupt Register - write 0 to signal interrupt completion.
     pub const APIC_EOI: u64 = 0xB0;
+
+    /// Spurious Interrupt Vector Register - enables LAPIC and sets spurious vector.
     pub const APIC_SVR: u64 = 0xF0;
+
+    /// Interrupt Command Register (low 32 bits) - sends IPIs.
     pub const APIC_ICR_LOW: u64 = 0x300;
+
+    /// Interrupt Command Register (high 32 bits) - IPI destination.
     pub const APIC_ICR_HIGH: u64 = 0x310;
+
+    /// LVT Timer Register - configures local timer interrupt.
     pub const APIC_LVT_TIMER: u64 = 0x320;
+
+    /// Timer Initial Count Register - countdown start value.
     pub const APIC_TIMER_INIT: u64 = 0x380;
+
+    /// Timer Current Count Register - current countdown value.
     pub const APIC_TIMER_CURRENT: u64 = 0x390;
+
+    /// Timer Divide Configuration Register - sets timer frequency divisor.
     pub const APIC_TIMER_DIVIDE: u64 = 0x3E0;
 }
 
-/// Legacy PIC ports/commands
+/// Legacy 8259 PIC (Programmable Interrupt Controller) support.
+///
+/// The 8259 PIC is used as a fallback when no APIC is available, and is always
+/// initialized (then typically disabled) to remap IRQs away from CPU exceptions.
+///
+/// # Hardware Layout
+///
+/// ```text
+/// ┌─────────────┐      ┌─────────────┐
+/// │  PIC Master │◄────►│  PIC Slave  │
+/// │  (IRQ 0-7)  │ IRQ2 │  (IRQ 8-15) │
+/// └──────┬──────┘      └──────┬──────┘
+///        │                    │
+///        └────────┬───────────┘
+///                 ▼
+///              CPU INTR
+/// ```
+///
+/// # I/O Ports
+///
+/// | Port   | PIC    | Purpose           |
+/// |--------|--------|-------------------|
+/// | 0x20   | Master | Command register  |
+/// | 0x21   | Master | Data register     |
+/// | 0xA0   | Slave  | Command register  |
+/// | 0xA1   | Slave  | Data register     |
 mod pic {
     use log::{debug, info, trace};
     use x86_64::instructions::port::{Port, PortGeneric};
@@ -151,16 +401,47 @@ mod pic {
     }
 }
 
-/// PIT-based busy-wait helper
+/// Programmable Interval Timer (PIT) for timing calibration.
+///
+/// The PIT runs at a fixed 1.193182 MHz frequency and is used to calibrate
+/// the LAPIC timer, which runs at an unknown CPU-dependent frequency.
+///
+/// # Channel 0 Mode
+///
+/// Channel 0 is configured in one-shot mode for calibration:
+/// - Load a 16-bit count value
+/// - Counter decrements at ~1.19 MHz
+/// - Busy-wait until count reaches 0
+///
+/// # Timing Formula
+///
+/// ```text
+/// count = (microseconds × 1,193,182) / 1,000,000
+/// ```
 mod pit {
     use log::{debug, trace};
     use x86_64::instructions::port::{Port, PortGeneric};
 
+    /// PIT Channel 0 data port.
     const PIT_CHANNEL0: u16 = 0x40;
+
+    /// PIT command/mode register.
     const PIT_CMD: u16 = 0x43;
+
+    /// PIT oscillator frequency in Hz (1.193182 MHz).
     const PIT_FREQ: u32 = 1_193_182;
+
+    /// Latched count value for the current sleep operation.
     static mut COUNT_LATCH: u16 = 0;
 
+    /// Prepare the PIT for a timed sleep.
+    ///
+    /// Configures Channel 0 in one-shot mode with a count calculated
+    /// from the requested microseconds.
+    ///
+    /// # Arguments
+    ///
+    /// * `us` - Sleep duration in microseconds (max ~54,925 µs for 16-bit counter)
     pub fn prepare_sleep(us: u32) {
         let count = ((us as u64 * PIT_FREQ as u64) / 1_000_000) as u16;
         debug!("Preparing PIT sleep for {us} microseconds (count: {count})");
@@ -180,6 +461,10 @@ mod pit {
         trace!("PIT configured for {us} us delay");
     }
 
+    /// Busy-wait for the PIT counter to reach zero.
+    ///
+    /// Must be called after [`prepare_sleep`] to perform the actual delay.
+    /// This function polls the PIT counter in a tight loop.
     pub fn perform_sleep() {
         trace!("Starting PIT-based busy wait");
         let mut cmd: PortGeneric<u8, _> = Port::new(PIT_CMD);
@@ -203,42 +488,105 @@ mod pit {
     }
 }
 
-/// Delivery modes for IPIs
+/// IPI (Inter-Processor Interrupt) delivery modes.
+///
+/// Specifies how the interrupt should be delivered to the target CPU(s).
+/// Used when sending IPIs via [`LocalApic::send_ipi`].
+///
+/// # Delivery Mode Summary
+///
+/// | Mode    | Value | Description                                      |
+/// |---------|-------|--------------------------------------------------|
+/// | Fixed   | 0     | Deliver to specific vector on target CPU(s)      |
+/// | Lowest  | 1     | Deliver to lowest-priority CPU                   |
+/// | SMI     | 2     | System Management Interrupt                      |
+/// | NMI     | 4     | Non-Maskable Interrupt                           |
+/// | INIT    | 5     | INIT signal (CPU reset to wait-for-SIPI state)   |
+/// | Startup | 6     | Startup IPI (SIPI) to wake AP from INIT state    |
 #[repr(u8)]
 #[derive(Debug)]
 pub enum DeliveryMode {
+    /// Deliver interrupt to the vector specified in the ICR.
     Fixed = 0,
+    /// Deliver to the processor with lowest priority.
     Lowest = 1,
+    /// System Management Interrupt (enters SMM mode).
     Smi = 2,
+    /// Non-Maskable Interrupt (vector ignored, delivers NMI).
     Nmi = 4,
+    /// INIT signal - resets target CPU to wait-for-SIPI state.
     Init = 5,
+    /// Startup IPI - boots target CPU from real mode.
     Startup = 6,
 }
 
-/// Level for level-triggered interrupts
+/// Interrupt level/trigger mode for IPIs.
+///
+/// Controls the assertion level of the interrupt signal.
 #[repr(u8)]
 #[derive(Debug)]
 pub enum Level {
+    /// De-assert the interrupt line.
     Deassert = 0,
+    /// Assert the interrupt line.
     Assert = 1,
 }
 
-/// APIC operating modes
+/// APIC operating mode detected at initialization.
+///
+/// The kernel probes CPUID to determine the best available mode.
 #[derive(Debug, Clone, Copy)]
 enum ApicMode {
+    /// xAPIC mode - MMIO-based access at physical address.
     XApic,
+    /// x2APIC mode - MSR-based access (faster, 32-bit APIC IDs).
     X2Apic,
+    /// Legacy 8259 PIC fallback (no APIC available).
     LegacyPic,
 }
 
-/// Local APIC or legacy PIC abstraction
+/// Local APIC abstraction with automatic mode detection.
+///
+/// Manages the per-CPU Local APIC (or legacy PIC fallback), providing:
+/// - Timer interrupts (calibrated 10ms periodic)
+/// - EOI (End-Of-Interrupt) signaling
+/// - IPI (Inter-Processor Interrupt) delivery
+///
+/// # Modes
+///
+/// The LAPIC automatically selects the best available mode:
+/// 1. **x2APIC** (preferred): MSR-based, supports 32-bit APIC IDs
+/// 2. **xAPIC**: MMIO-based, 8-bit APIC IDs
+/// 3. **Legacy PIC**: Fallback when no APIC is present
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // LocalApic is typically accessed through ApicManager
+/// let lapic = LocalApic::new(0xFFFF_8000_FEE0_0000);
+/// lapic.send_eoi();  // Signal interrupt completion
+/// ```
 pub struct LocalApic {
+    /// Current operating mode (x2APIC, xAPIC, or LegacyPIC).
     mode: ApicMode,
+    /// MMIO base address (only used in xAPIC mode).
     mmio_base: u64,
 }
 
 impl LocalApic {
-    /// Calibrates and starts a 10 ms periodic LAPIC timer
+    /// Calibrates and starts a 10ms periodic LAPIC timer.
+    ///
+    /// Uses the PIT as a reference clock to measure LAPIC timer frequency,
+    /// then configures periodic interrupts at vector [`idt_vectors::LAPIC_TIMER`].
+    ///
+    /// # Calibration Process
+    ///
+    /// 1. Set LAPIC timer divisor to 16
+    /// 2. Start PIT countdown for 10ms
+    /// 3. Set LAPIC initial count to maximum (0xFFFFFFFF)
+    /// 4. Busy-wait until PIT reaches zero
+    /// 5. Read elapsed LAPIC ticks
+    /// 6. Configure periodic mode with calibrated count
     fn calibrate_timer_10ms(&self) {
         info!("Starting LAPIC timer calibration for 10ms periodic timer");
 
@@ -318,7 +666,12 @@ impl LocalApic {
         }
     }
 
-    /// Send EOI
+    /// Signal End-Of-Interrupt to the interrupt controller.
+    ///
+    /// Must be called after handling any hardware interrupt to allow
+    /// the controller to deliver subsequent interrupts.
+    ///
+    /// Automatically routes to LAPIC or legacy PIC based on current mode.
     pub fn send_eoi(&self) {
         match self.mode {
             ApicMode::LegacyPic => {
@@ -332,7 +685,23 @@ impl LocalApic {
         }
     }
 
-    /// Send IPI (no-op on PIC)
+    /// Send an Inter-Processor Interrupt (IPI) to another CPU.
+    ///
+    /// IPIs are used for SMP coordination, including:
+    /// - TLB shootdowns (flush remote TLBs after page table changes)
+    /// - Scheduler wake-ups
+    /// - CPU startup (INIT-SIPI-SIPI sequence)
+    ///
+    /// # Arguments
+    ///
+    /// * `dest` - Destination APIC ID (shifted to bits 24-31)
+    /// * `vec` - Interrupt vector number
+    /// * `mode` - Delivery mode (Fixed, NMI, INIT, Startup, etc.)
+    /// * `lvl` - Assert or Deassert level
+    ///
+    /// # Note
+    ///
+    /// No-op when running in legacy PIC mode (no SMP support).
     pub fn send_ipi(&self, dest: u32, vec: u8, mode: DeliveryMode, lvl: Level) {
         if matches!(self.mode, ApicMode::XApic | ApicMode::X2Apic) {
             info!("Sending IPI: dest={dest:#x}, vector={vec:#x}, mode={mode:?}, level={lvl:?}",);
@@ -347,7 +716,10 @@ impl LocalApic {
         }
     }
 
-    /// APIC ID or 0
+    /// Get this CPU's LAPIC ID.
+    ///
+    /// Returns the hardware-assigned APIC ID, or 0 in legacy PIC mode.
+    /// The APIC ID is used for IPI targeting and IOAPIC routing.
     pub fn id(&self) -> u8 {
         let id = match self.mode {
             ApicMode::X2Apic | ApicMode::XApic => (self.read(apic_regs::APIC_ID) >> 24) as u8,
@@ -357,7 +729,26 @@ impl LocalApic {
         id
     }
 
-    /// Probe & enable modes, calibrate timer, or panic if none
+    /// Create and initialize a new Local APIC.
+    ///
+    /// Probes CPUID for APIC support, enables the best available mode,
+    /// calibrates the timer, and configures 10ms periodic interrupts.
+    ///
+    /// # Arguments
+    ///
+    /// * `mmio_base` - MMIO base address for xAPIC mode (from ACPI MADT)
+    ///
+    /// # Panics
+    ///
+    /// Panics if no interrupt controller is available (no APIC and no PIC).
+    ///
+    /// # Initialization Steps
+    ///
+    /// 1. Remap legacy PIC to vectors 0x20-0x2F
+    /// 2. Probe CPUID for APIC/x2APIC support
+    /// 3. Enable xAPIC or x2APIC via APIC_BASE MSR
+    /// 4. Configure spurious vector and enable LAPIC
+    /// 5. Calibrate and start periodic timer
     pub fn new(mmio_base: u64) -> Self {
         info!("Initializing Local APIC (MMIO base: {mmio_base:#x})");
 
@@ -440,21 +831,76 @@ impl LocalApic {
     }
 }
 
-/// IOAPIC redirection entry
+/// I/O APIC redirection table entry.
+///
+/// Each entry configures how a specific IRQ is delivered to the CPU(s).
+/// The entry is split into two 32-bit registers in hardware.
+///
+/// # Low 32 bits (bits 0-31)
+///
+/// | Bits  | Field           | Description                              |
+/// |-------|-----------------|------------------------------------------|
+/// | 0-7   | Vector          | IDT vector number                        |
+/// | 8-10  | Delivery Mode   | Fixed, Lowest, SMI, NMI, INIT, ExtINT    |
+/// | 11    | Dest Mode       | 0=Physical, 1=Logical                    |
+/// | 12    | Delivery Status | 0=Idle, 1=Pending (read-only)            |
+/// | 13    | Pin Polarity    | 0=Active High, 1=Active Low              |
+/// | 14    | Remote IRR      | For level-triggered (read-only)          |
+/// | 15    | Trigger Mode    | 0=Edge, 1=Level                          |
+/// | 16    | Mask            | 0=Enabled, 1=Masked                      |
+///
+/// # High 32 bits (bits 32-63)
+///
+/// | Bits  | Field           | Description                              |
+/// |-------|-----------------|------------------------------------------|
+/// | 56-63 | Destination     | APIC ID (physical) or logical dest       |
 #[derive(Clone, Copy)]
 pub struct IoRedirEntry {
+    /// Low 32 bits: vector, delivery mode, polarity, trigger, mask.
     pub low: u32,
+    /// High 32 bits: destination APIC ID (bits 56-63 of full entry).
     pub high: u32,
 }
 
-/// IOAPIC abstraction
+/// I/O APIC controller for external interrupt routing.
+///
+/// The IOAPIC receives interrupts from external devices (keyboard, disk, etc.)
+/// and routes them to one or more Local APICs based on the redirection table.
+///
+/// # MMIO Registers
+///
+/// The IOAPIC is accessed via two MMIO registers:
+/// - **IOREGSEL** (offset 0x00): Index register - select which register to access
+/// - **IOWIN** (offset 0x10): Data register - read/write selected register
+///
+/// # Redirection Table
+///
+/// Each IOAPIC has 24 or more redirection entries (check `max_entries`).
+/// Entry N is accessed at registers `0x10 + 2*N` (low) and `0x11 + 2*N` (high).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let ioapic = IoApic::new(0xFFFF_8000_FEC0_0000);
+///
+/// // Route IRQ1 (keyboard) to LAPIC ID 0, vector 0x21
+/// let entry = IoRedirEntry {
+///     low: 0x21,           // Vector 0x21, edge-triggered, unmasked
+///     high: 0 << 24,       // Destination LAPIC ID 0
+/// };
+/// ioapic.write_redir(1, entry);
+/// ```
 pub struct IoApic {
+    /// Hardware-assigned IOAPIC ID (from register 0).
     pub id: u8,
+    /// MMIO base address (in higher-half virtual address space).
     base: u64,
+    /// Maximum number of redirection entries (typically 24).
     pub max_entries: u8,
 }
 
 impl IoApic {
+    /// Read an IOAPIC register via the index/data window.
     fn read_reg(&self, reg: u8) -> u32 {
         trace!("Reading IOAPIC register {reg:#x}");
         unsafe {
@@ -465,6 +911,7 @@ impl IoApic {
         }
     }
 
+    /// Write an IOAPIC register via the index/data window.
     fn write_reg(&self, reg: u8, val: u32) {
         trace!("Writing IOAPIC register {reg:#x} = {val:#x}");
         unsafe {
@@ -473,6 +920,13 @@ impl IoApic {
         }
     }
 
+    /// Create and initialize a new IOAPIC instance.
+    ///
+    /// Reads the IOAPIC ID and version registers to determine capabilities.
+    ///
+    /// # Arguments
+    ///
+    /// * `base` - MMIO base address (must already be mapped in virtual memory)
     pub fn new(base: u64) -> Self {
         info!("Initializing IOAPIC at base address {base:#x}");
 
@@ -502,6 +956,11 @@ impl IoApic {
         }
     }
 
+    /// Read a redirection table entry.
+    ///
+    /// # Arguments
+    ///
+    /// * `idx` - Redirection entry index (0 to `max_entries - 1`)
     pub fn read_redir(&self, idx: u8) -> IoRedirEntry {
         debug!("Reading IOAPIC redirection entry {idx}");
         IoRedirEntry {
@@ -510,6 +969,12 @@ impl IoApic {
         }
     }
 
+    /// Write a redirection table entry.
+    ///
+    /// # Arguments
+    ///
+    /// * `idx` - Redirection entry index (0 to `max_entries - 1`)
+    /// * `e` - The redirection entry to write
     pub fn write_redir(&self, idx: u8, e: IoRedirEntry) {
         debug!(
             "Writing IOAPIC redirection entry {}: low={:#x}, high={:#x}",
@@ -519,6 +984,9 @@ impl IoApic {
         self.write_reg(0x11 + idx * 2, e.high);
     }
 
+    /// Mask (disable) an IRQ by setting bit 16 of the redirection entry.
+    ///
+    /// Masked IRQs are held pending but not delivered to the CPU.
     pub fn mask_irq(&self, idx: u8) {
         debug!("Masking IOAPIC IRQ {idx}");
         let mut e = self.read_redir(idx);
@@ -526,6 +994,9 @@ impl IoApic {
         self.write_redir(idx, e);
     }
 
+    /// Unmask (enable) an IRQ by clearing bit 16 of the redirection entry.
+    ///
+    /// The IRQ will be delivered to the configured destination LAPIC.
     pub fn unmask_irq(&self, idx: u8) {
         debug!("Unmasking IOAPIC IRQ {idx}");
         let mut e = self.read_redir(idx);
@@ -534,14 +1005,64 @@ impl IoApic {
     }
 }
 
-/// Manager tying LAPIC and IOAPICs
+/// Central manager for LAPIC and all IOAPICs.
+///
+/// The `ApicManager` coordinates the entire interrupt controller subsystem,
+/// providing a unified interface for:
+/// - Sending EOI after interrupt handling
+/// - Sending IPIs to other CPUs
+/// - Managing IOAPIC redirection entries
+///
+/// # Architecture
+///
+/// ```text
+///                    ┌─────────────────┐
+///                    │   ApicManager   │
+///                    └────────┬────────┘
+///                             │
+///          ┌──────────────────┼──────────────────┐
+///          │                  │                  │
+///          ▼                  ▼                  ▼
+///    ┌──────────┐      ┌──────────┐      ┌──────────┐
+///    │  LAPIC   │      │ IOAPIC 0 │      │ IOAPIC 1 │
+///    │(per-CPU) │      │(24 IRQs) │      │(24 IRQs) │
+///    └──────────┘      └──────────┘      └──────────┘
+/// ```
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use crate::hardware::{init, APIC_MANAGER};
+///
+/// // Initialize during boot
+/// init(0xFEE00000, &[0xFEC00000], &[]);
+///
+/// // Send EOI after handling interrupt
+/// if let Some(ref manager) = *APIC_MANAGER.lock() {
+///     manager.send_eoi();
+/// }
+/// ```
 pub struct ApicManager {
+    /// Local APIC instance (protected by mutex for interior mutability).
     pub lapic: Mutex<LocalApic>,
+    /// All discovered IOAPICs (up to [`MAX_IOAPICS`]).
     pub ioapics: Vec<IoApic, MAX_IOAPICS>,
 }
 
 impl ApicManager {
-    /// Initialize everything in one call
+    /// Initialize the APIC subsystem with ACPI-discovered addresses.
+    ///
+    /// Maps MMIO regions for LAPIC and all IOAPICs, then initializes
+    /// each controller.
+    ///
+    /// # Arguments
+    ///
+    /// * `apic_base` - Physical base address of the Local APIC (typically 0xFEE00000)
+    /// * `io_bases` - Physical base addresses of all IOAPICs (typically 0xFEC00000)
+    ///
+    /// # Panics
+    ///
+    /// Panics if MMIO page allocation fails for LAPIC or any IOAPIC.
     pub fn init(apic_base: u64, io_bases: &[u64]) -> Self {
         info!("Initializing APIC Manager");
         info!("LAPIC base: {apic_base:#x}");
@@ -587,16 +1108,25 @@ impl ApicManager {
         }
     }
 
+    /// Signal End-Of-Interrupt to the LAPIC.
+    ///
+    /// Must be called after handling any hardware interrupt.
     pub fn send_eoi(&self) {
         trace!("ApicManager::send_eoi()");
         self.lapic.lock().send_eoi();
     }
 
+    /// Send an Inter-Processor Interrupt.
+    ///
+    /// See [`LocalApic::send_ipi`] for details on parameters.
     pub fn send_ipi(&self, dest: u32, vec: u8, mode: DeliveryMode, lvl: Level) {
         debug!("ApicManager::send_ipi(dest={dest:#x}, vec={vec:#x})");
         self.lapic.lock().send_ipi(dest, vec, mode, lvl)
     }
 
+    /// Mask all IRQs on all IOAPICs.
+    ///
+    /// Used during shutdown or when reconfiguring interrupt routing.
     pub fn mask_all_irqs(&self) {
         info!("Masking all IOAPIC IRQs");
         for (io_idx, io) in self.ioapics.iter().enumerate() {
@@ -608,6 +1138,12 @@ impl ApicManager {
         info!("All IOAPIC IRQs masked");
     }
 
+    /// Unmask a specific IRQ on a specific IOAPIC.
+    ///
+    /// # Arguments
+    ///
+    /// * `io_id` - Target IOAPIC's hardware ID
+    /// * `idx` - IRQ index within that IOAPIC
     pub fn unmask_irq(&self, io_id: u8, idx: u8) {
         debug!("Attempting to unmask IRQ {idx} on IOAPIC ID {io_id}");
         if let Some(io) = self.ioapics.iter().find(|x| x.id == io_id) {
@@ -619,18 +1155,76 @@ impl ApicManager {
     }
 }
 
-// Helper functions for reading and writing MSRs.
+/// Read a Model-Specific Register (MSR).
+///
+/// # Safety
+///
+/// The caller must ensure `msr` is a valid MSR address for the current CPU.
 unsafe fn rdmsr(msr: u32) -> u64 {
     Msr::new(msr).read()
 }
 
+/// Write a Model-Specific Register (MSR).
+///
+/// # Safety
+///
+/// The caller must ensure `msr` is a valid MSR address and `value` is appropriate.
 unsafe fn wrmsr(msr: u32, value: u64) {
     Msr::new(msr).write(value);
 }
 
-// Usage example in kernel:
+/// Global APIC manager instance.
+///
+/// Initialized by [`init`] during boot. Protected by a mutex for thread-safe access.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use crate::hardware::APIC_MANAGER;
+///
+/// // Send EOI after handling an interrupt
+/// if let Some(ref manager) = *APIC_MANAGER.lock() {
+///     manager.send_eoi();
+/// }
+/// ```
 pub(crate) static APIC_MANAGER: Lazy<Mutex<Option<ApicManager>>> = Lazy::new(|| Mutex::new(None));
 
+/// Initialize the hardware interrupt subsystem.
+///
+/// This is the main entry point for hardware initialization, called during
+/// kernel boot after ACPI tables have been parsed.
+///
+/// # Arguments
+///
+/// * `apic_base` - Physical base address of the Local APIC (from ACPI MADT)
+/// * `io_bases` - Physical base addresses of all IOAPICs (from ACPI MADT)
+/// * `iso` - Interrupt Source Override pairs `(ISA IRQ, GSI)` from ACPI MADT
+///
+/// # Interrupt Source Overrides
+///
+/// The `iso` parameter contains ACPI-defined mappings that override the default
+/// 1:1 ISA-to-GSI mapping. For example, `(0, 2)` means ISA IRQ 0 (PIT timer)
+/// is actually connected to GSI 2 on the IOAPIC.
+///
+/// # Initialization Steps
+///
+/// 1. Create [`ApicManager`] with LAPIC and all IOAPICs
+/// 2. Apply Interrupt Source Overrides to IOAPIC redirection table
+/// 3. Configure default 1:1 mapping for remaining ISA IRQs (0-15)
+/// 4. Store manager in global [`APIC_MANAGER`]
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use crate::hardware::init;
+///
+/// // Typical ACPI-discovered values
+/// init(
+///     0xFEE00000,           // LAPIC base (standard address)
+///     &[0xFEC00000],        // Single IOAPIC at standard address
+///     &[(0, 2), (9, 9)],    // Timer remapped to GSI 2, ACPI SCI at GSI 9
+/// );
+/// ```
 pub fn init(apic_base: u64, io_bases: &[u64], iso: &[(u64, u64)]) {
     let apic_manager = ApicManager::init(apic_base, io_bases);
 
