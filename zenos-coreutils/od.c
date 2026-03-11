@@ -153,6 +153,12 @@ int main(int argc, char *argv[]) {
     }
 
     for (i = file_start; i < argc; i++) {
+        /* Check if file exists and is readable using access syscall */
+        if (access(argv[i], R_OK) != 0) {
+            printf("od: %s: No such file or directory\n", argv[i]);
+            return 1;
+        }
+        
         int fd = open(argv[i], O_RDONLY);
         if (fd < 0) {
             printf("od: %s: No such file or directory\n", argv[i]);

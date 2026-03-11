@@ -533,7 +533,7 @@ pub struct DirEntry {
     pub(crate) inode: u32,
     pub(crate) rec_len: u16,
     pub(crate) name_len: u8,
-    pub(crate) file_type: u8,
+    pub(crate) _file_type: u8,
     pub(crate) name: String,
 }
 
@@ -549,13 +549,13 @@ impl DirEntry {
         if bytes.len() < rec_len as usize || name_len as usize > (rec_len as usize - 8) {
             return None;
         }
-        let mut tdirentry = (DirEntry {
+        let mut tdirentry = DirEntry {
             inode,
             rec_len,
             name_len,
-            file_type,
+            _file_type: file_type,
             name: String::new(),
-        });
+        };
         let name_bytes = &bytes[8..(8 + tdirentry.name_len as usize)];
         let name = String::from_utf8_lossy(name_bytes).to_string();
         tdirentry.name = name;

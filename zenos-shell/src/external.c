@@ -8,7 +8,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/wait.h>
-#include <fcntl.h>
 
 #define PATH_MAX 1024
 
@@ -78,9 +77,7 @@ int shell_exec_external(const char *name, int argc, char *argv[]) {
     
     /* If command contains a slash, try it directly */
     if (strchr(name, '/')) {
-        int fd = open(name, O_RDONLY);
-        if (fd >= 0) {
-            close(fd);
+        if (access(name, X_OK) == 0) {
             return try_exec(name, argv);
         }
         return 0;

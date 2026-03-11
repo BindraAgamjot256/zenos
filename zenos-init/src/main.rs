@@ -13,6 +13,9 @@ unsafe extern "C" {
     fn fork() -> i64;
     fn execve(path: *const u8, argv: *const *const u8, envp: *const *const u8) -> i64;
     fn waitpid(pid: u64) -> i64;
+    fn access(path: *const u8, mode: i32) -> i32;
+
+    static mut errno: i32;
 }
 
 // Console writer for println
@@ -41,6 +44,10 @@ macro_rules! println {
         print!("{}\n", format_args!($($arg)*));
     })
 }
+
+// Access mode flags
+const F_OK: i32 = 0; // Check for existence
+const X_OK: i32 = 1; // Check for execute permission
 
 bitflags! {
     #[derive(Debug, Clone, Copy)]
@@ -118,6 +125,16 @@ fn build_env_with_path() -> ([u8; 256], [*const u8; 2]) {
 
 /// Spawn a child process to run the given binary with optional arguments
 fn spawn(path: &[u8], args: &[&[u8]]) -> i64 {
+    // Check if the file exists and is executable before forking
+    if unsafe { access(path.as_ptr(), X_OK) } != 0 {
+        println!(
+            "spawn: file {:?} does not exist or is not executable",
+            core::str::from_utf8(&path[..path.len() - 1]).unwrap_or("?")
+        );
+        println!("errno: {}", unsafe { errno });
+        return -1;
+    }
+
     let pid = unsafe { fork() };
     if pid == 0 {
         // Child: exec the binary

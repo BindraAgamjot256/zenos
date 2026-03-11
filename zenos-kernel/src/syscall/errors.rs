@@ -59,7 +59,7 @@ pub fn file_error_to_errno(err: &FileError) -> u64 {
         FileError::AlreadyExists => EEXIST,
         FileError::NotADirectory => ENOTDIR,
         FileError::IsADirectory => EISDIR,
-        FileError::PermissionDenied => EPERM,
+        FileError::PermissionDenied => EACCES,
         FileError::ReadOnlyFilesystem => EROFS,
         FileError::Other(_) => EIO,
     };

@@ -55,6 +55,12 @@ int main(int argc, char *argv[]) {
         count_file(STDIN_FILENO, NULL, &lines, &words, &bytes);
     } else {
         for (int i = 1; i < argc; i++) {
+            /* Check if file exists and is readable using access syscall */
+            if (access(argv[i], R_OK) != 0) {
+                printf("wc: %s: No such file or directory\n", argv[i]);
+                return 1;
+            }
+            
             int fd = open(argv[i], O_RDONLY);
             if (fd < 0) {
                 exit(errno);
