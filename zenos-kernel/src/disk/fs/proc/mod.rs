@@ -32,7 +32,7 @@
 //! - File contents are generated lazily on first read
 //! - The [`TICK_COUNT`] atomic is incremented by the timer interrupt (10ms/tick)
 //! - CPU information is obtained via `CPUID` instruction
-//! - Process information is read from the global [`PROCESSES`](crate::process::PROCESSES) table
+//! - Process information is read from the global [`PROCESSES`](PROCESSES) table
 
 use crate::disk::FileError;
 use crate::disk::vfs::{DirEntry, FileSystem, FileType, Inode, InodeOps, Permissions};
@@ -62,7 +62,7 @@ impl FileSystem for ProcFs {
             num: 0,
             kind: FileType::Directory,
             size: AtomicU64::new(0),
-            perms: (Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ),
+            perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
             links: AtomicU64::new(1),
             data: Box::new(ProcRootDir),
         })))
@@ -99,9 +99,7 @@ impl InodeOps for ProcRootDir {
                 num: 0,
                 kind: FileType::File,
                 size: AtomicU64::new(0),
-                perms: (Permissions::OWNER_READ
-                    | Permissions::GROUP_READ
-                    | Permissions::OTHER_READ),
+                perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
                 data: Box::new(ProcFile::new(ProcFileType::CpuInfo)),
             }))),
@@ -109,9 +107,7 @@ impl InodeOps for ProcRootDir {
                 num: 0,
                 kind: FileType::File,
                 size: AtomicU64::new(0),
-                perms: (Permissions::OWNER_READ
-                    | Permissions::GROUP_READ
-                    | Permissions::OTHER_READ),
+                perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
                 data: Box::new(ProcFile::new(ProcFileType::MemInfo)),
             }))),
@@ -119,9 +115,7 @@ impl InodeOps for ProcRootDir {
                 num: 0,
                 kind: FileType::File,
                 size: AtomicU64::new(0),
-                perms: (Permissions::OWNER_READ
-                    | Permissions::GROUP_READ
-                    | Permissions::OTHER_READ),
+                perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
                 data: Box::new(ProcFile::new(ProcFileType::Version)),
             }))),
@@ -129,9 +123,7 @@ impl InodeOps for ProcRootDir {
                 num: 0,
                 kind: FileType::File,
                 size: AtomicU64::new(0),
-                perms: (Permissions::OWNER_READ
-                    | Permissions::GROUP_READ
-                    | Permissions::OTHER_READ),
+                perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
                 data: Box::new(ProcFile::new(ProcFileType::Uptime)),
             }))),
@@ -139,12 +131,12 @@ impl InodeOps for ProcRootDir {
                 num: 0,
                 kind: FileType::Directory,
                 size: AtomicU64::new(0),
-                perms: (Permissions::OWNER_READ
+                perms: Permissions::OWNER_READ
                     | Permissions::OWNER_EXEC
                     | Permissions::GROUP_READ
                     | Permissions::GROUP_EXEC
                     | Permissions::OTHER_READ
-                    | Permissions::OTHER_EXEC),
+                    | Permissions::OTHER_EXEC,
                 links: AtomicU64::new(1),
                 data: Box::new(ProcessDir {
                     pid: SCHEDULER.lock().current_pid().unwrap(),
@@ -158,12 +150,12 @@ impl InodeOps for ProcRootDir {
                         num: 0,
                         kind: FileType::Directory,
                         size: AtomicU64::new(0),
-                        perms: (Permissions::OWNER_READ
+                        perms: Permissions::OWNER_READ
                             | Permissions::OWNER_EXEC
                             | Permissions::GROUP_READ
                             | Permissions::GROUP_EXEC
                             | Permissions::OTHER_READ
-                            | Permissions::OTHER_EXEC),
+                            | Permissions::OTHER_EXEC,
                         links: AtomicU64::new(1),
                         data: Box::new(ProcessDir { pid }),
                     })))
@@ -184,24 +176,48 @@ impl InodeOps for ProcRootDir {
     }
 
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
-        Ok(vec![
+        let mut vec = vec![
             DirEntry {
                 name: "cpuinfo".to_string(),
                 inode: self.lookup("cpuinfo")?,
+                offset: 0,
+                file_type: FileType::File,
             },
             DirEntry {
                 name: "meminfo".to_string(),
                 inode: self.lookup("meminfo")?,
+                offset: 1,
+                file_type: FileType::File,
             },
             DirEntry {
                 name: "version".to_string(),
                 inode: self.lookup("version")?,
+                offset: 2,
+                file_type: FileType::File,
             },
             DirEntry {
                 name: "uptime".to_string(),
                 inode: self.lookup("uptime")?,
+                offset: 3,
+                file_type: FileType::File,
             },
-        ])
+        ];
+
+        // Add entries for each process
+        unsafe { PROCESSES.force_unlock() }
+        let procs = PROCESSES.lock();
+        let mut offset = 4;
+        for proc in procs.iter() {
+            let name = proc.pid.to_string();
+            vec.push(DirEntry {
+                name: name.clone(),
+                inode: self.lookup(&name)?,
+                offset,
+                file_type: FileType::Directory,
+            });
+            offset += 1;
+        }
+        Ok(vec)
     }
 }
 
@@ -236,9 +252,7 @@ impl InodeOps for ProcessDir {
                 num: 0,
                 kind: FileType::File,
                 size: AtomicU64::new(0),
-                perms: (Permissions::OWNER_READ
-                    | Permissions::GROUP_READ
-                    | Permissions::OTHER_READ),
+                perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
                 data: Box::new(ProcFile::new(ProcFileType::ProcessStat(self.pid))),
             }))),
@@ -246,9 +260,7 @@ impl InodeOps for ProcessDir {
                 num: 0,
                 kind: FileType::File,
                 size: AtomicU64::new(0),
-                perms: (Permissions::OWNER_READ
-                    | Permissions::GROUP_READ
-                    | Permissions::OTHER_READ),
+                perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
                 data: Box::new(ProcFile::new(ProcFileType::ProcessStatus(self.pid))),
             }))),
@@ -256,9 +268,7 @@ impl InodeOps for ProcessDir {
                 num: 0,
                 kind: FileType::File,
                 size: AtomicU64::new(0),
-                perms: (Permissions::OWNER_READ
-                    | Permissions::GROUP_READ
-                    | Permissions::OTHER_READ),
+                perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
                 data: Box::new(ProcFile::new(ProcFileType::ProcessCmdline(self.pid))),
             }))),
@@ -278,14 +288,20 @@ impl InodeOps for ProcessDir {
             DirEntry {
                 name: "stat".to_string(),
                 inode: self.lookup("stat")?,
+                offset: 0,
+                file_type: FileType::File,
             },
             DirEntry {
                 name: "status".to_string(),
                 inode: self.lookup("status")?,
+                offset: 1,
+                file_type: FileType::File,
             },
             DirEntry {
                 name: "cmdline".to_string(),
                 inode: self.lookup("cmdline")?,
+                offset: 2,
+                file_type: FileType::File,
             },
         ])
     }
@@ -484,7 +500,7 @@ pub fn generate_cpuinfo() -> String {
     // Address sizes
     let (phys_bits, virt_bits) = {
         let c = __cpuid(0x80000008);
-        ((c.eax & 0xFF), ((c.eax >> 8) & 0xFF))
+        (c.eax & 0xFF, (c.eax >> 8) & 0xFF)
     };
 
     info.push_str("processor\t: 0\n");

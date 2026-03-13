@@ -681,6 +681,12 @@ impl<D: BlockDevice + 'static> InodeOps for FatDirectory<D> {
             result.push(DirEntry {
                 name: entry.short_name().to_string(),
                 inode,
+                offset: idx as u64,
+                file_type: if entry.is_directory() {
+                    FileType::Directory
+                } else {
+                    FileType::File
+                },
             });
         }
 

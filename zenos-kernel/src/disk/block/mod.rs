@@ -19,7 +19,7 @@
 //! # Implementations
 //!
 //! - [`ahci::AhciBlockDevice`]: SATA storage via AHCI controller using DMA.
-#![allow(dead_code)]
+// #![allow(dead_code)]
 use crate::disk::vfs::SeekFrom;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -121,32 +121,6 @@ impl BlockDeviceDriver {
     /// Create a new driver wrapper around a concrete [`BlockDevice`].
     pub fn new(device: Box<dyn BlockDevice>) -> Self {
         Self { device }
-    }
-
-    pub fn block_size(&self) -> u64 {
-        self.device.block_size()
-    }
-
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, BlockError> {
-        self.device.read(buf)
-    }
-
-    pub fn write(&mut self, buf: &[u8]) -> Result<usize, BlockError> {
-        self.device.write(buf)
-    }
-
-    pub fn seek(&mut self, pos: SeekFrom) -> Result<u64, BlockError> {
-        self.device.seek(pos)
-    }
-
-    pub fn flush(&mut self) -> Result<(), BlockError> {
-        self.device.flush()
-    }
-    pub fn get_header(&mut self) -> Result<GPTHeader, BlockError> {
-        self.device.get_header()
-    }
-    pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<usize, BlockError> {
-        self.device.read_exact(buf)
     }
 }
 

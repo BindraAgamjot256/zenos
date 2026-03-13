@@ -108,7 +108,6 @@ pub(crate) enum FileType {
     Directory,
     Symlink,
     Socket,
-    Pipe,
     CharDevice,
     BlockDevice,
     Fifo,
@@ -152,8 +151,10 @@ pub(crate) trait InodeOps {
 }
 
 pub struct DirEntry {
-    pub name: String,
-    pub inode: Arc<Mutex<Inode>>,
+    pub(crate) name: String,
+    pub(crate) inode: Arc<Mutex<Inode>>,
+    pub(crate) offset: u64,
+    pub(crate) file_type: FileType,
 }
 
 #[derive(Debug)]

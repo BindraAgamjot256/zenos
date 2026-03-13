@@ -46,7 +46,6 @@ macro_rules! println {
 }
 
 // Access mode flags
-const F_OK: i32 = 0; // Check for existence
 const X_OK: i32 = 1; // Check for execute permission
 
 bitflags! {

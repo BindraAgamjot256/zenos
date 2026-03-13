@@ -30,7 +30,7 @@ use core::{
 };
 use hashbrown::HashMap;
 use heapless::Vec as HeaplessVec;
-use log::{LevelFilter, error, info, trace, warn};
+use log::{error, info, trace, warn};
 use spin::{Lazy, Mutex};
 use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::{
@@ -372,9 +372,7 @@ impl Process {
 
                     let mut addr = page_start;
                     while addr < page_end {
-                        log::set_max_level(LevelFilter::Trace);
                         ualloc_page_flags(addr, PageType::Arbitrary, ptf).unwrap();
-                        log::set_max_level(LevelFilter::Debug);
                         addr += PAGE_4K as u64;
                     }
 

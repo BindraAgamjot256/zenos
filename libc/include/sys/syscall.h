@@ -26,6 +26,7 @@
 #define SYS_kill    62
 #define SYS_uname   63
 #define SYS_fcntl   72
+#define SYS_getdents 217 //todo: getdents is its own syscall, not identical to getdents64
 #define SYS_getcwd  79
 #define SYS_chdir   80
 #define SYS_mkdir   83
@@ -49,6 +50,7 @@
 #define SYS_unlinkat 263
 #define SYS_renameat 264
 #define SYS_faccessat 269
+#define SYS_getdents64 217
 #define SYS_dup3    292
 #define SYS_pipe2   293
 

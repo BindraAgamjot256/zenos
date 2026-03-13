@@ -5,6 +5,7 @@ mod errors;
 mod exec;
 mod exit;
 mod fork;
+mod getdents;
 mod getpid;
 mod lseek;
 mod open;
@@ -19,11 +20,10 @@ use crate::{
     memory::{PAGE_4K, virt_to_phys},
     process::{PROCESSES, ProcessState, current_pid},
 };
-use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ptr;
-use log::{debug, error, info};
+use log::{debug, info};
 use x86_64::VirtAddr;
 
 use crate::memory::HIGHER_HALF_BASE;
@@ -267,50 +267,48 @@ pub(crate) fn user_range_is_mapped(user_ptr: *const u8, len: usize) -> bool {
 }
 
 /// Copies data from a user-space pointer to a kernel-owned buffer.
-/// Returns `Ok(Vec<u8>)` if successful, `Err(())` if anything looks sketchy.
-///
-/// Safety: This assumes the pointer and length are from user space, so we must
-/// be paranoid and check for nulls, overflows, and nonsense.
-fn copy_from_user(user_ptr: *const u8, len: usize) -> Result<Vec<u8>, ()> {
-    //todo: support unaligned reads
-    info!("copy from user {:x} len {len:x}", user_ptr as usize);
+/// Supports unaligned reads.
+fn copy_from_user<T: Copy>(user_ptr: *const T, count: usize) -> Result<Vec<T>, ()> {
+    if count == 0 {
+        return Ok(Vec::new());
+    }
 
-    if !user_range_is_mapped(user_ptr, len) {
-        error!(
-            "invalid user pointer, {:#x} + {:#x} is not fully mapped",
-            user_ptr as usize, len
-        );
+    let byte_len = count.checked_mul(size_of::<T>()).ok_or(())?;
+    if !user_range_is_mapped(user_ptr as *const u8, byte_len) {
         return Err(());
     }
 
-    let mut buf = vec![0u8; len];
+    let mut buf = Vec::<T>::with_capacity(count);
 
-    // SAFETY:
-    // - `user_ptr` has been validated as mapped and readable.
-    // - buf has enough space for `len` bytes.
     unsafe {
-        ptr::copy_nonoverlapping(user_ptr, buf.as_mut_ptr(), len);
+        // Copy as bytes to handle unaligned source
+        let src = user_ptr as *const u8;
+        let dst = buf.as_mut_ptr() as *mut u8;
+        ptr::copy_nonoverlapping(src, dst, byte_len);
+        buf.set_len(count); // mark elements as initialized
     }
 
     Ok(buf)
 }
 
 /// Copies data from a kernel-owned buffer to a user-space pointer.
-/// Returns `Ok(())` if successful, `Err(())` on invalid pointers or overflow.
-fn copy_to_user(user_ptr: *mut u8, buf: &[u8]) -> Result<(), ()> {
-    info!("copy to user {:x} len {:x}", user_ptr as usize, buf.len());
-
-    let len = buf.len();
-    if len == 0 {
+/// Supports unaligned writes.
+fn copy_to_user<T: Copy>(user_ptr: *mut T, buf: &[T]) -> Result<(), ()> {
+    let count = buf.len();
+    if count == 0 {
         return Ok(());
     }
 
-    if !user_range_is_mapped(user_ptr as *const u8, len) {
+    let byte_len = count.checked_mul(size_of::<T>()).ok_or(())?;
+    if !user_range_is_mapped(user_ptr as *const u8, byte_len) {
         return Err(());
     }
 
     unsafe {
-        ptr::copy_nonoverlapping(buf.as_ptr(), user_ptr, len);
+        // Copy as bytes to handle unaligned destination
+        let src = buf.as_ptr() as *const u8;
+        let dst = user_ptr as *mut u8;
+        ptr::copy_nonoverlapping(src, dst, byte_len);
     }
 
     Ok(())

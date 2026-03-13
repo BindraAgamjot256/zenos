@@ -549,6 +549,7 @@ impl<D: BlockDevice + 'static> ExtDirInodeOps<D> {
     fn get_dentries(&mut self) -> Result<Vec<plumbing::DirEntry>, FileError> {
         let mut entries = Vec::new();
         let mut guard = self.inner.lock();
+        info!("ExtDirInodeOps::get_dentries()");
 
         let block_size = guard.superblock.block_size() as u64;
 
@@ -557,12 +558,18 @@ impl<D: BlockDevice + 'static> ExtDirInodeOps<D> {
 
         let dir_size = self.ext2inode.i_size as usize;
         let mut bytes_read = 0;
+        info!("ExtDirInodeOps::get_dentries(): dir_size={}", dir_size);
 
         for block_ptr in data_blocks {
             if block_ptr == 0 {
+                info!("ExtDirInodeOps::get_dentries(): block_ptr null, breaking");
                 break;
             }
             if bytes_read >= dir_size {
+                info!(
+                    "ExtDirInodeOps::get_dentries(): dir_size={}, less than bytes read.",
+                    dir_size
+                );
                 break;
             }
 
@@ -573,11 +580,18 @@ impl<D: BlockDevice + 'static> ExtDirInodeOps<D> {
                 .device
                 .seek(SeekFrom::Start(block_offset))
                 .map_err(|_| FileError::SeekError)?;
-            guard
+
+            info!(
+                "ExtDirInodeOps::get_dentries(): block_offset={}, reading {} bytes",
+                block_offset,
+                block_buf.len()
+            );
+            let ret = guard
                 .device
-                .read_exact(&mut block_buf)
+                .read(&mut block_buf)
                 .map_err(|_| FileError::ReadError)?;
 
+            info!("ExtDirInodeOps::get_dentries(): read {} bytes", ret);
             // Parse directory entries in this block
             let mut offset = 0usize;
 
@@ -714,7 +728,9 @@ impl<D: BlockDevice + 'static> InodeOps for ExtDirInodeOps<D> {
 
         let mut guard = self.inner.lock();
 
+        let mut offset = 0u64;
         for i in dentries {
+            info!("extdirinodeops::read_dir(): {:?}", i);
             let ino = i.inode as u64;
             let inode_offset = guard.get_block_offset_for_inode_num(ino as u32)?;
             let mut buf = vec![0u8; guard.superblock.inode_size as usize];
@@ -755,7 +771,19 @@ impl<D: BlockDevice + 'static> InodeOps for ExtDirInodeOps<D> {
             vec.push(DirEntry {
                 name: i.name,
                 inode: ino,
-            })
+                offset,
+                file_type: match inode.i_mode & 0xF000 {
+                    0x4000 => FileType::Directory, // directory
+                    0x8000 => FileType::File,      // regular file
+                    0xA000 => FileType::Symlink,   // symbolic link
+                    0xC000 => FileType::Socket,
+                    0x2000 => FileType::CharDevice,
+                    0x6000 => FileType::BlockDevice,
+                    0x1000 => FileType::Fifo,
+                    _ => panic!("invalid file type"), // treat unknown types as invalid.
+                },
+            });
+            offset += i.rec_len as u64;
         }
 
         Ok(vec)

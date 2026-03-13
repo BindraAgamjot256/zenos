@@ -12,7 +12,6 @@ use log::error;
 pub(super) mod constants {
     pub const SUPERBLOCK_OFFSET: u64 = 1024;
     pub const SUPERBLOCK_SIZE: usize = 1024;
-    pub const BLOCK_GROUP_DESCRIPTOR_SIZE: usize = 32;
     pub const ROOT_INODE_NUM: u32 = 2;
     pub const MIN_BLOCK_SIZE: u64 = 1024;
     pub const BGDT_BLOCK_1K: u64 = 2;
@@ -529,6 +528,7 @@ pub(super) fn convert_ext2_inode_to_vfs_inode(
     }
 }
 
+#[derive(Debug)]
 pub struct DirEntry {
     pub(crate) inode: u32,
     pub(crate) rec_len: u16,
