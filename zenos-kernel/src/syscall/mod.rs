@@ -11,6 +11,7 @@ mod lseek;
 mod open;
 mod pause;
 mod read;
+mod stat;
 mod table;
 mod wait;
 mod write;
@@ -20,14 +21,16 @@ use crate::{
     memory::{PAGE_4K, virt_to_phys},
     process::{PROCESSES, ProcessState, current_pid},
 };
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::ops::Deref;
 use core::ptr;
-use log::{debug, info};
+use log::{debug, error, info};
 use x86_64::VirtAddr;
 
 use crate::memory::HIGHER_HALF_BASE;
 use crate::process::{FxSaveArea, SCHEDULER};
+use crate::syscall::errors::{EFAULT, EINVAL, ENAMETOOLONG};
 use core::arch::global_asm;
 
 // Syscall entry that saves full register state for fork() support
@@ -312,4 +315,27 @@ fn copy_to_user<T: Copy>(user_ptr: *mut T, buf: &[T]) -> Result<(), ()> {
     }
 
     Ok(())
+}
+
+fn copy_string(user_ptr: *const u8, max_len: usize) -> Result<String, u64> {
+    let mut vec = Vec::new();
+    let mut found_null = false;
+    unsafe {
+        for i in 0..max_len {
+            let byte = copy_from_user(user_ptr.add(i), 1).map_err(|_| -EFAULT as u64)?[0];
+            vec.push(byte);
+            if byte == 0 {
+                found_null = true;
+                break;
+            }
+        }
+    }
+    let s = String::from_utf8(vec).map_err(|e| {
+        error!("invalid UTF-8 in filename: {}", e);
+        -EINVAL as u64
+    })?;
+    if !found_null {
+        return Err(-ENAMETOOLONG as u64);
+    }
+    Ok(s.trim_end_matches('\0').to_string())
 }

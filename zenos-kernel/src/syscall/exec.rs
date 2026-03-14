@@ -2,17 +2,15 @@ use crate::disk::FS;
 use crate::disk::vfs::{Inode, Permissions};
 use crate::process;
 use crate::process::PROCESSES;
-use crate::syscall::copy_from_user;
-use crate::syscall::errors::{
-    E2BIG, EFAULT, EINVAL, ENAMETOOLONG, ENOEXEC, ESRCH, file_error_to_errno,
-};
+use crate::syscall::errors::{EFAULT, EINVAL, ENAMETOOLONG, ENOEXEC, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
+use crate::syscall::{copy_from_user, copy_string};
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::mem::size_of;
 use core::sync::atomic::Ordering;
-use log::info;
+use log::{error, info};
 use spin::Mutex;
 use zenos_macros::syscall;
 
@@ -74,7 +72,6 @@ fn copy_string_array(ptr: *const *const u8) -> Result<Vec<Vec<u8>>, u64> {
     info!("copy_string_array ptr: {:p}", ptr);
 
     let mut result = Vec::new();
-    let mut total_bytes = 0usize;
 
     for i in 0..MAX_ARGC {
         // ---- read pointer i safely ----
@@ -89,31 +86,15 @@ fn copy_string_array(ptr: *const *const u8) -> Result<Vec<Vec<u8>>, u64> {
             break;
         }
 
-        // ---- read string byte-by-byte ----
-        let mut buf = Vec::new();
-
-        for j in 0..MAX_ARG_LEN {
-            let byte =
-                copy_from_user(unsafe { str_ptr.add(j) }, 1).map_err(|_| (-EFAULT) as u64)?[0];
-
-            buf.push(byte);
-            total_bytes += 1;
-
-            if total_bytes > MAX_ARG_BYTES {
-                return Err((-E2BIG) as u64);
-            }
-
-            if byte == 0 {
-                break;
-            }
-        }
-
-        // no NUL before MAX_ARG_LEN
-        if *buf.last().unwrap() != 0 {
-            return Err((-E2BIG) as u64);
-        }
-
-        result.push(buf);
+        // ---- copy string at str_ptr safely ----
+        let buf = copy_string(str_ptr, MAX_ARG_LEN).map_err(|e| {
+            error!(
+                "copy_string_array: failed to copy string at index {}: error code {}",
+                i, e
+            );
+            e
+        })?;
+        result.push(buf.as_bytes().to_vec());
     }
 
     Ok(result)

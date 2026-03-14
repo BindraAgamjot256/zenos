@@ -48,6 +48,7 @@
 
 use super::FileError;
 use crate::kprintln;
+use crate::time::current_time;
 use alloc::collections::BTreeMap;
 use alloc::{
     boxed::Box,
@@ -57,7 +58,10 @@ use alloc::{
     vec::Vec,
 };
 use bitflags::bitflags;
-use core::{fmt::Debug, sync::atomic::AtomicU64};
+use core::{
+    fmt::Debug,
+    sync::atomic::{AtomicU64, Ordering},
+};
 use log::{debug, trace};
 use spin::Mutex;
 
@@ -80,7 +84,32 @@ pub struct Inode {
     pub(crate) size: AtomicU64,
     pub(crate) perms: Permissions,
     pub(crate) links: AtomicU64,
+
+    pub(crate) owner_uid: u64,
+    pub(crate) owner_gid: u64,
+
+    pub(crate) access_time: AtomicU64,
+    pub(crate) modified_time: AtomicU64,
+    pub(crate) change_time: AtomicU64,
+
     pub(crate) data: Box<dyn InodeOps + Send + Sync>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Stat {
+    pub st_dev: u64,     // dev_t
+    pub st_ino: u64,     // ino_t
+    pub st_mode: u32,    // mode_t
+    pub st_nlink: u64,   // nlink_t
+    pub st_uid: u32,     // uid_t
+    pub st_gid: u32,     // gid_t
+    pub st_rdev: u64,    // dev_t
+    pub st_size: i64,    // off_t
+    pub st_blksize: i64, // blksize_t
+    pub st_blocks: i64,  // blkcnt_t
+    pub st_atime: i64,   // time_t
+    pub st_mtime: i64,   // time_t
+    pub st_ctime: i64,   // time_t
 }
 
 impl Debug for Inode {
@@ -112,18 +141,25 @@ pub(crate) enum FileType {
     BlockDevice,
     Fifo,
 }
-
 bitflags! {
     #[derive(Debug)]
     pub struct Permissions: u16 {
+        // special bits
+        const SET_UID       = 0o4000;
+        const SET_GID       = 0o2000;
+        const STICKY        = 0o1000;
+
+        // owner
         const OWNER_READ    = 0o400;
         const OWNER_WRITE   = 0o200;
         const OWNER_EXEC    = 0o100;
 
+        // group
         const GROUP_READ    = 0o040;
         const GROUP_WRITE   = 0o020;
         const GROUP_EXEC    = 0o010;
 
+        // others
         const OTHER_READ    = 0o004;
         const OTHER_WRITE   = 0o002;
         const OTHER_EXEC    = 0o001;
@@ -148,6 +184,7 @@ pub(crate) trait InodeOps {
     ) -> Result<Arc<Mutex<Inode>>, FileError>;
 
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError>;
+    fn stat(&mut self) -> Result<Stat, FileError>;
 }
 
 pub struct DirEntry {
@@ -215,6 +252,9 @@ impl OpenFile {
         let offset = *self.cursor.lock();
         let bytes_read = ino.data.read(offset, buf)?;
         *self.cursor.lock() += bytes_read as u64;
+        // Update access time
+        ino.access_time
+            .store(current_time().as_unix_epoch(), Ordering::SeqCst);
         ino.data.sync()?;
         Ok(bytes_read)
     }
@@ -231,6 +271,10 @@ impl OpenFile {
         let offset = *self.cursor.lock();
         let bytes_written = ino.data.write(offset, buf)?;
         *self.cursor.lock() += bytes_written as u64;
+        // Update modified and change times
+        let now = current_time().as_unix_epoch();
+        ino.modified_time.store(now, Ordering::SeqCst);
+        ino.change_time.store(now, Ordering::SeqCst);
         ino.data.sync()?;
         Ok(bytes_written)
     }

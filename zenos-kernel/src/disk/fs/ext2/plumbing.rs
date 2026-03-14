@@ -524,6 +524,11 @@ pub(super) fn convert_ext2_inode_to_vfs_inode(
         perms,
         size: AtomicU64::new(ino.i_size as u64),
         links: AtomicU64::new(ino.i_links_count as u64),
+        owner_uid: ino.i_uid as u64,
+        owner_gid: ino.i_gid as u64,
+        access_time: AtomicU64::new(ino.i_atime as u64),
+        modified_time: AtomicU64::new(ino.i_mtime as u64),
+        change_time: AtomicU64::new(ino.i_ctime as u64),
         data,
     }
 }
@@ -533,7 +538,7 @@ pub struct DirEntry {
     pub(crate) inode: u32,
     pub(crate) rec_len: u16,
     pub(crate) name_len: u8,
-    pub(crate) _file_type: u8,
+    pub(crate) file_type: u8,
     pub(crate) name: String,
 }
 
@@ -553,7 +558,7 @@ impl DirEntry {
             inode,
             rec_len,
             name_len,
-            _file_type: file_type,
+            file_type,
             name: String::new(),
         };
         let name_bytes = &bytes[8..(8 + tdirentry.name_len as usize)];

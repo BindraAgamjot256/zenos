@@ -17,6 +17,7 @@ use crate::{
     process::debug::dump_pte,
     process::file_handles::{FileOpenOptions, Stderr, Stdin, Stdout},
     process::isolation::new_user_address_space,
+    time::current_time,
     tty::TTY,
 };
 use alloc::rc::Rc;
@@ -125,6 +126,7 @@ impl Process {
         let pid = NEXT_PID.load(Ordering::Acquire);
         let load_bias = 0;
         let mut file_handles = HashMap::new();
+        let now = current_time().as_unix_epoch();
         file_handles.insert(
             0,
             Rc::new(Mutex::new(OpenFile {
@@ -134,6 +136,11 @@ impl Process {
                     size: Default::default(),
                     perms: Permissions::OWNER_READ,
                     links: Default::default(),
+                    owner_uid: 0,
+                    owner_gid: 0,
+                    access_time: AtomicU64::new(now),
+                    modified_time: AtomicU64::new(now),
+                    change_time: AtomicU64::new(now),
                     data: Box::new(Stdin::new(pid)),
                 })),
                 cursor: Mutex::new(0),
@@ -149,6 +156,11 @@ impl Process {
                     size: Default::default(),
                     perms: Permissions::OWNER_WRITE,
                     links: Default::default(),
+                    owner_uid: 0,
+                    owner_gid: 0,
+                    access_time: AtomicU64::new(now),
+                    modified_time: AtomicU64::new(now),
+                    change_time: AtomicU64::new(now),
                     data: Box::new(Stdout::new(pid)),
                 })),
                 cursor: Mutex::new(0),
@@ -164,6 +176,11 @@ impl Process {
                     size: Default::default(),
                     perms: Permissions::OWNER_WRITE,
                     links: Default::default(),
+                    owner_uid: 0,
+                    owner_gid: 0,
+                    access_time: AtomicU64::new(now),
+                    modified_time: AtomicU64::new(now),
+                    change_time: AtomicU64::new(now),
                     data: Box::new(Stderr::new(pid)),
                 })),
                 cursor: Mutex::new(0),
@@ -945,6 +962,7 @@ pub fn init_process() -> &'static [u8] {
     let load_bias = compute_load_bias(&elf);
     let pid = 1;
     let mut file_handles = HashMap::new();
+    let now = current_time().as_unix_epoch();
     file_handles.insert(
         0,
         Rc::new(Mutex::new(OpenFile {
@@ -954,6 +972,11 @@ pub fn init_process() -> &'static [u8] {
                 size: Default::default(),
                 perms: Permissions::all(),
                 links: Default::default(),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(Stdin::new(pid)),
             })),
             cursor: Mutex::new(0),
@@ -969,6 +992,11 @@ pub fn init_process() -> &'static [u8] {
                 size: Default::default(),
                 perms: Permissions::all(),
                 links: Default::default(),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(Stdout::new(pid)),
             })),
             cursor: Mutex::new(0),
@@ -984,6 +1012,11 @@ pub fn init_process() -> &'static [u8] {
                 size: Default::default(),
                 perms: Permissions::all(),
                 links: Default::default(),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(Stderr::new(pid)),
             })),
             cursor: Mutex::new(0),

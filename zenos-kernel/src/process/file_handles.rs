@@ -1,6 +1,6 @@
 use crate::disk::FileError;
 pub(crate) use crate::disk::vfs::FileOpenOptions;
-use crate::disk::vfs::{DirEntry, FileType, Inode, InodeOps, Permissions};
+use crate::disk::vfs::{DirEntry, FileType, Inode, InodeOps, Permissions, Stat};
 use crate::process::block_current_process;
 use crate::{kprint, kprintln, tty};
 use alloc::sync::Arc;
@@ -80,6 +80,10 @@ impl InodeOps for Stdout {
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
         Err(FileError::UnsupportedOperation)
     }
+
+    fn stat(&mut self) -> Result<Stat, FileError> {
+        Err(FileError::UnsupportedOperation)
+    }
 }
 
 impl InodeOps for Stderr {
@@ -119,6 +123,10 @@ impl InodeOps for Stderr {
     }
 
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
+        Err(FileError::UnsupportedOperation)
+    }
+
+    fn stat(&mut self) -> Result<Stat, FileError> {
         Err(FileError::UnsupportedOperation)
     }
 }
@@ -199,6 +207,10 @@ impl InodeOps for Stdin {
 
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
         Err(FileError::NotADirectory)
+    }
+
+    fn stat(&mut self) -> Result<Stat, FileError> {
+        Err(FileError::UnsupportedOperation)
     }
 }
 /// Global flag used to wake processes blocked on stdin when keyboard input arrives.

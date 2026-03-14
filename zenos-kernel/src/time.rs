@@ -277,10 +277,6 @@ const fn bcd_to_bin(val: u8) -> u8 {
     (val & 0x0F) + ((val >> 4) * 10)
 }
 
-pub fn local_time_to_unix_epoch() -> u64 {
-    CurrentTime::read().as_unix_epoch()
-}
-
 #[cfg(feature = "run-kunittest")]
 mod tests {
     use super::*;

@@ -84,6 +84,10 @@ pub trait BlockDevice: Send + Sync {
         self.read_exact(&mut buf)?;
         GPTHeader::deserialize(&buf).ok_or(BlockError::InvalidGPT)
     }
+
+    fn get_dev_id(&mut self) -> Result<u64, BlockError> {
+        Ok(0)
+    }
 }
 
 /// Thin adapter that wraps a concrete [`BlockDevice`] behind a trait object.

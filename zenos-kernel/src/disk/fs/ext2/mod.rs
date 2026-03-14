@@ -1,3 +1,4 @@
+use crate::disk::vfs::Stat;
 use crate::disk::{
     FileError, FsMountError,
     block::BlockDevice,
@@ -7,7 +8,7 @@ use crate::disk::{
     },
     vfs::{DirEntry, FileSystem, FileType, Inode, InodeOps, Permissions, SeekFrom},
 };
-use crate::time::local_time_to_unix_epoch;
+use crate::time::current_time;
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use log::{error, info, warn};
 use spin::Mutex;
@@ -247,7 +248,7 @@ impl<D: BlockDevice + 'static> Ext2FSInner<D> {
     /// Sync superblock to disk, updating write time and all backup copies.
     pub fn sync_superblock(&mut self) -> Result<(), FileError> {
         // Update write time
-        self.superblock.wrt_time = local_time_to_unix_epoch() as u32;
+        self.superblock.wrt_time = current_time().as_unix_epoch() as u32;
 
         let block_size = self.superblock.block_size() as u64;
         let groups = self.get_superblock_groups();
@@ -414,7 +415,7 @@ impl<D: BlockDevice + 'static> Ext2<D> {
         }
 
         // Update mount time and count
-        superblock.mnt_time = local_time_to_unix_epoch() as u32;
+        superblock.mnt_time = current_time().as_unix_epoch() as u32;
         superblock.mnt_count = superblock.mnt_count.saturating_add(1);
 
         let mut inner = Ext2FSInner {
@@ -470,6 +471,7 @@ where
             Box::new(ExtDirInodeOps {
                 inner: self.inner.clone(),
                 ext2inode: inode,
+                inode_num: ROOT_INODE_NUM,
             }),
         ))))
     }
@@ -478,6 +480,7 @@ where
 struct ExtDirInodeOps<D: BlockDevice + 'static> {
     inner: Arc<Mutex<Ext2FSInner<D>>>,
     ext2inode: Ext2Inode,
+    inode_num: u32,
 }
 
 impl<D: BlockDevice + 'static> ExtDirInodeOps<D> {
@@ -683,6 +686,7 @@ impl<D: BlockDevice + 'static> InodeOps for ExtDirInodeOps<D> {
             0x4000 => Box::new(ExtDirInodeOps {
                 inner: self.inner.clone(),
                 ext2inode: ext2_inode.clone(),
+                inode_num: entry.inode,
             }) as Box<dyn InodeOps + Send + Sync>,
 
             0x8000 => Box::new(ExtFileInodeOps {
@@ -752,6 +756,7 @@ impl<D: BlockDevice + 'static> InodeOps for ExtDirInodeOps<D> {
                 0x4000 => Box::new(ExtDirInodeOps {
                     inner: self.inner.clone(),
                     ext2inode: inode.clone(),
+                    inode_num: i.inode,
                 }),
 
                 0x8000 => Box::new(ExtFileInodeOps {
@@ -787,6 +792,40 @@ impl<D: BlockDevice + 'static> InodeOps for ExtDirInodeOps<D> {
         }
 
         Ok(vec)
+    }
+    fn stat(&mut self) -> Result<Stat, FileError> {
+        let mut guard = self.inner.lock();
+        let dev_id = guard
+            .device
+            .get_dev_id()
+            .map_err(|_| FileError::Other("Failed to get device ID".into()))?;
+        let ino = self.inode_num;
+        let mode = self.ext2inode.i_mode;
+        let nlink = self.ext2inode.i_links_count;
+        let uid = self.ext2inode.i_uid;
+        let gid = self.ext2inode.i_gid;
+        let size = self.ext2inode.i_size;
+        let blk_size = guard.device.block_size();
+        let blk_count = ((size + blk_size as u32 - 1) / blk_size as u32) as u64;
+        let atime = self.ext2inode.i_atime;
+        let mtime = self.ext2inode.i_mtime;
+        let ctime = self.ext2inode.i_ctime;
+
+        Ok(Stat {
+            st_dev: dev_id,
+            st_ino: ino as u64,
+            st_mode: mode as u32,
+            st_nlink: nlink as u64,
+            st_uid: uid as u32,
+            st_gid: gid as u32,
+            st_rdev: dev_id,
+            st_size: size as i64,
+            st_blksize: blk_size as i64,
+            st_blocks: blk_count as i64,
+            st_atime: atime as i64,
+            st_mtime: mtime as i64,
+            st_ctime: ctime as i64,
+        })
     }
 }
 
@@ -1081,7 +1120,7 @@ impl<D: BlockDevice + 'static> InodeOps for ExtFileInodeOps<D> {
 
         // Update access time
         if bytes_read > 0 && !guard.read_only {
-            self.ext2inode.i_atime = local_time_to_unix_epoch() as u32;
+            self.ext2inode.i_atime = current_time().as_unix_epoch() as u32;
             let _ = Self::sync_inode(&self.ext2inode, self.inode_num, &mut guard);
         }
 
@@ -1139,7 +1178,7 @@ impl<D: BlockDevice + 'static> InodeOps for ExtFileInodeOps<D> {
         }
 
         // Update modification time
-        let now = local_time_to_unix_epoch() as u32;
+        let now = current_time().as_unix_epoch() as u32;
         self.ext2inode.i_mtime = now;
         self.ext2inode.i_ctime = now;
 
@@ -1161,7 +1200,7 @@ impl<D: BlockDevice + 'static> InodeOps for ExtFileInodeOps<D> {
         if size >= current_size {
             // Extending the file - just update size, blocks allocated lazily on write
             self.ext2inode.i_size = size as u32;
-            let now = local_time_to_unix_epoch() as u32;
+            let now = current_time().as_unix_epoch() as u32;
             self.ext2inode.i_mtime = now;
             self.ext2inode.i_ctime = now;
             Self::sync_inode(&self.ext2inode, self.inode_num, &mut guard)?;
@@ -1218,7 +1257,7 @@ impl<D: BlockDevice + 'static> InodeOps for ExtFileInodeOps<D> {
         }
 
         self.ext2inode.i_size = size as u32;
-        let now = local_time_to_unix_epoch() as u32;
+        let now = current_time().as_unix_epoch() as u32;
         self.ext2inode.i_mtime = now;
         self.ext2inode.i_ctime = now;
         Self::sync_inode(&self.ext2inode, self.inode_num, &mut guard)?;
@@ -1250,5 +1289,40 @@ impl<D: BlockDevice + 'static> InodeOps for ExtFileInodeOps<D> {
 
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
         Err(FileError::NotADirectory)
+    }
+
+    fn stat(&mut self) -> Result<Stat, FileError> {
+        let mut guard = self.inner.lock();
+        let dev_id = guard
+            .device
+            .get_dev_id()
+            .map_err(|_| FileError::Other("Failed to get device ID".into()))?;
+        let ino = self.inode_num;
+        let mode = self.ext2inode.i_mode;
+        let nlink = self.ext2inode.i_links_count;
+        let uid = self.ext2inode.i_uid;
+        let gid = self.ext2inode.i_gid;
+        let size = self.ext2inode.i_size;
+        let blk_size = guard.device.block_size();
+        let blk_count = ((size + blk_size as u32 - 1) / blk_size as u32) as u64;
+        let atime = self.ext2inode.i_atime;
+        let mtime = self.ext2inode.i_mtime;
+        let ctime = self.ext2inode.i_ctime;
+
+        Ok(Stat {
+            st_dev: dev_id,
+            st_ino: ino as u64,
+            st_mode: mode as u32,
+            st_nlink: nlink as u64,
+            st_uid: uid as u32,
+            st_gid: gid as u32,
+            st_rdev: dev_id,
+            st_size: size as i64,
+            st_blksize: blk_size as i64,
+            st_blocks: blk_count as i64,
+            st_atime: atime as i64,
+            st_mtime: mtime as i64,
+            st_ctime: ctime as i64,
+        })
     }
 }

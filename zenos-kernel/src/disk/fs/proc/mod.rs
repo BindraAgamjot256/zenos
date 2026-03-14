@@ -35,10 +35,10 @@
 //! - Process information is read from the global [`PROCESSES`](PROCESSES) table
 
 use crate::disk::FileError;
-use crate::disk::vfs::{DirEntry, FileSystem, FileType, Inode, InodeOps, Permissions};
+use crate::disk::vfs::{DirEntry, FileSystem, FileType, Inode, InodeOps, Permissions, Stat};
 use crate::memory;
 use crate::process::{PROCESSES, SCHEDULER};
-use crate::time::TICK_COUNT;
+use crate::time::{TICK_COUNT, current_time};
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
@@ -58,12 +58,18 @@ pub struct ProcFs;
 
 impl FileSystem for ProcFs {
     fn root_dir(&self) -> Result<Arc<Mutex<Inode>>, FileError> {
+        let now = current_time().as_unix_epoch();
         Ok(Arc::new(Mutex::new(Inode {
             num: 0,
             kind: FileType::Directory,
             size: AtomicU64::new(0),
             perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
             links: AtomicU64::new(1),
+            owner_uid: 0,
+            owner_gid: 0,
+            access_time: AtomicU64::new(now),
+            modified_time: AtomicU64::new(now),
+            change_time: AtomicU64::new(now),
             data: Box::new(ProcRootDir),
         })))
     }
@@ -94,6 +100,7 @@ impl InodeOps for ProcRootDir {
     }
 
     fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
+        let now = current_time().as_unix_epoch();
         match name {
             "cpuinfo" => Ok(Arc::new(Mutex::new(Inode {
                 num: 0,
@@ -101,6 +108,11 @@ impl InodeOps for ProcRootDir {
                 size: AtomicU64::new(0),
                 perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(ProcFile::new(ProcFileType::CpuInfo)),
             }))),
             "meminfo" => Ok(Arc::new(Mutex::new(Inode {
@@ -109,6 +121,11 @@ impl InodeOps for ProcRootDir {
                 size: AtomicU64::new(0),
                 perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(ProcFile::new(ProcFileType::MemInfo)),
             }))),
             "version" => Ok(Arc::new(Mutex::new(Inode {
@@ -117,6 +134,11 @@ impl InodeOps for ProcRootDir {
                 size: AtomicU64::new(0),
                 perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(ProcFile::new(ProcFileType::Version)),
             }))),
             "uptime" => Ok(Arc::new(Mutex::new(Inode {
@@ -125,6 +147,11 @@ impl InodeOps for ProcRootDir {
                 size: AtomicU64::new(0),
                 perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(ProcFile::new(ProcFileType::Uptime)),
             }))),
             "self" => Ok(Arc::new(Mutex::new(Inode {
@@ -138,6 +165,11 @@ impl InodeOps for ProcRootDir {
                     | Permissions::OTHER_READ
                     | Permissions::OTHER_EXEC,
                 links: AtomicU64::new(1),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(ProcessDir {
                     pid: SCHEDULER.lock().current_pid().unwrap(),
                 }),
@@ -157,6 +189,11 @@ impl InodeOps for ProcRootDir {
                             | Permissions::OTHER_READ
                             | Permissions::OTHER_EXEC,
                         links: AtomicU64::new(1),
+                        owner_uid: 0,
+                        owner_gid: 0,
+                        access_time: AtomicU64::new(now),
+                        modified_time: AtomicU64::new(now),
+                        change_time: AtomicU64::new(now),
                         data: Box::new(ProcessDir { pid }),
                     })))
                 } else {
@@ -219,6 +256,25 @@ impl InodeOps for ProcRootDir {
         }
         Ok(vec)
     }
+
+    fn stat(&mut self) -> Result<Stat, FileError> {
+        let now = current_time().as_unix_epoch();
+        Ok(Stat {
+            st_dev: 0,
+            st_ino: 1,        // Root inode
+            st_mode: 0o40555, // Directory with r-xr-xr-x
+            st_nlink: 2,
+            st_uid: 0,
+            st_gid: 0,
+            st_rdev: 0,
+            st_size: 0,
+            st_blksize: 4096,
+            st_blocks: 0,
+            st_atime: now as i64,
+            st_mtime: now as i64,
+            st_ctime: now as i64,
+        })
+    }
 }
 
 /// Per-process directory /proc/<pid>/
@@ -247,6 +303,7 @@ impl InodeOps for ProcessDir {
         Err(FileError::ReadOnlyFilesystem)
     }
     fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
+        let now = current_time().as_unix_epoch();
         match name {
             "stat" => Ok(Arc::new(Mutex::new(Inode {
                 num: 0,
@@ -254,6 +311,11 @@ impl InodeOps for ProcessDir {
                 size: AtomicU64::new(0),
                 perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(ProcFile::new(ProcFileType::ProcessStat(self.pid))),
             }))),
             "status" => Ok(Arc::new(Mutex::new(Inode {
@@ -262,6 +324,11 @@ impl InodeOps for ProcessDir {
                 size: AtomicU64::new(0),
                 perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(ProcFile::new(ProcFileType::ProcessStatus(self.pid))),
             }))),
             "cmdline" => Ok(Arc::new(Mutex::new(Inode {
@@ -270,6 +337,11 @@ impl InodeOps for ProcessDir {
                 size: AtomicU64::new(0),
                 perms: Permissions::OWNER_READ | Permissions::GROUP_READ | Permissions::OTHER_READ,
                 links: AtomicU64::new(1),
+                owner_uid: 0,
+                owner_gid: 0,
+                access_time: AtomicU64::new(now),
+                modified_time: AtomicU64::new(now),
+                change_time: AtomicU64::new(now),
                 data: Box::new(ProcFile::new(ProcFileType::ProcessCmdline(self.pid))),
             }))),
             _ => Err(FileError::NotFound),
@@ -304,6 +376,25 @@ impl InodeOps for ProcessDir {
                 file_type: FileType::File,
             },
         ])
+    }
+
+    fn stat(&mut self) -> Result<Stat, FileError> {
+        let now = current_time().as_unix_epoch();
+        Ok(Stat {
+            st_dev: 0,
+            st_ino: self.pid + 0x10000, // Unique inode based on PID
+            st_mode: 0o40555,           // Directory with r-xr-xr-x
+            st_nlink: 2,
+            st_uid: 0,
+            st_gid: 0,
+            st_rdev: 0,
+            st_size: 0,
+            st_blksize: 4096,
+            st_blocks: 0,
+            st_atime: now as i64,
+            st_mtime: now as i64,
+            st_ctime: now as i64,
+        })
     }
 }
 
@@ -396,6 +487,37 @@ impl InodeOps for ProcFile {
     }
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
         Err(FileError::NotADirectory)
+    }
+
+    fn stat(&mut self) -> Result<Stat, FileError> {
+        self.generate_content();
+        let now = current_time().as_unix_epoch();
+        let size = self.content.len() as i64;
+        // Generate a unique inode number based on file type
+        let ino = match &self.file_type {
+            ProcFileType::CpuInfo => 2,
+            ProcFileType::MemInfo => 3,
+            ProcFileType::Version => 4,
+            ProcFileType::Uptime => 5,
+            ProcFileType::ProcessStat(pid) => 0x20000 + pid,
+            ProcFileType::ProcessStatus(pid) => 0x30000 + pid,
+            ProcFileType::ProcessCmdline(pid) => 0x40000 + pid,
+        };
+        Ok(Stat {
+            st_dev: 0,
+            st_ino: ino,
+            st_mode: 0o100444, // Regular file with r--r--r--
+            st_nlink: 1,
+            st_uid: 0,
+            st_gid: 0,
+            st_rdev: 0,
+            st_size: size,
+            st_blksize: 4096,
+            st_blocks: (size + 511) / 512,
+            st_atime: now as i64,
+            st_mtime: now as i64,
+            st_ctime: now as i64,
+        })
     }
 }
 

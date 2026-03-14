@@ -2,13 +2,9 @@ use crate::disk::FS;
 use crate::disk::vfs::{FileType, Permissions};
 use crate::process::PROCESSES;
 use crate::process::file_handles::FileOpenOptions;
-use crate::syscall::copy_from_user;
-use crate::syscall::errors::{
-    EFAULT, EINVAL, EISDIR, EMFILE, ENAMETOOLONG, ESRCH, file_error_to_errno,
-};
+use crate::syscall::copy_string;
+use crate::syscall::errors::{EINVAL, EISDIR, EMFILE, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 use log::{debug, error, info};
 use zenos_macros::syscall;
@@ -47,29 +43,6 @@ fn open(rdi: u64, rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
         }
         Err(errno) => errno,
     }
-}
-
-fn copy_string(user_ptr: *const u8, max_len: usize) -> Result<String, u64> {
-    let mut vec = Vec::new();
-    let mut found_null = false;
-    unsafe {
-        for i in 0..max_len {
-            let byte = copy_from_user(user_ptr.add(i), 1).map_err(|_| -EFAULT as u64)?[0];
-            vec.push(byte);
-            if byte == 0 {
-                found_null = true;
-                break;
-            }
-        }
-    }
-    let s = String::from_utf8(vec).map_err(|e| {
-        error!("invalid UTF-8 in filename: {}", e);
-        -EINVAL as u64
-    })?;
-    if !found_null {
-        return Err(-ENAMETOOLONG as u64);
-    }
-    Ok(s.trim_end_matches('\0').to_string())
 }
 
 fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u64> {

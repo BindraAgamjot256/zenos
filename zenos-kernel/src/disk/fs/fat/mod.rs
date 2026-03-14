@@ -80,8 +80,9 @@
 mod plumbing;
 
 use crate::disk::block::BlockDevice;
-use crate::disk::vfs::{self, DirEntry, FileType, Inode, InodeOps, Permissions, SeekFrom};
+use crate::disk::vfs::{self, DirEntry, FileType, Inode, InodeOps, Permissions, SeekFrom, Stat};
 use crate::disk::{FileError, FsMountError};
+use crate::time::current_time;
 use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::sync::{Arc, Weak};
@@ -173,6 +174,7 @@ impl<D: BlockDevice + 'static> vfs::FileSystem for FatFileSystem<D> {
         };
         drop(inner);
 
+        let now = current_time().as_unix_epoch();
         let data = Box::new(FatDirectory::<D> {
             inner: Arc::clone(&self.inner),
             cluster: root_cluster,
@@ -184,6 +186,11 @@ impl<D: BlockDevice + 'static> vfs::FileSystem for FatFileSystem<D> {
             size: AtomicU64::new(0), // Size is not meaningful for directories in FAT
             perms: Permissions::all(),
             links: AtomicU64::new(1),
+            owner_uid: 0,
+            owner_gid: 0,
+            access_time: AtomicU64::new(now),
+            modified_time: AtomicU64::new(now),
+            change_time: AtomicU64::new(now),
             data,
         })))
     }
@@ -473,6 +480,7 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             Permissions::all()
         };
 
+        let now = current_time().as_unix_epoch();
         let inode = Arc::new(Mutex::new(Inode {
             num: ((self.cluster as u64) << 32) | idx as u64,
             kind: if entry.is_directory() {
@@ -483,6 +491,11 @@ impl<D: BlockDevice + 'static> FatDirectory<D> {
             size: AtomicU64::new(entry.file_size as u64),
             perms,
             links: AtomicU64::new(1),
+            owner_uid: 0,
+            owner_gid: 0,
+            access_time: AtomicU64::new(now),
+            modified_time: AtomicU64::new(now),
+            change_time: AtomicU64::new(now),
             data: inode_ops,
         }));
 
@@ -498,6 +511,14 @@ impl<D: BlockDevice + 'static> InodeOps for FatDirectory<D> {
 
     fn write(&mut self, _offset: u64, _buf: &[u8]) -> Result<usize, FileError> {
         Err(FileError::IsADirectory)
+    }
+
+    fn truncate(&mut self, _size: u64) -> Result<(), FileError> {
+        Err(FileError::IsADirectory)
+    }
+
+    fn sync(&mut self) -> Result<(), FileError> {
+        Ok(())
     }
 
     fn unlink(&mut self, name: &str) -> Result<(), FileError> {
@@ -604,14 +625,6 @@ impl<D: BlockDevice + 'static> InodeOps for FatDirectory<D> {
         debug!("FatDirectory: unlink '{}' complete", name);
         Ok(())
     }
-
-    fn truncate(&mut self, _size: u64) -> Result<(), FileError> {
-        Err(FileError::IsADirectory)
-    }
-
-    fn sync(&mut self) -> Result<(), FileError> {
-        Ok(())
-    }
     fn lookup(&mut self, name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
         let (entry, idx) = self.find_entry(name)?.ok_or(FileError::NotFound)?;
 
@@ -691,6 +704,30 @@ impl<D: BlockDevice + 'static> InodeOps for FatDirectory<D> {
         }
 
         Ok(result)
+    }
+
+    fn stat(&mut self) -> Result<Stat, FileError> {
+        let mut inner = self.inner.lock();
+        let dev_id = inner
+            .device
+            .get_dev_id()
+            .map_err(|_| FileError::Other("Failed to get device ID".into()))?;
+        let now = current_time().as_unix_epoch();
+        Ok(Stat {
+            st_dev: dev_id,
+            st_ino: ((self.cluster as u64) << 32) | (self.is_root as u64),
+            st_mode: 0o40755, // Directory with rwxr-xr-x
+            st_nlink: 2,
+            st_uid: 0,
+            st_gid: 0,
+            st_rdev: 0,
+            st_size: 0,
+            st_blksize: inner.bpb.bytes_per_cluster() as i64,
+            st_blocks: 0,
+            st_atime: now as i64,
+            st_mtime: now as i64,
+            st_ctime: now as i64,
+        })
     }
 }
 
@@ -965,10 +1002,6 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
         Ok(bytes_written)
     }
 
-    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
-        Err(FileError::NotADirectory)
-    }
-
     fn truncate(&mut self, size: u64) -> Result<(), FileError> {
         let mut buf = vec![0u8; size as usize];
         self.read(0, &mut buf)?;
@@ -981,6 +1014,10 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
 
     fn sync(&mut self) -> Result<(), FileError> {
         self.sync_entry()
+    }
+
+    fn unlink(&mut self, _name: &str) -> Result<(), FileError> {
+        Err(FileError::NotADirectory)
     }
 
     fn lookup(&mut self, _name: &str) -> Result<Arc<Mutex<Inode>>, FileError> {
@@ -999,5 +1036,34 @@ impl<D: BlockDevice + 'static> InodeOps for FatFile<D> {
 
     fn read_dir(&mut self) -> Result<Vec<DirEntry>, FileError> {
         Err(FileError::NotADirectory)
+    }
+
+    fn stat(&mut self) -> Result<Stat, FileError> {
+        let mut inner = self.inner.lock();
+        let dev_id = inner
+            .device
+            .get_dev_id()
+            .map_err(|_| FileError::Other("Failed to get device ID".into()))?;
+        let now = current_time().as_unix_epoch();
+        let mode = if self.entry.attr & FatDirEntry::ATTR_READ_ONLY != 0 {
+            0o100444 // Regular file with r--r--r--
+        } else {
+            0o100666 // Regular file with rw-rw-rw-
+        };
+        Ok(Stat {
+            st_dev: dev_id,
+            st_ino: ((self.dir_cluster as u64) << 32) | (self.entry_index as u64),
+            st_mode: mode,
+            st_nlink: 1,
+            st_uid: 0,
+            st_gid: 0,
+            st_rdev: 0,
+            st_size: self.entry.file_size as i64,
+            st_blksize: inner.bpb.bytes_per_cluster() as i64,
+            st_blocks: ((self.entry.file_size as i64) + 511) / 512,
+            st_atime: now as i64,
+            st_mtime: now as i64,
+            st_ctime: now as i64,
+        })
     }
 }
