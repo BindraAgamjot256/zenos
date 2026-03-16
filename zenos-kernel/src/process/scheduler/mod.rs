@@ -1,6 +1,8 @@
 use crate::interrupts::gdt::GDT;
 use crate::process;
-use crate::process::{IDLE_STACK, PROCESSES, ProcessState, ProcessStatus, set_current_pid};
+use crate::process::{
+    IDLE_STACK, PROCESSES, Process, ProcessState, ProcessStatus, set_current_pid, set_current_proc,
+};
 use log::{debug, info, trace};
 use x86_64::registers::control::Cr3;
 
@@ -34,9 +36,12 @@ impl Scheduler {
 
     /// Set the currently running process
     /// This updates both the scheduler's internal state and the per-CPU data
-    pub fn set_current(&mut self, pid: u64) {
+    pub fn set_current(&mut self, pid: u64, proc_ptr: *mut Process) {
         self.current_pid = Some(pid);
         set_current_pid(pid);
+        unsafe {
+            set_current_proc(proc_ptr);
+        }
     }
 
     /// Force the scheduler to switch on the next timer tick
@@ -154,10 +159,11 @@ impl Scheduler {
             let next_pid = next_proc.pid;
             let next_cr3 = next_proc.cr3.as_u64();
             let next_state = next_proc.state;
+            let proc_ptr = next_proc as *mut Process;
 
             next_proc.status = ProcessStatus::Running;
             self.current_pid = Some(next_pid);
-            self.set_current(next_pid);
+            self.set_current(next_pid, proc_ptr);
 
             // Reap zombie process if needed
             if let Some(idx) = reap_idx {

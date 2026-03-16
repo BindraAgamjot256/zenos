@@ -103,19 +103,20 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
 
     let buf = zenos_kernel::process::init_process();
 
-    let (entry, stack, pid) = {
+    let (entry, stack, pid, proc_ptr) = {
         let mut processes = zenos_kernel::process::PROCESSES.lock();
         // kidle is at index 0, init is at index 1
         let pinit = &mut processes[1];
         pinit.load(buf);
         let (e, s) = pinit.prepare_run().unwrap();
-        (e, s, pinit.pid)
+        let ptr = pinit as *mut zenos_kernel::process::Process;
+        (e, s, pinit.pid, ptr)
     };
 
     // Tell the scheduler which process is currently running
     {
         let mut sched = zenos_kernel::process::SCHEDULER.lock();
-        sched.set_current(pid);
+        sched.set_current(pid, proc_ptr);
     }
     interrupts::enable();
 

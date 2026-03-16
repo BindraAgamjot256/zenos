@@ -17,7 +17,6 @@ use zenos_macros::syscall;
 const MAX_PATH_LEN: usize = 4096;
 const MAX_ARGC: usize = 256;
 const MAX_ARG_LEN: usize = 4096;
-const MAX_ARG_BYTES: usize = 128 * 1024;
 
 #[syscall(0x3b)]
 fn exec(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
@@ -119,10 +118,9 @@ fn exec_inner(file: Arc<Mutex<Inode>>, path: &str, argv: &[Vec<u8>], envp: &[Vec
         return (-ENOEXEC) as u64;
     }
 
-    let parent_pid = process::current_pid();
-    let mut procs = PROCESSES.lock();
+    let procs = PROCESSES.lock();
 
-    let proc = match procs.iter_mut().find(|p| p.pid == parent_pid) {
+    let proc = match unsafe { process::current_proc_mut() } {
         Some(p) => p,
         None => return (-ESRCH) as u64,
     };
@@ -153,14 +151,14 @@ fn exec_inner(file: Arc<Mutex<Inode>>, path: &str, argv: &[Vec<u8>], envp: &[Vec
 
     proc.load(&file_buf);
 
-    let (entry, stack, pid) = match proc.prepare_run() {
-        Some(v) => (v.0, v.1, proc.pid),
+    let (entry, stack, pid, proc_ptr) = match proc.prepare_run() {
+        Some(v) => (v.0, v.1, proc.pid, proc as *mut process::Process),
         None => return (-ENOEXEC) as u64,
     };
 
     {
         let mut sched = process::SCHEDULER.lock();
-        sched.set_current(pid);
+        sched.set_current(pid, proc_ptr);
     }
 
     drop(procs);

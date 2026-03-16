@@ -20,12 +20,7 @@ fn lseek(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 }
 
 fn seek_inner(fd: u64, offset: i64, whence: u64) -> Result<u64, u64> {
-    let pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
-    let mut processes = crate::process::PROCESSES.lock();
-    let process = processes
-        .iter_mut()
-        .find(|p| p.pid == pid)
-        .ok_or((-ESRCH) as u64)?;
+    let process = unsafe { crate::process::current_proc_mut() }.ok_or((-ESRCH) as u64)?;
     let file_handle = process.get_file_handle(fd).ok_or((-EBADF) as u64)?;
     let seek_from = match whence {
         0 => SeekFrom::Start(offset as u64),

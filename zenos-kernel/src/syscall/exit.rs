@@ -9,17 +9,15 @@ fn exit(rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
     log::info!("exit syscall called with code {}", exit_code);
 
     {
-        let curr_pid = crate::process::current_pid();
         let mut procs = crate::process::PROCESSES.lock();
 
-        if let Some(proc) = procs.iter_mut().find(|p| p.pid == curr_pid) {
+        if let Some(proc) = unsafe { crate::process::current_proc_mut() } {
             // Mark as exited (zombie) instead of removing - parent needs to wait() to reap
             proc.exit_code = Some(exit_code as u64);
             proc.status = ProcessStatus::Exited;
-            log::info!("process {} exited with code {}", curr_pid, exit_code);
-
-            // Reparent children to init
             let pid = proc.pid;
+            log::info!("process {} exited with code {}", pid, exit_code);
+
             if pid == 1 {
                 panic!("init process cannot exit. fuck you.");
             }
@@ -31,7 +29,7 @@ fn exit(rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
                 child.parent_pid = 1;
             }
         } else {
-            log::error!("exit: current process with pid {} not found", curr_pid);
+            log::error!("exit: current process not found");
             return 0;
         }
     }

@@ -829,15 +829,15 @@ pub fn switch_to_next() -> ! {
 
 pub fn block_current_process(lock: &'static AtomicBool) {
     let curr_pid = current_pid();
-    let mut procs = PROCESSES.lock();
     if let Some(proc) = procs.iter_mut().find(|p| p.pid == curr_pid) {
+    if let Some(proc) = unsafe { current_proc_mut() } {
+        let pid = proc.pid;
         proc.status = ProcessStatus::Blocked(lock);
-        trace!("Process {} blocked", curr_pid);
+        trace!("Process {} blocked", pid);
     } else {
         warn!(
-            "block_current_process: no process found with pid {}",
             curr_pid
-        );
+        warn!("block_current_process: no current process found");
     }
 }
 
@@ -1108,19 +1108,57 @@ pub extern "C" fn idle_loop() -> ! {
 static CURRENT_PID: PerCpuVar<u64> = PerCpuVar::new(offset_of!(PerCpuData, curr_pid));
 pub static SCHEDULER: Lazy<Mutex<Scheduler>> = Lazy::new(|| Mutex::new(Scheduler::new()));
 
-/// Get the current process PID
+/// Get the current process PID from percpu data (fast path, no lock)
 pub fn current_pid() -> u64 {
-    SCHEDULER.lock().current_pid().unwrap()
+    unsafe { CURRENT_PID.read() }
 }
 
 /// Check if there's a current process running (safe to call during init)
 pub fn has_current_process() -> bool {
-    SCHEDULER.lock().current_pid().is_some()
+    unsafe { CURRENT_PID.read() != 0 }
 }
 
-/// Set the current process PID
+/// Set the current process PID and pointer in percpu data
 pub fn set_current_pid(pid: u64) {
     unsafe { CURRENT_PID.write(pid) }
+}
+
+/// Set the current process pointer in percpu data
+///
+/// # Safety
+/// The pointer must be valid for the lifetime of the process running on this CPU.
+/// It must be updated whenever the process is rescheduled or removed.
+pub unsafe fn set_current_proc(proc: *mut Process) {
+    let percpu = crate::percpu::get_percpu_data();
+    (*percpu).curr_proc = proc;
+}
+
+/// Get the current process pointer from percpu data
+///
+/// # Safety
+/// The caller must ensure the pointer is still valid.
+/// The returned reference is only valid while PROCESSES lock is held
+/// and no context switch has occurred.
+#[inline]
+pub unsafe fn get_current_proc() -> Option<*mut Process> {
+    let percpu = crate::percpu::get_percpu_data();
+    let ptr = (*percpu).curr_proc;
+    if ptr.is_null() { None } else { Some(ptr) }
+}
+
+/// Get a mutable reference to the current process using the percpu pointer.
+/// This is safe to call when holding the PROCESSES lock (which prevents
+/// modifications to the process list that could invalidate the pointer).
+///
+/// Returns None if there is no current process.
+///
+/// # Safety
+/// The caller MUST hold the PROCESSES lock when calling this function.
+/// The returned reference is only valid while the lock is held.
+#[inline]
+pub unsafe fn current_proc_mut<'a>() -> Option<&'a mut Process> {
+    let ptr = get_current_proc()?;
+    Some(&mut *ptr)
 }
 
 // Helper to choose a per-process load bias for PIC/PIE binaries

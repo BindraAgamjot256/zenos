@@ -117,15 +117,9 @@ impl Debug for Inode {
         f.debug_struct("Inode")
             .field("num", &self.num)
             .field("kind", &self.kind)
-            .field(
-                "size",
-                &self.size.load(core::sync::atomic::Ordering::SeqCst),
-            )
+            .field("size", &self.size.load(Ordering::SeqCst))
             .field("perms", &self.perms)
-            .field(
-                "links",
-                &self.links.load(core::sync::atomic::Ordering::SeqCst),
-            )
+            .field("links", &self.links.load(Ordering::SeqCst))
             .finish()
     }
 }
@@ -217,11 +211,7 @@ impl OpenFile {
         let new_pos = match from {
             SeekFrom::Start(pos) => pos,
             SeekFrom::End(offset) => {
-                let file_size = self
-                    .inode
-                    .lock()
-                    .size
-                    .load(core::sync::atomic::Ordering::SeqCst);
+                let file_size = self.inode.lock().size.load(Ordering::SeqCst);
                 if offset < 0 {
                     file_size.saturating_sub((-offset) as u64)
                 } else {
@@ -714,7 +704,7 @@ mod tests {
         let mut inode_guard = root_inode.lock();
         let mut buf = [0u8; 16];
         match inode_guard.data.read(0, &mut buf) {
-            Err(crate::disk::FileError::IsADirectory) => {}
+            Err(FileError::IsADirectory) => {}
             _ => return None,
         }
 

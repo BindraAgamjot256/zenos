@@ -1,6 +1,5 @@
 use crate::disk::FS;
 use crate::disk::vfs::{FileType, Permissions};
-use crate::process::PROCESSES;
 use crate::process::file_handles::FileOpenOptions;
 use crate::syscall::copy_string;
 use crate::syscall::errors::{EINVAL, EISDIR, EMFILE, ESRCH, file_error_to_errno};
@@ -101,12 +100,7 @@ fn open_inner(file_name: &str, foo: FileOpenOptions) -> Result<u64, u64> {
         return Err(-EISDIR as u64);
     }
 
-    let process = crate::process::current_pid();
-    let mut binding = PROCESSES.lock();
-    let process = binding
-        .iter_mut()
-        .find(move |proc| proc.pid == process)
-        .ok_or(-ESRCH as u64)?;
+    let process = unsafe { crate::process::current_proc_mut() }.ok_or(-ESRCH as u64)?;
     let fd = process
         .add_file_handle(file, foo)
         .map_err(|_| -EMFILE as u64)?;

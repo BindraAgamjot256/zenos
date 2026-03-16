@@ -242,7 +242,7 @@ pub fn print_stack_trace() {
 
     unsafe {
         let mut rbp: u64;
-        core::arch::asm!("mov {}, rbp", out(reg) rbp);
+        asm!("mov {}, rbp", out(reg) rbp);
 
         let mut frame_num = 0;
         error!("  #{}: <entry>", frame_num);

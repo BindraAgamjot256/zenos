@@ -15,8 +15,7 @@ fn fork(_rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 
     // Get parent's state while holding the lock briefly
     let child_state = {
-        let procs = PROCESSES.lock();
-        let parent = match procs.iter().find(|p| p.pid == parent_pid) {
+        let parent = match unsafe { crate::process::current_proc_mut() } {
             Some(p) => p,
             None => {
                 error!("fork: parent process {} not found", parent_pid);
@@ -53,8 +52,7 @@ fn fork(_rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 
     // Create child process (this does memory allocation for address space clone)
     let child_process = {
-        let procs = PROCESSES.lock();
-        let parent = match procs.iter().find(|p| p.pid == parent_pid) {
+        let parent = match unsafe { crate::process::current_proc_mut() } {
             Some(p) => p,
             None => {
                 error!(

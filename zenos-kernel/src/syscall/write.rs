@@ -25,15 +25,10 @@ fn write(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
 }
 
 pub(crate) fn write_inner(buf: &[u8], fd: u64) -> Result<u64, u64> {
-    let mut processes = crate::process::PROCESSES.lock();
-    let curr_pid = unsafe { *crate::percpu::get_percpu_data() }.curr_pid;
-    let process = processes
-        .iter_mut()
-        .find(|p| p.pid == curr_pid)
-        .ok_or((-ESRCH) as u64)?;
+    let process = unsafe { crate::process::current_proc_mut() }.ok_or((-ESRCH) as u64)?;
     info!(
         "write_inner: pid={}, fd={}, len={}",
-        curr_pid,
+        process.pid,
         fd,
         buf.len()
     );

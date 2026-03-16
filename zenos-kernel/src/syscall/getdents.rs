@@ -1,5 +1,5 @@
 use crate::disk::vfs::FileType;
-use crate::process::{PROCESSES, current_pid};
+use crate::process::PROCESSES;
 use crate::syscall::copy_to_user;
 use crate::syscall::errors::{EBADF, EFAULT, ESRCH, file_error_to_errno};
 use crate::syscall::table::SyscallPtr;
@@ -44,13 +44,14 @@ fn getdents64(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u6
         fd_idx, user_buf, buf_size
     );
 
-    let mut guard = PROCESSES.lock();
-    let proc = guard.iter_mut().find(|p| p.pid == current_pid());
-    if proc.is_none() {
-        error!("Process not found for pid={}", current_pid());
-        return -ESRCH as u64;
-    }
-    let proc = proc.unwrap();
+    let guard = PROCESSES.lock();
+    let proc = match unsafe { crate::process::current_proc_mut() } {
+        Some(p) => p,
+        None => {
+            error!("Process not found for current CPU");
+            return -ESRCH as u64;
+        }
+    };
     info!("Process found: pid={}", proc.pid);
 
     let fd = match proc.get_file_handle(fd_idx) {
@@ -117,7 +118,7 @@ fn getdents64(rdi: u64, rsi: u64, rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u6
 
         debug!("Copying dirent to user: {:?}", linux_dent);
 
-        linux_dent.d_off = (offset + 1) as u64;
+        linux_dent.d_off = offset + 1;
         let err = copy_to_user(user_buf as *mut LinuxDirent64, &[linux_dent]);
         if err.is_err() {
             error!("Failed to copy to user buffer: {:?}", err);

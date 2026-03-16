@@ -66,7 +66,7 @@ fn waitpid(rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64
 
         // If target exists but hasn't exited, mark as waiting
         if procs.iter().any(|p| p.pid == target_pid as u64) {
-            if let Some(caller) = procs.iter_mut().find(|p| p.pid == caller_pid) {
+            if let Some(caller) = unsafe { crate::process::current_proc_mut() } {
                 caller.status = ProcessStatus::WaitingFor(target_pid as u64);
                 info!(
                     "wait: pid {} now waiting for pid {}",

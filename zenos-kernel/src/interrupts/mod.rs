@@ -1,6 +1,6 @@
 pub(crate) mod gdt;
 
-use crate::process::{FxSaveArea, PROCESSES, ProcessStatus};
+use crate::process::{FxSaveArea, PROCESSES, ProcessStatus, current_pid, current_proc_mut};
 use crate::{
     hardware::idt_vectors::*,
     interrupts::gdt::DOUBLE_FAULT_IST_INDEX,
@@ -282,6 +282,7 @@ extern "x86-interrupt" fn gpf_handler(ist: InterruptStackFrame, error_code: u64)
     );
 }
 
+//noinspection ALL
 extern "x86-interrupt" fn page_fault_handler(
     ist: InterruptStackFrame,
     error_code: PageFaultErrorCode,
@@ -309,17 +310,16 @@ extern "x86-interrupt" fn page_fault_handler(
 
     if error_code.contains(PageFaultErrorCode::USER_MODE) {
         //todo: replace with sending SIGSEGV.
-        let current_pid = {
+        {
             let sched = SCHEDULER.lock();
             let cpid = sched.current_pid();
             if cpid.is_none() {
                 // already rescheduled, proc is a living zombie. I have no idea how to fix it, but I will when I know how. return early for now
                 return;
             }
-            cpid.unwrap()
-        };
+        }
         let mut procs = PROCESSES.lock();
-        let proc = procs.iter_mut().find(|p| p.pid == current_pid).unwrap();
+        let proc = unsafe { current_proc_mut() }.unwrap();
         error!("Faulting process PID: {}", proc.pid);
         error!("faulting address: {cr2:?}");
         error!(
@@ -344,7 +344,7 @@ extern "x86-interrupt" fn page_fault_handler(
         }
         kprint!("segmentation fault. core not dumped\n");
         SCHEDULER.lock().force_reschedule();
-        if current_pid == 1 {
+        if current_pid() == 1 {
             panic!("init cannot exit. fuck you.")
         }
         return; // return, don't panic the kernel, will reschedule next timer interrupt.

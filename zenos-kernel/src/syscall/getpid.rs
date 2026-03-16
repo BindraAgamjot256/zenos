@@ -1,34 +1,32 @@
-use crate::process::{PROCESSES, SCHEDULER};
+use crate::process::current_pid;
 use crate::syscall::table::SyscallPtr;
 use zenos_macros::syscall;
 
 #[syscall(39)]
 fn getpid(_rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
-    let scheduler = SCHEDULER.lock();
-
-    match scheduler.current_pid() {
-        Some(pid) => pid as u64,
-        None => {
-            // Kernel context or scheduler not fully initialized.
-            // Unix convention: PID 0 is the idle/swapper task.
-            0
-        }
-    }
+    current_pid()
 }
 
 #[syscall(110)]
 fn getppid(_rdi: u64, _rsi: u64, _rdx: u64, _r10: u64, _r8: u64, _r9: u64) -> u64 {
-    let scheduler = SCHEDULER.lock();
+    match unsafe { crate::process::current_proc_mut() } {
+        Some(proc) => proc.parent_pid,
+        None => 0,
+    }
+}
 
-    match scheduler.current_pid() {
-        Some(pid) => {
-            drop(scheduler);
-            let proc = PROCESSES.lock();
-            match proc.iter().find(|p| p.pid == pid) {
-                Some(proc) => proc.parent_pid,
-                None => 0,
-            }
-        }
-        None => 0, // Kernel context or scheduler not fully initialized.
+#[syscall(102)]
+fn getuid(_rdi: u64, _rsi: u64, _rdx: u64, _r10: u64) -> u64 {
+    match unsafe { crate::process::current_proc_mut() } {
+        Some(proc) => proc.uid,
+        None => 0,
+    }
+}
+
+#[syscall(104)]
+fn getgid(_rdi: u64, _rsi: u64, _rdx: u64, _r10: u64) -> u64 {
+    match unsafe { crate::process::current_proc_mut() } {
+        Some(proc) => proc.gid,
+        None => 0,
     }
 }

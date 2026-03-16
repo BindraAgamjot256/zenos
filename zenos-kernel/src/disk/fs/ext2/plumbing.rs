@@ -308,7 +308,7 @@ impl Ext2Superblock {
     }
 }
 
-impl fmt::Debug for Ext2Superblock {
+impl Debug for Ext2Superblock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Superblock")
             .field("volume_name", &self.volume_name_string())

@@ -19,7 +19,7 @@ mod write;
 use crate::{
     interrupts::gdt::GDT,
     memory::{PAGE_4K, virt_to_phys},
-    process::{PROCESSES, ProcessState, current_pid},
+    process::{ProcessState, current_proc_mut},
 };
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -177,9 +177,7 @@ pub unsafe extern "C" fn syscall_main(sframe: *mut SyscallFrame) -> u64 {
 
     // Update current process state from syscall frame (needed for fork)
     {
-        let pid = current_pid();
-        let mut procs = PROCESSES.lock();
-        if let Some(proc) = procs.iter_mut().find(|p| p.pid == pid) {
+        if let Some(proc) = unsafe { current_proc_mut() } {
             proc.state = frame.to_process_state();
         }
     }

@@ -12,6 +12,8 @@ use x86_64::registers::model_specific::Msr;
 const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
 const IA32_GS_BASE: u32 = 0xC000_0101;
 
+use crate::process::Process;
+
 /// Represents per-CPU data accessible via the GS segment register.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -26,6 +28,8 @@ pub struct PerCpuData {
     pub scratch: [u64; 4],
     /// Currently running process ID on this CPU
     pub curr_pid: u64,
+    /// Pointer to the currently running process on this CPU
+    pub curr_proc: *mut Process,
 }
 
 impl PerCpuData {
@@ -36,6 +40,7 @@ impl PerCpuData {
             kernel_stack_ptr: 0,
             scratch: [0; 4],
             curr_pid: 0,
+            curr_proc: ptr::null_mut(),
         }
     }
 }
@@ -177,6 +182,7 @@ mod tests {
         crate::test_assert!(data.self_ptr.is_null());
         assert_eq!(data.kernel_stack_ptr, 0);
         assert_eq!(data.curr_pid, 0);
+        crate::test_assert!(data.curr_proc.is_null());
         Some(())
     }
 
