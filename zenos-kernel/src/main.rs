@@ -10,26 +10,10 @@
 #![no_std]
 #![no_main]
 
-extern crate alloc;
-
-use bootloader_api::{BootInfo, BootloaderConfig, config::Mapping, entry_point};
-use core::arch::asm;
-use x86_64::instructions::interrupts;
-use zenos_kernel::disk::FS;
-use zenos_kernel::kinit;
+use bootloader_api::*;
 
 static CONFIG: BootloaderConfig = {
-    let mut config = BootloaderConfig::new_default();
-    config.mappings.physical_memory = Some(Mapping::FixedAddress(
-        zenos_kernel::memory::constants::HIGHER_HALF_BASE,
-    ));
-    config.mappings.boot_info = Mapping::Dynamic;
-    config.mappings.kernel_base =
-        Mapping::FixedAddress(zenos_kernel::memory::constants::KERNEL_BASE); // higher-half base + 0x5000_0000
-    config.mappings.kernel_stack =
-        Mapping::FixedAddress(zenos_kernel::memory::constants::KERNEL_STACK_BASE); // higher-half base + 0x1_0000_0000
-    config.mappings.framebuffer =
-        Mapping::FixedAddress(zenos_kernel::memory::constants::KERNEL_FB_MAPPINGS);
+    let config = BootloaderConfig::new_default();
     config
 };
 
@@ -47,28 +31,12 @@ static CONFIG: BootloaderConfig = {
 ///
 /// This function never returns (marked by `!` return type)
 #[cfg_attr(not(any(test, feature = "run-kunittest")), panic_handler)]
-fn _panic(info: &core::panic::PanicInfo) -> ! {
-    interrupts::disable();
-    use log::error;
-    zenos_kernel::print_stack_trace();
-    error!("Kernel Panic: {info}");
-    // Halt the CPU
-    unsafe {
-        asm!(
-            "
-    4:
-        cli; hlt
-        jmp 4b",
-            options(nomem, preserves_flags, nostack, noreturn)
-        )
-    }
+fn _panic(_info: &core::panic::PanicInfo) -> ! {
+    loop {}
 }
 
 // Defines the kernel main function as the entry point and adds metadata for the bootloader.
-#[cfg(not(feature = "run-kunittest"))]
 entry_point!(kmain, config = &CONFIG);
-#[cfg(feature = "run-kunittest")]
-entry_point!(ktest_main, config = &CONFIG);
 
 /// Kernel main function - the entry point for the OS.
 ///
@@ -82,100 +50,6 @@ entry_point!(ktest_main, config = &CONFIG);
 /// # Returns
 ///
 /// This function never returns (marked by `!` return type)
-fn kmain(boot_info: &'static mut BootInfo) -> ! {
-    // Initialize kernel subsystems
-    kinit(boot_info);
-
-    #[cfg(feature = "test_stub")]
-    {
-        compile_error!(
-            "Test stubs are unsupported, testing done through kunittest feature, and through stress testing."
-        );
-    }
-
-    interrupts::disable();
-
-    #[cfg(debug_assertions)]
-    FS.lock().list_all_files();
-
-    // Create the kernel idle task first (pid 0)
-    zenos_kernel::process::create_idle_task();
-
-    let buf = zenos_kernel::process::init_process();
-
-    let (entry, stack, pid, proc_ptr) = {
-        let mut processes = zenos_kernel::process::PROCESSES.lock();
-        // kidle is at index 0, init is at index 1
-        let pinit = &mut processes[1];
-        pinit.load(buf);
-        let (e, s) = pinit.prepare_run().unwrap();
-        let ptr = pinit as *mut zenos_kernel::process::Process;
-        (e, s, pinit.pid, ptr)
-    };
-
-    // Tell the scheduler which process is currently running
-    {
-        let mut sched = zenos_kernel::process::SCHEDULER.lock();
-        sched.set_current(pid, proc_ptr);
-    }
-    interrupts::enable();
-
-    zenos_kernel::process::enter_user_mode(entry, stack);
-}
-
-#[cfg(feature = "run-kunittest")]
-fn ktest_main(bi: &'static mut BootInfo) -> ! {
-    use crate::testing_stuff::{QemuExitCode, exit_qemu};
-    use log::LevelFilter;
-    use zenos_kernel::serial_println;
-    use zenos_kernel::testing::Testable;
-    kinit(bi); // idk if i should do this... seems fine i guess...
-    log::set_max_level(LevelFilter::Off);
-    serial_println!(
-        "running {} tests",
-        zenos_kernel::TESTS.iter().filter(|t| t.is_some()).count()
-    );
-    let mut failed = false;
-    for i in zenos_kernel::TESTS.iter() {
-        if i.is_some() {
-            if let Err(()) = i.unwrap().run() {
-                failed = true;
-            }
-        }
-    }
-    if failed {
-        exit_qemu(QemuExitCode::Failed);
-        loop {}
-    }
-    exit_qemu(QemuExitCode::Success);
-    loop {}
-}
-
-#[cfg(feature = "run-kunittest")]
-mod testing_stuff {
-    use zenos_kernel::serial_println;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[repr(u32)]
-    pub enum QemuExitCode {
-        Success = 0x10,
-        Failed = 0x11,
-    }
-
-    pub fn exit_qemu(exit_code: QemuExitCode) {
-        use x86_64::instructions::port::Port;
-
-        unsafe {
-            let mut port: Port<u32> = Port::new(0xf4);
-            port.write(exit_code as u32);
-        }
-    }
-
-    #[panic_handler]
-    fn panic(info: &core::panic::PanicInfo) -> ! {
-        use crate::testing_stuff::{QemuExitCode, exit_qemu};
-        serial_println!("KERNEL PANIC DURING UNIT TESTS: {}", info);
-        exit_qemu(QemuExitCode::Failed);
-        loop {}
-    }
+fn kmain(_boot_info: &'static mut BootInfo) -> ! {
+    loop{}
 }

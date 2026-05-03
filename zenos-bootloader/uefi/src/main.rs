@@ -186,14 +186,6 @@ fn load_ramdisk(
     load_file_from_boot_method(image, st, "initrd\0", boot_mode)
 }
 
-fn load_config_file(
-    image: Handle,
-    st: &mut SystemTable<Boot>,
-    boot_mode: BootMode,
-) -> Option<&'static mut [u8]> {
-    load_file_from_boot_method(image, st, "boot.json\0", boot_mode)
-}
-
 fn load_kernel(
     image: Handle,
     st: &mut SystemTable<Boot>,
