@@ -1,5 +1,9 @@
 # Zenos
 
+>[!NOTE]
+> Zenos is being re-written inside the zenos-new branch to be more modular, and this branch will remain in maintain-only until further notice.
+
+
 An experimental x86_64 operating system written in Rust.
 
 > **Note on pronunciation**: "Zenos" is pronounced /ˈziː.nɒsss/ (like "Zeno's paradox" with emphasis on the 's'), not
