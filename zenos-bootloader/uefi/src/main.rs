@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![allow(mismatched_lifetime_syntaxes)]
 
 use crate::memory_descriptor::UefiMemoryDescriptor;
 use bootloader_api::info::FrameBufferInfo;
@@ -82,19 +83,11 @@ fn main_inner(image: Handle, mut st: SystemTable<Boot>) -> Status {
     }
     let kernel = kernel.expect("Failed to load kernel");
 
-    let mut config: BootConfig = Default::default();
+    let config = load_config(image, &mut st, boot_mode).unwrap_or_default();
 
-    #[allow(deprecated)]
-    if config.frame_buffer.minimum_framebuffer_height.is_none() {
-        config.frame_buffer.minimum_framebuffer_height =
-            kernel.config.frame_buffer.minimum_framebuffer_height;
-    }
-    #[allow(deprecated)]
-    if config.frame_buffer.minimum_framebuffer_width.is_none() {
-        config.frame_buffer.minimum_framebuffer_width =
-            kernel.config.frame_buffer.minimum_framebuffer_width;
-    }
     let framebuffer = init_logger(image, &st, &config);
+
+    log::info!("Boot config: {:?}", config);
 
     unsafe {
         *SYSTEM_TABLE.get() = None;
@@ -193,6 +186,16 @@ fn load_kernel(
 ) -> Option<Kernel<'static>> {
     let kernel_slice = load_file_from_boot_method(image, st, "zenos_kernel\0", boot_mode)?;
     Some(Kernel::parse(kernel_slice))
+}
+
+fn load_config(
+    image: Handle,
+    st: &mut SystemTable<Boot>,
+    boot_mode: BootMode,
+) -> Option<BootConfig<'static>> {
+    let config_slice = load_file_from_boot_method(image, st, "boot_config\0", boot_mode)?;
+    let config_str = core::str::from_utf8(config_slice).ok()?;
+    Some(BootConfig::from_str(config_str))
 }
 
 fn load_file_from_boot_method(
@@ -451,7 +454,7 @@ fn init_logger(
     st: &SystemTable<Boot>,
     config: &BootConfig,
 ) -> Option<RawFrameBufferInfo> {
-    bootloader_x86_64_common::init_logger(config.log_level, config.serial_logging);
+    bootloader_x86_64_common::init_logger(log::LevelFilter::Trace, true);
 
     let gop_handle = st
         .boot_services()
@@ -474,13 +477,11 @@ fn init_logger(
         let modes = gop.modes();
         match (
             config
-                .frame_buffer
-                .minimum_framebuffer_height
-                .map(|v| usize::try_from(v).unwrap()),
+                .framebuffer_height
+                .map(|v: u64| usize::try_from(v).unwrap()),
             config
-                .frame_buffer
-                .minimum_framebuffer_width
-                .map(|v| usize::try_from(v).unwrap()),
+                .framebuffer_width
+                .map(|v: u64| usize::try_from(v).unwrap()),
         ) {
             (Some(height), Some(width)) => modes
                 .filter(|m| {

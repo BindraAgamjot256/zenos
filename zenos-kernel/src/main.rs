@@ -51,5 +51,5 @@ entry_point!(kmain, config = &CONFIG);
 ///
 /// This function never returns (marked by `!` return type)
 fn kmain(_boot_info: &'static mut BootInfo) -> ! {
-    loop{}
+    loop {}
 }

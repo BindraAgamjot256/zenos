@@ -63,6 +63,9 @@ pub struct BootInfo {
     /// Virtual address of the loaded kernel image.
     pub kernel_image_offset: u64,
 
+    /// Kernel command line, if provided by the bootloader configuration.
+    pub command_line: Optional<CommandLine>,
+
     #[doc(hidden)]
     pub _test_sentinel: u64,
 }
@@ -85,6 +88,7 @@ impl BootInfo {
             kernel_addr: 0,
             kernel_len: 0,
             kernel_image_offset: 0,
+            command_line: Optional::None,
             _test_sentinel: 0,
         }
     }
@@ -227,6 +231,30 @@ impl FrameBuffer {
         self.info
     }
 }
+
+/// A FFI Safe representation of the kernel command line.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct CommandLine{
+    pub(crate) cmd_start: usize,
+    pub(crate) cmd_len: usize,
+}
+
+impl From<&'static str> for CommandLine {
+    fn from(cmd: &'static str) -> Self {
+        CommandLine {
+            cmd_start: cmd.as_ptr() as usize,
+            cmd_len: cmd.len(),
+        }
+    }
+}
+
+impl From<CommandLine> for &'static str {
+    fn from(cmd: CommandLine) -> Self {
+        unsafe { core::str::from_utf8_unchecked(slice::from_raw_parts(cmd.cmd_start as *const u8, cmd.cmd_len)) }
+    }
+}
+
 
 /// Describes the layout and pixel format of a framebuffer.
 #[derive(Debug, Clone, Copy)]

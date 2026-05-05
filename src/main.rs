@@ -121,7 +121,8 @@ fn main() {
     let kernel_path = kernel_binding.as_path();
 
     println!("[DISK] Creating bootable UEFI image...");
-    let image_binding = disk_img_builder(kernel_path, build_args.fat);
+    let image_binding =
+        disk_img_builder(kernel_path, build_args.fat, Some(&PathBuf::from("config")));
     let uefi_path = image_binding.as_path();
 
     println!("[INFO] Kernel binary: {}", kernel_path.display());
@@ -376,7 +377,7 @@ fn build_init(args: BuildArgs) {
 
 /// Packages the kernel and the 'iso' directory into a UEFI-bootable disk image.
 /// If `use_fat` is true, uses FAT for the data partition; otherwise uses ext2.
-fn disk_img_builder(kernel_path: &Path, use_fat: bool) -> PathBuf {
+fn disk_img_builder(kernel_path: &Path, use_fat: bool, boot_cfg_path: Option<&Path>) -> PathBuf {
     let mut builder = zenos_bootloader::DiskImageBuilder::new(kernel_path.to_path_buf());
     let uefi_out_path = PathBuf::from("uefi.img");
     let iso_dir = Path::new("iso");
@@ -386,6 +387,10 @@ fn disk_img_builder(kernel_path: &Path, use_fat: bool) -> PathBuf {
         add_files_recursively(&mut builder, iso_dir, iso_dir);
     } else {
         panic!("[FATAL] Staging directory 'iso/' is missing! Run build_init first.");
+    }
+
+    if let Some(boot_cfg_path) = boot_cfg_path {
+        builder.set_boot_cfg(boot_cfg_path.to_path_buf());
     }
 
     builder

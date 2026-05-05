@@ -4,11 +4,9 @@
 
 use crate::legacy_memory_region::{LegacyFrameAllocator, LegacyMemoryRegion};
 use bootloader_api::{
-    config::Mapping,
-    info::{FrameBuffer, FrameBufferInfo, MemoryRegion, TlsTemplate},
-    BootInfo, BootloaderConfig,
+    BootInfo, BootloaderConfig, config::Mapping, info::{CommandLine, FrameBuffer, FrameBufferInfo, MemoryRegion, TlsTemplate}
 };
-use bootloader_boot_config::{BootConfig, LevelFilter};
+use bootloader_boot_config::BootConfig;
 use core::{alloc::Layout, arch::asm, mem::MaybeUninit, slice};
 use level_4_entries::UsedLevel4Entries;
 use log::warn;
@@ -39,22 +37,11 @@ pub mod serial;
 const PAGE_SIZE: u64 = 4096;
 
 /// Initialize a text-based logger using the given pixel-based framebuffer as output.
-pub fn init_logger(log_level: LevelFilter, serial_logger_status: bool) {
+pub fn init_logger(log_level: log::LevelFilter, serial_logger_status: bool) {
     let logger =
         logger::LOGGER.get_or_init(move || logger::LockedLogger::new(serial_logger_status));
     log::set_logger(logger).expect("logger already set");
-    log::set_max_level(convert_level(log_level));
-}
-
-fn convert_level(level: LevelFilter) -> log::LevelFilter {
-    match level {
-        LevelFilter::Off => log::LevelFilter::Off,
-        LevelFilter::Error => log::LevelFilter::Error,
-        LevelFilter::Warn => log::LevelFilter::Warn,
-        LevelFilter::Info => log::LevelFilter::Info,
-        LevelFilter::Debug => log::LevelFilter::Debug,
-        LevelFilter::Trace => log::LevelFilter::Trace,
-    }
+    log::set_max_level(log_level);
 }
 
 /// Required system information that should be queried from the BIOS or UEFI firmware.
@@ -111,7 +98,7 @@ impl<'a> Kernel<'a> {
 /// directly to these functions, so see their docs for more info.
 pub fn load_and_switch_to_kernel<I, D>(
     kernel: Kernel,
-    boot_config: BootConfig,
+    boot_config: BootConfig<'static>,
     mut frame_allocator: LegacyFrameAllocator<I, D>,
     mut page_tables: PageTables,
     system_info: SystemInfo,
@@ -461,7 +448,7 @@ pub struct Mappings {
 /// are taken from the given `frame_allocator`.
 pub fn create_boot_info<I, D>(
     config: &BootloaderConfig,
-    boot_config: &BootConfig,
+    boot_config: &BootConfig<'static>,
     mut frame_allocator: LegacyFrameAllocator<I, D>,
     page_tables: &mut PageTables,
     mappings: &mut Mappings,
@@ -474,12 +461,19 @@ where
     log::info!("Allocate bootinfo");
 
     // allocate and map space for the boot info
-    let (boot_info, memory_regions) = {
+    let (boot_info, memory_regions, command_line) = {
         let boot_info_layout = Layout::new::<BootInfo>();
         let regions = frame_allocator.memory_map_max_region_count();
         let memory_regions_layout = Layout::array::<MemoryRegion>(regions).unwrap();
-        let (combined, memory_regions_offset) =
+        let (boot_and_mem, memory_regions_offset) =
             boot_info_layout.extend(memory_regions_layout).unwrap();
+
+        let (combined, cmd_offset) = if let Some(cmd) = boot_config.command_line {
+            let cmd_layout = Layout::for_value(cmd);
+            boot_and_mem.extend(cmd_layout).unwrap()
+        } else {
+            (boot_and_mem, 0)
+        };
 
         let boot_info_addr = mapping_addr(
             config.mappings.boot_info,
@@ -490,10 +484,23 @@ where
         .expect("boot info addr is not properly aligned");
 
         let memory_map_regions_addr = boot_info_addr + memory_regions_offset as u64;
-        let memory_map_regions_end = boot_info_addr + combined.size() as u64;
+        let memory_map_regions_end = boot_info_addr + boot_and_mem.size() as u64;
+        let command_line_addr = boot_info_addr + cmd_offset as u64;
+        let command_line_end = if let Some(_) = boot_config.command_line {
+            boot_info_addr + combined.size() as u64
+        } else {
+            VirtAddr::zero()
+        };
 
-        let start_page = Page::containing_address(boot_info_addr);
-        let end_page = Page::containing_address(memory_map_regions_end - 1u64);
+        let start_addr = boot_info_addr;
+        let end_addr = if let Some(_) = boot_config.command_line {
+            command_line_end
+        } else {
+            memory_map_regions_end
+        };
+
+        let start_page = Page::containing_address(start_addr);
+        let end_page = Page::containing_address(end_addr - 1u64);
         for page in Page::range_inclusive(start_page, end_page) {
             let flags =
                 PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
@@ -523,7 +530,20 @@ where
             unsafe { &mut *boot_info_addr.as_mut_ptr() };
         let memory_regions: &'static mut [MaybeUninit<MemoryRegion>] =
             unsafe { slice::from_raw_parts_mut(memory_map_regions_addr.as_mut_ptr(), regions) };
-        (boot_info, memory_regions)
+        let command_line: Option<MaybeUninit<&'static str>> =
+            if let Some(_) = boot_config.command_line {
+                unsafe {
+                    Some(MaybeUninit::new(str::from_utf8_unchecked(
+                        slice::from_raw_parts(
+                            command_line_addr.as_ptr(),
+                            command_line_end.as_u64() as usize,
+                        ),
+                    )))
+                }
+            } else {
+                None
+            };
+        (boot_info, memory_regions, command_line)
     };
 
     log::info!("Create Memory Map");
@@ -536,6 +556,18 @@ where
         mappings.ramdisk_slice_phys_start,
         mappings.ramdisk_slice_len,
     );
+
+    let cmd = if let Some(cmd) = boot_config.command_line {
+        log::info!("Command line: {}", cmd);
+
+        let mut maybe_uninit = command_line.expect("command_line buffer must exist");
+
+        maybe_uninit.write(cmd);
+        Some(unsafe { maybe_uninit.assume_init() })
+    } else {
+        log::info!("No command line provided");
+        None
+    };
 
     log::info!("Create bootinfo");
 
@@ -569,6 +601,7 @@ where
         info.kernel_addr = mappings.kernel_slice_start.as_u64();
         info.kernel_len = mappings.kernel_slice_len as _;
         info.kernel_image_offset = mappings.kernel_image_offset.as_u64();
+        info.command_line = cmd.map(CommandLine::from).into();
         info._test_sentinel = boot_config._test_sentinel;
         info
     });

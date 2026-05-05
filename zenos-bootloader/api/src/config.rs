@@ -457,16 +457,6 @@ impl Mapping {
         Self::Dynamic
     }
 
-    #[cfg(test)]
-    fn random() -> Mapping {
-        let fixed = rand::random();
-        if fixed {
-            Self::Dynamic
-        } else {
-            Self::FixedAddress(rand::random())
-        }
-    }
-
     const fn serialize(&self) -> [u8; 9] {
         match self {
             Mapping::Dynamic => [0; 9],

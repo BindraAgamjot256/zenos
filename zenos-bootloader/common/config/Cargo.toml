@@ -7,4 +7,3 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-serde = { version = "1.0.152", default-features = false, features = ["derive"] }

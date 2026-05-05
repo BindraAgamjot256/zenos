@@ -1,0 +1,8 @@
+# Boot Configuration file for zenos kernel
+
+
+
+# Kernel Command line. 
+command_line="hello, world"
+
+log_level=verbose
