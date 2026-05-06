@@ -6,3 +6,5 @@
 command_line="hello, world"
 
 log_level=verbose
+
+splash_path="splash.bmp"

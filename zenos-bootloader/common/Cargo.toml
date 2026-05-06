@@ -22,16 +22,5 @@ rand_hc = "0.3.1"
 uart_16550 = "0.4.0"
 log = "0.4.29"
 
-[dependencies.noto-sans-mono-bitmap]
-version = "0.3.2"
-default-features = false
-features = [
-    "regular",
-    "size_16",
-    "unicode-basic-latin",
-    # required for the fallback char '�'
-    "unicode-specials",
-]
-
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(docsrs_dummy_build)'] }

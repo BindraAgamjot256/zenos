@@ -29,6 +29,7 @@ pub use bootloader_boot_config::BootConfig;
 const KERNEL_FILE_NAME: &str = "zenos_kernel";
 const RAMDISK_FILE_NAME: &str = "initrd";
 const BOOT_CONFIG_FILE_NAME: &str = "boot_config";
+const SPLASH_FILE_NAME: &str = "splash.bmp";
 
 #[cfg(feature = "uefi")]
 const UEFI_BOOTLOADER: &[u8] = include_bytes!(env!("UEFI_BOOTLOADER_PATH"));
@@ -77,6 +78,13 @@ impl DiskImageBuilder {
     pub fn set_ramdisk(&mut self, path: PathBuf) -> &mut Self {
         self.boot_files
             .insert(RAMDISK_FILE_NAME.into(), FileDataSource::File(path));
+        self
+    }
+
+    /// Set the splash screen file to be included in the final image.
+    pub fn set_splash(&mut self, path: PathBuf) -> &mut Self {
+        self.boot_files
+            .insert(SPLASH_FILE_NAME.into(), FileDataSource::File(path));
         self
     }
 

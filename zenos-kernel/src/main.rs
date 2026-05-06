@@ -50,6 +50,8 @@ entry_point!(kmain, config = &CONFIG);
 /// # Returns
 ///
 /// This function never returns (marked by `!` return type)
-fn kmain(_boot_info: &'static mut BootInfo) -> ! {
+fn kmain(boot_info: &'static mut BootInfo) -> ! {
+    let fb = boot_info.framebuffer.as_mut().unwrap().buffer_mut();
+    fb.fill(0);
     loop {}
 }

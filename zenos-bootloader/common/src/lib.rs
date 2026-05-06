@@ -33,6 +33,8 @@ pub mod load_kernel;
 pub mod logger;
 /// Provides a type that logs output as text to a Serial Being port.
 pub mod serial;
+/// BMP image parser and framebuffer renderer.
+pub mod bmp;
 
 const PAGE_SIZE: u64 = 4096;
 

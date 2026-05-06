@@ -150,7 +150,7 @@ fn run_qemu(uefi_path: &Path, debugger: bool, test: bool) {
     // Debug/Exit behavior
     cmd.arg("-no-reboot");
     if !test {
-        cmd.arg("-no-shutdown");
+      cmd.arg("-no-shutdown");
     }
     cmd.arg("-d").arg("cpu_reset"); // Log resets to help find triple faults
 
@@ -391,6 +391,11 @@ fn disk_img_builder(kernel_path: &Path, use_fat: bool, boot_cfg_path: Option<&Pa
 
     if let Some(boot_cfg_path) = boot_cfg_path {
         builder.set_boot_cfg(boot_cfg_path.to_path_buf());
+    }
+
+    let splash_path = Path::new("splash.bmp");
+    if splash_path.exists() {
+        builder.set_splash(splash_path.to_path_buf());
     }
 
     builder

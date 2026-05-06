@@ -103,7 +103,6 @@ dependencies = [
  "bootloader_api",
  "conquer-once",
  "log",
- "noto-sans-mono-bitmap",
  "rand",
  "rand_hc",
  "raw-cpuid",
@@ -415,12 +414,6 @@ name = "memchr"
 version = "2.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
-
-[[package]]
-name = "noto-sans-mono-bitmap"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f102c477fd4ec864c149803bf606ecc23bc9329602ec0f99073a728abf454abc"
 
 [[package]]
 name = "num-traits"

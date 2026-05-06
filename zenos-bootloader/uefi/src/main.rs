@@ -87,6 +87,27 @@ fn main_inner(image: Handle, mut st: SystemTable<Boot>) -> Status {
 
     let framebuffer = init_logger(image, &st, &config);
 
+    // Load and render splash screen if configured
+    if let Some(framebuffer) = framebuffer {
+        if let Some(splash_path) = config.splash_path {
+            if let Some(splash_data) = load_file_from_boot_method(image, &mut st, splash_path, boot_mode) {
+                unsafe {
+                    bootloader_x86_64_common::bmp::draw_bmp(splash_data, &framebuffer);
+                }
+                log::info!("Splash screen rendered from {}", splash_path);
+            } else {
+                unsafe {
+                    bootloader_x86_64_common::bmp::draw_bmp(&[], &framebuffer);
+                }
+                log::warn!("Failed to load splash from {}", splash_path);
+            }
+        } else {
+            unsafe {
+                    bootloader_x86_64_common::bmp::draw_bmp(&[], &framebuffer);
+                }
+        }
+    }
+
     log::info!("Boot config: {:?}", config);
 
     unsafe {
