@@ -10,6 +10,8 @@
 #![no_std]
 #![no_main]
 
+mod log;
+
 use bootloader_api::*;
 
 static CONFIG: BootloaderConfig = {
@@ -31,7 +33,10 @@ static CONFIG: BootloaderConfig = {
 ///
 /// This function never returns (marked by `!` return type)
 #[cfg_attr(not(any(test, feature = "run-kunittest")), panic_handler)]
-fn _panic(_info: &core::panic::PanicInfo) -> ! {
+fn _panic(info: &core::panic::PanicInfo) -> ! {
+    log::error!("FUCK");
+    log::error!("PANIC");
+    log::error!("PANIC INFO: {}", info);
     loop {}
 }
 
@@ -51,7 +56,12 @@ entry_point!(kmain, config = &CONFIG);
 ///
 /// This function never returns (marked by `!` return type)
 fn kmain(boot_info: &'static mut BootInfo) -> ! {
-    let fb = boot_info.framebuffer.as_mut().unwrap().buffer_mut();
-    fb.fill(0);
+    kinit(boot_info);
     loop {}
+}
+
+
+fn kinit(_boot_info: &'static mut BootInfo) {
+    log::init();
+    log::info!("Hello, zenos!");
 }

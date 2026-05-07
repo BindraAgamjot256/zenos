@@ -235,7 +235,7 @@ impl FrameBuffer {
 /// A FFI Safe representation of the kernel command line.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-pub struct CommandLine{
+pub struct CommandLine {
     pub(crate) cmd_start: usize,
     pub(crate) cmd_len: usize,
 }
@@ -251,10 +251,14 @@ impl From<&'static str> for CommandLine {
 
 impl From<CommandLine> for &'static str {
     fn from(cmd: CommandLine) -> Self {
-        unsafe { core::str::from_utf8_unchecked(slice::from_raw_parts(cmd.cmd_start as *const u8, cmd.cmd_len)) }
+        unsafe {
+            core::str::from_utf8_unchecked(slice::from_raw_parts(
+                cmd.cmd_start as *const u8,
+                cmd.cmd_len,
+            ))
+        }
     }
 }
-
 
 /// Describes the layout and pixel format of a framebuffer.
 #[derive(Debug, Clone, Copy)]

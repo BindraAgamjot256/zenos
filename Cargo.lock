@@ -68,6 +68,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
 
 [[package]]
+name = "arch-common"
+version = "0.1.0"
+dependencies = [
+ "arch-x86_64",
+]
+
+[[package]]
+name = "arch-x86_64"
+version = "0.1.0"
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1101,15 +1112,9 @@ dependencies = [
 name = "zenos-kernel"
 version = "0.1.0"
 dependencies = [
+ "arch-common",
  "bootloader_api",
-]
-
-[[package]]
-name = "zenos-macros"
-version = "0.1.0"
-dependencies = [
- "quote",
- "syn 2.0.114",
+ "log",
 ]
 
 [[package]]

@@ -11,7 +11,7 @@ members = [
     "zenos-bootloader/common",
     "zenos-bootloader/common/config",
     "zenos-bootloader/uefi",
-    "zenos-init", "syscall-macro",
+    "zenos-init",
     "zenos-fuzz",
 ]
 

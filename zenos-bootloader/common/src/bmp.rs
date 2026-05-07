@@ -5,7 +5,7 @@
 //!
 //! On invalid BMP data, the framebuffer is cleared to black.
 
-#![allow(unused)] 
+#![allow(unused)]
 // Certain structs are unused in this module but may be useful for future extensions (e.g., supporting more BMP features).
 
 use crate::RawFrameBufferInfo;
@@ -105,47 +105,24 @@ fn parse_bmp_headers(bmp_slice: &[u8]) -> Result<BmpMetadata, BmpError> {
         return Err(BmpError::InvalidSignature);
     }
 
-    let _file_size = u32::from_le_bytes([
-        bmp_slice[2],
-        bmp_slice[3],
-        bmp_slice[4],
-        bmp_slice[5],
-    ]);
-    let pixel_data_offset = u32::from_le_bytes([
-        bmp_slice[10],
-        bmp_slice[11],
-        bmp_slice[12],
-        bmp_slice[13],
-    ]) as usize;
+    let _file_size = u32::from_le_bytes([bmp_slice[2], bmp_slice[3], bmp_slice[4], bmp_slice[5]]);
+    let pixel_data_offset =
+        u32::from_le_bytes([bmp_slice[10], bmp_slice[11], bmp_slice[12], bmp_slice[13]]) as usize;
 
     if pixel_data_offset > bmp_slice.len() {
         return Err(BmpError::InvalidPixelDataOffset);
     }
 
     // Parse DIB header (starting at offset 14).
-    let dib_header_size = u32::from_le_bytes([
-        bmp_slice[14],
-        bmp_slice[15],
-        bmp_slice[16],
-        bmp_slice[17],
-    ]);
+    let dib_header_size =
+        u32::from_le_bytes([bmp_slice[14], bmp_slice[15], bmp_slice[16], bmp_slice[17]]);
 
     if dib_header_size < 40 {
         return Err(BmpError::InvalidDibHeader);
     }
 
-    let width = i32::from_le_bytes([
-        bmp_slice[18],
-        bmp_slice[19],
-        bmp_slice[20],
-        bmp_slice[21],
-    ]);
-    let height = i32::from_le_bytes([
-        bmp_slice[22],
-        bmp_slice[23],
-        bmp_slice[24],
-        bmp_slice[25],
-    ]);
+    let width = i32::from_le_bytes([bmp_slice[18], bmp_slice[19], bmp_slice[20], bmp_slice[21]]);
+    let height = i32::from_le_bytes([bmp_slice[22], bmp_slice[23], bmp_slice[24], bmp_slice[25]]);
 
     if width <= 0 || height == 0 {
         return Err(BmpError::InvalidDibHeader);
@@ -157,12 +134,8 @@ fn parse_bmp_headers(bmp_slice: &[u8]) -> Result<BmpMetadata, BmpError> {
     }
 
     let bits_per_pixel = u16::from_le_bytes([bmp_slice[28], bmp_slice[29]]);
-    let compression = u32::from_le_bytes([
-        bmp_slice[30],
-        bmp_slice[31],
-        bmp_slice[32],
-        bmp_slice[33],
-    ]);
+    let compression =
+        u32::from_le_bytes([bmp_slice[30], bmp_slice[31], bmp_slice[32], bmp_slice[33]]);
 
     if compression != 0 {
         return Err(BmpError::CompressionNotSupported);
@@ -173,12 +146,8 @@ fn parse_bmp_headers(bmp_slice: &[u8]) -> Result<BmpMetadata, BmpError> {
         _ => return Err(BmpError::UnsupportedBitDepth),
     }
 
-    let colors_used = u32::from_le_bytes([
-        bmp_slice[46],
-        bmp_slice[47],
-        bmp_slice[48],
-        bmp_slice[49],
-    ]);
+    let colors_used =
+        u32::from_le_bytes([bmp_slice[46], bmp_slice[47], bmp_slice[48], bmp_slice[49]]);
 
     let is_bottom_up = height > 0;
     let height_abs = height.abs() as usize;
@@ -222,7 +191,10 @@ fn read_palette_entry(bmp_slice: &[u8], palette_offset: usize, index: usize) -> 
         Some(o) => o,
         None => return (0, 0, 0), // Overflow or out of bounds, return black.
     };
-    if offset.checked_add(4).map_or(true, |end| end > bmp_slice.len()) {
+    if offset
+        .checked_add(4)
+        .map_or(true, |end| end > bmp_slice.len())
+    {
         return (0, 0, 0); // Out of bounds, return black.
     }
     let b = bmp_slice[offset];
@@ -284,10 +256,8 @@ fn write_pixel(
 /// Clear framebuffer to black.
 fn clear_framebuffer_black(fb_info: &RawFrameBufferInfo) {
     unsafe {
-        let fb_buffer = ptr::slice_from_raw_parts_mut(
-            fb_info.addr.as_u64() as *mut u8,
-            fb_info.info.byte_len,
-        );
+        let fb_buffer =
+            ptr::slice_from_raw_parts_mut(fb_info.addr.as_u64() as *mut u8, fb_info.info.byte_len);
         if !fb_buffer.is_null() {
             (*fb_buffer).fill(0);
         }
@@ -333,7 +303,7 @@ pub unsafe fn draw_bmp(bmp_slice: &[u8], fb_info: &RawFrameBufferInfo) {
             clear_framebuffer_black(fb_info);
             return;
         }
-        unsafe {ptr::slice_from_raw_parts_mut(fb_ptr, fb_info.info.byte_len).as_mut()}
+        unsafe { ptr::slice_from_raw_parts_mut(fb_ptr, fb_info.info.byte_len).as_mut() }
     };
 
     let fb_buffer = match fb_buffer {
@@ -394,7 +364,10 @@ pub unsafe fn draw_bmp(bmp_slice: &[u8], fb_info: &RawFrameBufferInfo) {
         // Calculate row offsets.
         // BMP is stored bottom-up if is_bottom_up is true.
         let bmp_row_idx = if metadata.is_bottom_up {
-            metadata.height.checked_sub(1).and_then(|v| v.checked_sub(y))
+            metadata
+                .height
+                .checked_sub(1)
+                .and_then(|v| v.checked_sub(y))
         } else {
             Some(y)
         };
@@ -437,14 +410,15 @@ pub unsafe fn draw_bmp(bmp_slice: &[u8], fb_info: &RawFrameBufferInfo) {
                 }
                 24 => {
                     // 24-bit BGR.
-                    let pixel_offset = match x
-                        .checked_mul(3)
-                        .and_then(|o| bmp_row_offset.checked_add(o))
+                    let pixel_offset =
+                        match x.checked_mul(3).and_then(|o| bmp_row_offset.checked_add(o)) {
+                            Some(o) => o,
+                            None => break, // Overflow, stop processing row.
+                        };
+                    if pixel_offset
+                        .checked_add(3)
+                        .map_or(true, |end| end > bmp_slice.len())
                     {
-                        Some(o) => o,
-                        None => break, // Overflow, stop processing row.
-                    };
-                    if pixel_offset.checked_add(3).map_or(true, |end| end > bmp_slice.len()) {
                         (0, 0, 0)
                     } else {
                         let b = bmp_slice[pixel_offset];
@@ -455,14 +429,15 @@ pub unsafe fn draw_bmp(bmp_slice: &[u8], fb_info: &RawFrameBufferInfo) {
                 }
                 32 => {
                     // 32-bit BGRA (skip alpha).
-                    let pixel_offset = match x
-                        .checked_mul(4)
-                        .and_then(|o| bmp_row_offset.checked_add(o))
+                    let pixel_offset =
+                        match x.checked_mul(4).and_then(|o| bmp_row_offset.checked_add(o)) {
+                            Some(o) => o,
+                            None => break, // Overflow, stop processing row.
+                        };
+                    if pixel_offset
+                        .checked_add(4)
+                        .map_or(true, |end| end > bmp_slice.len())
                     {
-                        Some(o) => o,
-                        None => break, // Overflow, stop processing row.
-                    };
-                    if pixel_offset.checked_add(4).map_or(true, |end| end > bmp_slice.len()) {
                         (0, 0, 0)
                     } else {
                         let b = bmp_slice[pixel_offset];

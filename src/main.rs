@@ -150,7 +150,7 @@ fn run_qemu(uefi_path: &Path, debugger: bool, test: bool) {
     // Debug/Exit behavior
     cmd.arg("-no-reboot");
     if !test {
-      cmd.arg("-no-shutdown");
+        cmd.arg("-no-shutdown");
     }
     cmd.arg("-d").arg("cpu_reset"); // Log resets to help find triple faults
 

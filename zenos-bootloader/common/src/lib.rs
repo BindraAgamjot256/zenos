@@ -4,7 +4,9 @@
 
 use crate::legacy_memory_region::{LegacyFrameAllocator, LegacyMemoryRegion};
 use bootloader_api::{
-    BootInfo, BootloaderConfig, config::Mapping, info::{CommandLine, FrameBuffer, FrameBufferInfo, MemoryRegion, TlsTemplate}
+    config::Mapping,
+    info::{CommandLine, FrameBuffer, FrameBufferInfo, MemoryRegion, TlsTemplate},
+    BootInfo, BootloaderConfig,
 };
 use bootloader_boot_config::BootConfig;
 use core::{alloc::Layout, arch::asm, mem::MaybeUninit, slice};
@@ -20,6 +22,8 @@ use x86_64::{
 };
 use xmas_elf::ElfFile;
 
+/// BMP image parser and framebuffer renderer.
+pub mod bmp;
 /// Provides a function to gather entropy and build a RNG.
 mod entropy;
 mod gdt;
@@ -33,8 +37,6 @@ pub mod load_kernel;
 pub mod logger;
 /// Provides a type that logs output as text to a Serial Being port.
 pub mod serial;
-/// BMP image parser and framebuffer renderer.
-pub mod bmp;
 
 const PAGE_SIZE: u64 = 4096;
 

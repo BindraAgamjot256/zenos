@@ -11,3 +11,5 @@ run-kunittest = []
 
 [dependencies]
 bootloader_api = { workspace = true }
+arch-common = { version = "0.1.0", path = "arch/common" }
+log = { version = "0.4.17", default-features = false }
