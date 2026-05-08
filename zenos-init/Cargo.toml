@@ -8,7 +8,7 @@ default = []
 stress = []
 
 [dependencies]
-bitflags = "2.10.0"
+bitflags = "2.11.1"
 
 
 
