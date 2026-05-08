@@ -13,6 +13,7 @@
 
 mod log;
 mod arch;
+mod primitives;
 
 use bootloader_api::*;
 
