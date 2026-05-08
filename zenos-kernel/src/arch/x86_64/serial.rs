@@ -1,4 +1,4 @@
-use crate::ports::{ReadOnlyPort, WriteOnlyPort};
+use crate::arch::ports::{ReadOnlyPort, WriteOnlyPort};
 use core::fmt;
 
 #[derive(Debug, Clone, Copy)]

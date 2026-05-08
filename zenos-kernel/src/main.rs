@@ -9,8 +9,10 @@
 
 #![no_std]
 #![no_main]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 mod log;
+mod arch;
 
 use bootloader_api::*;
 
