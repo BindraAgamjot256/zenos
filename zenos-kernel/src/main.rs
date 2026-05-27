@@ -5,20 +5,25 @@
 //! # Note about pronunciation
 //! the name "zenos" is pronounced as one word, like in zeno's paradox, but with more emphasis on the s.
 //! The name is not pronounced as "zen os" (like "zen operating system").\
-//! IPA pronunciation: /ˈziː.nɒsss/
+
 
 #![no_std]
 #![no_main]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-mod log;
 mod arch;
+mod log;
 mod primitives;
 
-use bootloader_api::*;
+use bootloader_api::{config::*, *};
+use arch::map_mem_region;
+
+use crate::arch::{MemoryType, VirtAddr};
 
 static CONFIG: BootloaderConfig = {
-    let config = BootloaderConfig::new_default();
+    let mut config = BootloaderConfig::new_default();
+    config.mappings.physical_memory = Some(Mapping::Dynamic);
+    config.mappings.dynamic_range_start = Some(0xFFFF_8000_0000_0000);
     config
 };
 
@@ -60,11 +65,15 @@ entry_point!(kmain, config = &CONFIG);
 /// This function never returns (marked by `!` return type)
 fn kmain(boot_info: &'static mut BootInfo) -> ! {
     kinit(boot_info);
+    map_mem_region(VirtAddr::new(0x8000), None, 0x1000 , MemoryType::READABLE | MemoryType::WRITABLE).unwrap();
+    let ptr = 0x8000 as *mut ();
+    let slice = unsafe {core::slice::from_raw_parts_mut(ptr as *mut u8, 0x1000 - 1)};
+    slice.fill(1u8);
     loop {}
 }
 
-
-fn kinit(_boot_info: &'static mut BootInfo) {
+fn kinit(boot_info: &'static mut BootInfo) {
     log::init();
     log::info!("Hello, zenos!");
+    arch::init(boot_info);
 }
