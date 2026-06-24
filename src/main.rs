@@ -181,7 +181,7 @@ fn run_qemu(uefi_path: &Path, debugger: bool, test: bool) {
 
     println!("[RUN] Command: {cmd:#?}");
     std::io::stdout().flush().unwrap();
-    cmd.stdout(std::io::stdout());
+    // cmd.stdout(std::io::stdout());
     let mut child = cmd.spawn().expect("Failed to launch QEMU");
     let status = child.wait().expect("Failed to wait on QEMU process");
 

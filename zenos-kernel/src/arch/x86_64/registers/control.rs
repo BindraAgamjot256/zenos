@@ -1,7 +1,7 @@
-use core::arch::asm;
-use crate::arch::{PhysAddr};
-use crate::arch::x86_64::mem::paging::page::Size4K;
+use crate::arch::PhysAddr;
 use crate::arch::x86_64::mem::paging::Frame;
+use crate::arch::x86_64::mem::paging::page::Size4K;
+use core::arch::asm;
 
 pub struct CR3;
 

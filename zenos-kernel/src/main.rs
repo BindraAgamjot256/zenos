@@ -6,7 +6,6 @@
 //! the name "zenos" is pronounced as one word, like in zeno's paradox, but with more emphasis on the s.
 //! The name is not pronounced as "zen os" (like "zen operating system").\
 
-
 #![no_std]
 #![no_main]
 #![deny(unsafe_op_in_unsafe_fn)]
@@ -15,10 +14,10 @@ mod arch;
 mod log;
 mod primitives;
 
-use bootloader_api::{config::*, *};
 use arch::map_mem_region;
+use bootloader_api::{config::*, *};
 
-use crate::arch::{MemoryType, VirtAddr};
+use crate::arch::{MemoryType, PhysAddr, VirtAddr};
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -65,9 +64,15 @@ entry_point!(kmain, config = &CONFIG);
 /// This function never returns (marked by `!` return type)
 fn kmain(boot_info: &'static mut BootInfo) -> ! {
     kinit(boot_info);
-    map_mem_region(VirtAddr::new(0x8000), None, 0x1000 , MemoryType::READABLE | MemoryType::WRITABLE).unwrap();
+    map_mem_region(
+        VirtAddr::new(0x8000),
+        Some(PhysAddr::new(0x8000)),
+        0x1000,
+        MemoryType::READABLE | MemoryType::WRITABLE,
+    )
+    .unwrap();
     let ptr = 0x8000 as *mut ();
-    let slice = unsafe {core::slice::from_raw_parts_mut(ptr as *mut u8, 0x1000 - 1)};
+    let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, 0x1000 - 1) };
     slice.fill(1u8);
     loop {}
 }

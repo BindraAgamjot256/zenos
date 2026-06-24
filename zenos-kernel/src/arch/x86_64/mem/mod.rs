@@ -13,14 +13,20 @@ mod frame_allocator;
 pub(super) mod paging;
 
 use frame_allocator::FrameAllocator;
-use log::{info, error, warn, trace, debug};
+use log::{debug, error, info, trace, warn};
 
 use bitflags::bitflags;
 
 use crate::arch::{
     MemMapErr,
     x86_64::addr::{PhysAddr, VirtAddr},
-    x86_64::mem::{frame_allocator::FrameAllocError, paging::{Frame, Page, PageTableFlags, get_current_page_tables, page::{self, PageSize, Size1G, Size2M, Size4K}}},
+    x86_64::mem::{
+        frame_allocator::FrameAllocError,
+        paging::{
+            Frame, Page, PageTableFlags, get_current_page_tables,
+            page::{self, PageSize, Size1G, Size2M, Size4K},
+        },
+    },
 };
 
 bitflags! {
@@ -110,7 +116,6 @@ pub fn init(
             .expect("failed to initialize frame allocator");
     }
     paging::init(phys_offset);
-
 }
 
 fn frame_alloc_err_to_mem_map_err(err: FrameAllocError) -> MemMapErr {
@@ -127,7 +132,9 @@ fn frame_alloc_err_to_mem_map_err(err: FrameAllocError) -> MemMapErr {
 
 fn map_to_mem_map_err(err: paging::MapToError) -> MemMapErr {
     match err {
-        paging::MapToError::FrameAllocationFailed(frame_err) => frame_alloc_err_to_mem_map_err(frame_err),
+        paging::MapToError::FrameAllocationFailed(frame_err) => {
+            frame_alloc_err_to_mem_map_err(frame_err)
+        }
         paging::MapToError::PageAlreadyMapped => MemMapErr::AlreadyMapped,
         paging::MapToError::ParentEntryHugePage => MemMapErr::ParentHugePage,
     }
@@ -147,13 +154,10 @@ pub fn map_mem_region(
         mem_type
     );
 
-    let len = len
-        .checked_add(Size4K::SIZE - 1)
-        .ok_or_else(|| {
-            error!("Length overflow while aligning len={}", len);
-            MemMapErr::AddressOverflow
-        })?
-        & !(Size4K::SIZE - 1);
+    let len = len.checked_add(Size4K::SIZE - 1).ok_or_else(|| {
+        error!("Length overflow while aligning len={}", len);
+        MemMapErr::AddressOverflow
+    })? & !(Size4K::SIZE - 1);
 
     debug!("Aligned mapping length to {} bytes", len);
 
@@ -189,12 +193,10 @@ pub fn map_mem_region(
             len
         );
 
-        frame_allocator
-            .reserve_range(phys, len)
-            .map_err(|e| {
-                error!("Failed to reserve physical range: {:?}", e);
-                frame_alloc_err_to_mem_map_err(e)
-            })?;
+        frame_allocator.reserve_range(phys, len).map_err(|e| {
+            error!("Failed to reserve physical range: {:?}", e);
+            frame_alloc_err_to_mem_map_err(e)
+        })?;
 
         phys
     } else {
@@ -208,10 +210,7 @@ pub fn map_mem_region(
         })?
     };
 
-    debug!(
-        "Using physical base address: {:#x}",
-        frame_addr.as_usize()
-    );
+    debug!("Using physical base address: {:#x}", frame_addr.as_usize());
 
     let mut page_table = unsafe { get_current_page_tables() };
     let page_flags = mem_type.to_page_table_flags() | PageTableFlags::PRESENT;
@@ -229,8 +228,7 @@ pub fn map_mem_region(
         {
             debug!(
                 "Mapping 1GiB page: virt={:#x} -> phys={:#x}",
-                current_virt,
-                current_phys
+                current_virt, current_phys
             );
 
             let page = Page::<Size1G>::containing_address(current_virt);
@@ -242,9 +240,7 @@ pub fn map_mem_region(
                     .map_err(|e| {
                         error!(
                             "Failed 1GiB mapping: virt={:#x}, phys={:#x}, err={:?}",
-                            current_virt,
-                            current_phys,
-                            e
+                            current_virt, current_phys, e
                         );
                         map_to_mem_map_err(e)
                     })?
@@ -264,8 +260,7 @@ pub fn map_mem_region(
         {
             debug!(
                 "Mapping 2MiB page: virt={:#x} -> phys={:#x}",
-                current_virt,
-                current_phys
+                current_virt, current_phys
             );
 
             let page = Page::<Size2M>::containing_address(current_virt);
@@ -277,9 +272,7 @@ pub fn map_mem_region(
                     .map_err(|e| {
                         error!(
                             "Failed 2MiB mapping: virt={:#x}, phys={:#x}, err={:?}",
-                            current_virt,
-                            current_phys,
-                            e
+                            current_virt, current_phys, e
                         );
                         map_to_mem_map_err(e)
                     })?
@@ -295,8 +288,7 @@ pub fn map_mem_region(
 
         trace!(
             "Mapping 4KiB page: virt={:#x} -> phys={:#x}",
-            current_virt,
-            current_phys
+            current_virt, current_phys
         );
 
         let page = Page::<Size4K>::containing_address(current_virt);
@@ -308,9 +300,7 @@ pub fn map_mem_region(
                 .map_err(|e| {
                     error!(
                         "Failed 4KiB mapping: virt={:#x}, phys={:#x}, err={:?}",
-                        current_virt,
-                        current_phys,
-                        e
+                        current_virt, current_phys, e
                     );
                     map_to_mem_map_err(e)
                 })?
@@ -332,9 +322,6 @@ pub fn map_mem_region(
     Ok(frame_addr)
 }
 
-pub fn free_mem_region(
-    virt: VirtAddr,
-    len: usize,
-) -> Result<(), MemMapErr>{
+pub fn free_mem_region(virt: VirtAddr, len: usize) -> Result<(), MemMapErr> {
     todo!()
 }

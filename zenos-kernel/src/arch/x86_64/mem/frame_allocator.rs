@@ -158,8 +158,11 @@ impl FrameAllocator {
                     // Another thread allocated the region before we could claim it.
                     // Roll back any previous successful allocations for this range.
                     for rollback_bitmap in start_bitmap..bitmap_index {
-                        let rollback_mask = Self::bitmap_mask_for_frame_range(start_frame, count, rollback_bitmap);
-                        bitmaps[rollback_bitmap].map.fetch_and(!rollback_mask, Ordering::AcqRel);
+                        let rollback_mask =
+                            Self::bitmap_mask_for_frame_range(start_frame, count, rollback_bitmap);
+                        bitmaps[rollback_bitmap]
+                            .map
+                            .fetch_and(!rollback_mask, Ordering::AcqRel);
                     }
                     return false;
                 }
@@ -517,7 +520,10 @@ impl FrameAllocator {
 
         let bitmaps = self.head.get().ok_or(FrameAllocError::Uninitialized)?;
 
-        let total_frames = bitmaps.len().checked_mul(FRAMES_PER_BITMAP).ok_or(FrameAllocError::TooLong)?;
+        let total_frames = bitmaps
+            .len()
+            .checked_mul(FRAMES_PER_BITMAP)
+            .ok_or(FrameAllocError::TooLong)?;
         if count > total_frames {
             return Err(FrameAllocError::TooLong);
         }
@@ -526,8 +532,7 @@ impl FrameAllocator {
 
         trace!(
             "range allocation start hint: {}, count: {}",
-            start_hint,
-            count
+            start_hint, count
         );
 
         let start_frame_hint = start_hint * FRAMES_PER_BITMAP;
@@ -535,7 +540,11 @@ impl FrameAllocator {
 
         for pass in 0..2 {
             let range_start = if pass == 0 { start_frame_hint } else { 0 };
-            let range_end = if pass == 0 { total_frames } else { start_frame_hint };
+            let range_end = if pass == 0 {
+                total_frames
+            } else {
+                start_frame_hint
+            };
 
             let mut frame = range_start;
             while frame <= max_frame && frame < range_end {

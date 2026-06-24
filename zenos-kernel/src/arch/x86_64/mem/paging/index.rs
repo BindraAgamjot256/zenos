@@ -38,10 +38,10 @@ impl PageTableIndex {
     /// ```
     #[inline(always)]
     pub fn new(addr: VirtAddr, level: usize) -> Self {
-    let shift = 12 + (3 - level) * 9; // DO NOT FUCKING REPLACE THIS WITH LEVEL. IT TOOK ME TWO FUCKING DAYS TO FIND A PAGING BUG HERE. 
-    let index = (addr.as_u64() >> shift) & 0o777;
-    Self(index as u16)
-}
+        let shift = 12 + (3 - level) * 9; // DO NOT FUCKING REPLACE THIS WITH LEVEL. IT TOOK ME TWO FUCKING DAYS TO FIND A PAGING BUG HERE. 
+        let index = (addr.as_u64() >> shift) & 0o777;
+        Self(index as u16)
+    }
 
     /// Returns the index as a `usize`, suitable for array indexing.
     ///

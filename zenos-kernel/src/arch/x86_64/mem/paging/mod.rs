@@ -200,7 +200,6 @@ impl<'a> OffsetPageTable<'a> {
         let l1_index = PageTableIndex::new(virt_addr, 3);
 
         let l4_table = &mut *self.l4_table;
-    
 
         let l3_table = Self::next_table_create(
             l4_table,
@@ -209,7 +208,7 @@ impl<'a> OffsetPageTable<'a> {
             table_flags,
             self.physical_memory_offset,
         )?;
-        
+
         let l2_table = Self::next_table_create(
             l3_table,
             l3_index,
@@ -218,7 +217,6 @@ impl<'a> OffsetPageTable<'a> {
             self.physical_memory_offset,
         )?;
 
-
         let l1_table = Self::next_table_create(
             l2_table,
             l2_index,
@@ -226,7 +224,6 @@ impl<'a> OffsetPageTable<'a> {
             table_flags,
             self.physical_memory_offset,
         )?;
-
 
         let entry = &mut l1_table[l1_index];
 
@@ -363,8 +360,7 @@ pub unsafe fn get_current_page_tables<'a>() -> OffsetPageTable<'a> {
     let virt = l4_table.start_address() + physical_mem_offset;
     let page_table_ptr = virt as *mut PageTable;
 
-    let l4_table = unsafe{&mut *page_table_ptr};
-
+    let l4_table = unsafe { &mut *page_table_ptr };
 
     OffsetPageTable::new(l4_table, VirtAddr::new(physical_mem_offset as u64))
 }

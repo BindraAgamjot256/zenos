@@ -11,13 +11,14 @@
 use bootloader_api::info::{MemoryRegion as Region, MemoryRegionKind};
 
 mod addr;
+mod gdt;
 mod mem;
 pub mod ports;
 pub mod registers;
 pub mod serial;
 
 pub use addr::{PhysAddr, VirtAddr};
-pub use mem::{map_mem_region, MemoryType};
+pub use mem::{MemoryType, map_mem_region};
 
 pub fn init(boot_info: &'static mut crate::BootInfo) {
     log::info!("Initializing architecture-specific components...");
@@ -41,7 +42,7 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
             .into_option()
             .unwrap_or_default() as usize,
     );
-
+    gdt::init_gdt();
 }
 
 fn merge_contiguous_regions(regions: &mut [Region]) -> usize {
