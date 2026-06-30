@@ -13,3 +13,5 @@ run-kunittest = []
 bootloader_api = { workspace = true }
 log = { version = "0.4.17", default-features = false }
 bitflags = { version = "2.11.1", default-features = false }
+paste = "1"
+seq-macro = "0.3"

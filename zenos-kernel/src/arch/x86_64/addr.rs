@@ -7,7 +7,7 @@
 //! Both types provide conversion methods, arithmetic operations, and display formatting.
 
 use core::fmt;
-use core::ops::{Add, Div, Mul, Sub};
+use core::ops::{Add, Deref, DerefMut, Div, Mul, Sub};
 
 /// A validated 48-bit physical address (0 to 2^48 - 1).
 ///
@@ -178,6 +178,20 @@ impl Sub<PhysAddr> for PhysAddr {
     }
 }
 
+impl Deref for PhysAddr {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl core::ops::DerefMut for PhysAddr {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 // ============================================================================
 // VirtAddr Implementation
 // ============================================================================
@@ -324,5 +338,19 @@ impl Sub<VirtAddr> for VirtAddr {
     #[inline]
     fn sub(self, rhs: VirtAddr) -> i64 {
         self.0.wrapping_sub(rhs.0) as i64
+    }
+}
+
+impl Deref for VirtAddr {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl core::ops::DerefMut for VirtAddr {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }

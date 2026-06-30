@@ -8,10 +8,13 @@
 //!
 //! The module initializes architecture-specific components during kernel boot.
 
+use core::ptr;
+
 use bootloader_api::info::{MemoryRegion as Region, MemoryRegionKind};
 
 mod addr;
 mod gdt;
+mod interrupts;
 mod mem;
 pub mod ports;
 pub mod registers;
@@ -43,6 +46,15 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
             .unwrap_or_default() as usize,
     );
     gdt::init_gdt();
+    interrupts::init_idt();
+
+    self::interrupts::with_handler(0x3, |ctx| {
+        log::info!("breakpoint exception, context: {:?}", ctx);
+    }, || {
+        unsafe { core::arch::asm!("int3") };
+    });
+
+    unsafe {ptr::write_volatile(0xdeadbeefcafe0000 as *mut u64, 0x0123456789abcdef)};
 }
 
 fn merge_contiguous_regions(regions: &mut [Region]) -> usize {

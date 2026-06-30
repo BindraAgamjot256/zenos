@@ -1,5 +1,11 @@
 #![allow(static_mut_refs)]
 
+//! Global Descriptor Table (GDT) support for x86_64.
+//!
+//! The GDT describes the kernel and user code/data segments that the CPU uses
+//! for privilege checks and memory access. This module also builds the task
+//! state segment (TSS) descriptor that the interrupt stack table relies on.
+
 use core::mem::size_of;
 
 use log::info;
@@ -8,6 +14,10 @@ use log::info;
 // 64-bit Task State Segment
 //
 
+/// A 64-bit Task State Segment (TSS) layout used by the x86_64 architecture.
+///
+/// The TSS stores the privileged stack pointers for ring transitions and the
+/// interrupt stack table (IST) entries used by exception handlers.
 #[repr(C, packed)]
 pub struct TaskStateSegment {
     reserved0: u32,
@@ -25,6 +35,10 @@ pub struct TaskStateSegment {
 }
 
 impl TaskStateSegment {
+    /// Creates a new TSS with the given privileged stack pointer and IST entries.
+    ///
+    /// The initial stack pointer for privilege level 0 is stored in `rsp0`, while
+    /// the IST array provides alternate stacks for specific interrupts and faults.
     pub const fn new(rsp0: u64, ist: [u64; 7]) -> Self {
         Self {
             reserved0: 0,
@@ -47,6 +61,10 @@ impl TaskStateSegment {
 // Standard 8-byte segment descriptor
 //
 
+/// A packed x86_64 segment descriptor used by the GDT.
+///
+/// Segments are described with a base address, a limit, and access/flag bits
+/// that control privilege levels, present state, and granularity.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct SegmentDescriptor {
@@ -59,6 +77,7 @@ pub struct SegmentDescriptor {
 }
 
 impl SegmentDescriptor {
+    /// Builds a standard 8-byte descriptor from the provided base, limit, and flags.
     pub const fn new(base: u32, limit: u32, access: u8, flags: u8) -> Self {
         Self {
             limit_low: limit as u16,
@@ -75,6 +94,7 @@ impl SegmentDescriptor {
         }
     }
 
+    /// Returns a zeroed descriptor that acts as a null segment entry.
     pub const fn null() -> Self {
         Self::new(0, 0, 0, 0)
     }
@@ -84,6 +104,7 @@ impl SegmentDescriptor {
 // 16-byte TSS descriptor
 //
 
+/// A packed 16-byte descriptor that points at the TSS entry in the GDT.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct TssDescriptor {
@@ -103,6 +124,7 @@ pub struct TssDescriptor {
 }
 
 impl TssDescriptor {
+    /// Creates a TSS descriptor for the given static TSS instance.
     pub fn new(tss: &'static TaskStateSegment) -> Self {
         let base = tss as *const _ as u64;
         let limit = (size_of::<TaskStateSegment>() - 1) as u32;
@@ -125,6 +147,8 @@ impl TssDescriptor {
             reserved: 0,
         }
     }
+
+    /// Returns an empty descriptor for entries that have not yet been initialized.
     pub const fn null() -> Self {
         Self {
             limit_low: 0,
@@ -143,6 +167,10 @@ impl TssDescriptor {
 // Full GDT
 //
 
+/// The full Global Descriptor Table layout used by the kernel.
+///
+/// The table contains the null selector, kernel/user code and data descriptors,
+/// and the TSS descriptor that enables privileged stack switching.
 #[repr(C, packed)]
 pub struct Gdt {
     pub null: SegmentDescriptor,
@@ -156,6 +184,7 @@ pub struct Gdt {
 }
 
 impl Gdt {
+    /// Constructs a default GDT with the standard kernel and user segment entries.
     pub const fn new() -> Self {
         Self {
             null: SegmentDescriptor::null(),
@@ -171,11 +200,13 @@ impl Gdt {
             tss: TssDescriptor::null(),
         }
     }
+    /// Associates this GDT entry with a specific TSS instance.
     pub fn set_tss(&mut self, tss: &'static TaskStateSegment) {
         self.tss = TssDescriptor::new(tss);
     }
 }
 
+/// The structure expected by the `lgdt` instruction.
 #[repr(C, packed)]
 pub struct GdtPointer {
     pub limit: u16,
@@ -183,12 +214,14 @@ pub struct GdtPointer {
 }
 
 impl Gdt {
+    /// Builds the CPU-visible pointer descriptor that can be loaded with `lgdt`.
     pub fn pointer(&self) -> GdtPointer {
         GdtPointer {
             limit: (size_of::<Self>() - 1) as u16,
             base: self as *const _ as u64,
         }
     }
+    /// Loads this GDT into the processor.
     pub fn load(&self) {
         let pointer = self.pointer();
 
@@ -198,6 +231,7 @@ impl Gdt {
     }
 }
 
+/// Initializes the kernel GDT and installs the boot-time TSS descriptor.
 pub fn init_gdt() {
     static TSS: TaskStateSegment = TaskStateSegment::new(0, [0; 7]);
     static mut GDT: Gdt = Gdt::new();
