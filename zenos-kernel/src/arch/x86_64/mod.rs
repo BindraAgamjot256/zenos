@@ -8,8 +8,6 @@
 //!
 //! The module initializes architecture-specific components during kernel boot.
 
-use core::ptr;
-
 use bootloader_api::info::{MemoryRegion as Region, MemoryRegionKind};
 
 mod addr;
@@ -21,7 +19,7 @@ pub mod registers;
 pub mod serial;
 
 pub use addr::{PhysAddr, VirtAddr};
-pub use mem::{MemoryType, map_mem_region};
+pub use mem::{frame_allocator::memmap_addr, get_phys_offset, PAGE_SIZE};
 
 pub fn init(boot_info: &'static mut crate::BootInfo) {
     log::info!("Initializing architecture-specific components...");
@@ -38,6 +36,9 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
         )
     });
 
+    gdt::init_gdt();
+    interrupts::init_idt();
+
     mem::init(
         iter,
         boot_info
@@ -45,16 +46,16 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
             .into_option()
             .unwrap_or_default() as usize,
     );
-    gdt::init_gdt();
-    interrupts::init_idt();
 
-    self::interrupts::with_handler(0x3, |ctx| {
-        log::info!("breakpoint exception, context: {:?}", ctx);
-    }, || {
-        unsafe { core::arch::asm!("int3") };
-    });
-
-    unsafe {ptr::write_volatile(0xdeadbeefcafe0000 as *mut u64, 0x0123456789abcdef)};
+    self::interrupts::with_handler(
+        0x3,
+        |ctx| {
+            log::info!("breakpoint exception, context: {:?}", ctx);
+        },
+        || {
+            unsafe { core::arch::asm!("int3") };
+        },
+    );
 }
 
 fn merge_contiguous_regions(regions: &mut [Region]) -> usize {

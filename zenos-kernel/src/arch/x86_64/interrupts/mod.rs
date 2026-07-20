@@ -7,9 +7,9 @@
 //! into interrupts without reaching into the lower-level assembly details.
 
 mod ctx;
-mod table;
-mod registry;
 mod handlers;
+mod registry;
+mod table;
 
 pub use table::init_idt;
 

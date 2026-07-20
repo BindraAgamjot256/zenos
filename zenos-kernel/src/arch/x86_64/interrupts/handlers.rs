@@ -27,3 +27,7 @@ pub fn pf_handler(context: &mut super::ctx::CpuContext) {
 
     panic!("Page fault occurred. Address: {:#x}", cr2);
 }
+
+pub fn df_handler(context: &mut super::ctx::CpuContext) {
+    panic!("DOUBLE FAULT, CTX: {context:#?}")
+}

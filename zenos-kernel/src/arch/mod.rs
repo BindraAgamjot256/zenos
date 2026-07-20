@@ -20,12 +20,6 @@ compile_error!("Unsupported architecture");
 #[derive(Debug)]
 pub enum MemMapErr {
     Uninit,
-    OutOfMem,
-    TooLong,
-    InvalidLength,
-    AddressOverflow,
-    UnmanagedFrame,
     AlreadyMapped,
     ParentHugePage,
-    MisalignedAddress,
 }

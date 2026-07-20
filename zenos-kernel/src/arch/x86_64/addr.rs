@@ -7,7 +7,7 @@
 //! Both types provide conversion methods, arithmetic operations, and display formatting.
 
 use core::fmt;
-use core::ops::{Add, Deref, DerefMut, Div, Mul, Sub};
+use core::ops::{Add, Deref, Div, Mul, Sub};
 
 /// A validated 48-bit physical address (0 to 2^48 - 1).
 ///

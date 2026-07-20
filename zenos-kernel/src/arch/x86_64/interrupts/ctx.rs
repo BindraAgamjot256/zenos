@@ -7,7 +7,6 @@ pub use self::CpuContext as InterruptContext;
 
 use core::arch::global_asm;
 
-
 /// The register state captured when an interrupt or exception enters the kernel.
 ///
 /// The layout mirrors the assembly stub that saves the CPU registers before the
@@ -35,7 +34,6 @@ pub struct CpuContext {
     vector_number: u64,
     error_code: u64,
 
-
     rip: u64,
     cs: u64,
     rflags: u64,
@@ -44,7 +42,7 @@ pub struct CpuContext {
     ss: u64,
 }
 
-impl CpuContext{
+impl CpuContext {
     /// Returns the error code attached to the interrupt, if one was present.
     pub fn err_code(&self) -> u64 {
         self.error_code
@@ -61,8 +59,8 @@ impl CpuContext{
     }
 }
 
-
-global_asm!(r#"
+global_asm!(
+    r#"
 .section .text
 .altmacro
 
@@ -181,15 +179,14 @@ generate_16_isrs 192
 generate_16_isrs 208
 generate_16_isrs 224
 generate_16_isrs 240
-"#);
-
-
+"#
+);
 
 /// Dispatches a captured interrupt context to the currently registered Rust handler.
 #[unsafe(no_mangle)]
-unsafe extern "C" fn rust_dispatch(_context: *mut CpuContext){
+unsafe extern "C" fn rust_dispatch(_context: *mut CpuContext) {
     let registry = &crate::arch::x86_64::interrupts::registry::IDT_REGISTRY;
-    let context = unsafe {&mut *_context};
+    let context = unsafe { &mut *_context };
     let handler = registry.get_handler(context.vector_number as u8);
     handler(context);
 }

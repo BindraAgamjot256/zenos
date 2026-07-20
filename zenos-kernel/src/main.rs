@@ -12,12 +12,11 @@
 
 mod arch;
 mod log;
-mod primitives;
+mod mm;
 
-use arch::map_mem_region;
 use bootloader_api::{config::*, *};
 
-use crate::arch::{MemoryType, PhysAddr, VirtAddr};
+use crate::mm::BUDDY_ALLOCATOR;
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -64,16 +63,10 @@ entry_point!(kmain, config = &CONFIG);
 /// This function never returns (marked by `!` return type)
 fn kmain(boot_info: &'static mut BootInfo) -> ! {
     kinit(boot_info);
-    map_mem_region(
-        VirtAddr::new(0x8000),
-        Some(PhysAddr::new(0x8000)),
-        0x1000,
-        MemoryType::READABLE | MemoryType::WRITABLE,
-    )
-    .unwrap();
-    let ptr = 0x8000 as *mut ();
-    let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, 0x1000 - 1) };
-    slice.fill(1u8);
+    for i in 0..11 {
+        let frame = BUDDY_ALLOCATOR.alloc(i).unwrap();
+        log::info!("Allocated frame: {:?}", frame);
+    }
     loop {}
 }
 

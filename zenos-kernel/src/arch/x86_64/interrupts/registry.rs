@@ -39,7 +39,9 @@ impl InterruptRegistry {
     pub const fn new() -> Self {
         const INIT: core::sync::atomic::AtomicPtr<fn(&mut InterruptContext)> =
             core::sync::atomic::AtomicPtr::new(default_handler as *mut fn(&mut InterruptContext));
-        Self { handlers: [INIT; 256] }
+        Self {
+            handlers: [INIT; 256],
+        }
     }
 
     /// Registers a handler for a specific interrupt vector.
@@ -77,7 +79,10 @@ impl InterruptRegistry {
 ///
 /// This is useful for temporary debugging hooks that should be cleaned up once
 /// the surrounding operation completes.
-pub fn register_interrupt_handler(interrupt_number: u8, handler: fn(&mut InterruptContext)) -> InterruptGuard {
+pub fn register_interrupt_handler(
+    interrupt_number: u8,
+    handler: fn(&mut InterruptContext),
+) -> InterruptGuard {
     IDT_REGISTRY.register_handler(interrupt_number, handler);
     InterruptGuard(interrupt_number)
 }

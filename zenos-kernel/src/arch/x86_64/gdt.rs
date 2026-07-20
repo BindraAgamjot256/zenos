@@ -26,7 +26,7 @@ pub struct TaskStateSegment {
 
     reserved1: u64,
 
-    pub ist: [u64; 7], // IST1–IST7
+    pub ist: [*const u8; 7], // IST1–IST7
 
     reserved2: u64,
     reserved3: u16,
@@ -39,7 +39,7 @@ impl TaskStateSegment {
     ///
     /// The initial stack pointer for privilege level 0 is stored in `rsp0`, while
     /// the IST array provides alternate stacks for specific interrupts and faults.
-    pub const fn new(rsp0: u64, ist: [u64; 7]) -> Self {
+    pub const fn new(rsp0: u64, ist: [*const u8; 7]) -> Self {
         Self {
             reserved0: 0,
 
@@ -56,6 +56,9 @@ impl TaskStateSegment {
         }
     }
 }
+
+unsafe impl Send for TaskStateSegment {}
+unsafe impl Sync for TaskStateSegment {}
 
 //
 // Standard 8-byte segment descriptor
@@ -231,9 +234,24 @@ impl Gdt {
     }
 }
 
+static mut DOUBLE_FAULT_IST: [u8; 4096] = [0; 4096];
+
 /// Initializes the kernel GDT and installs the boot-time TSS descriptor.
 pub fn init_gdt() {
-    static TSS: TaskStateSegment = TaskStateSegment::new(0, [0; 7]);
+    static TSS: TaskStateSegment = unsafe {
+        TaskStateSegment::new(
+            0,
+            [
+                DOUBLE_FAULT_IST.as_ptr(),
+                core::ptr::null(),
+                core::ptr::null(),
+                core::ptr::null(),
+                core::ptr::null(),
+                core::ptr::null(),
+                core::ptr::null(),
+            ],
+        )
+    };
     static mut GDT: Gdt = Gdt::new();
     unsafe {
         GDT.set_tss(&TSS);

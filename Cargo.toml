@@ -12,7 +12,7 @@ members = [
     "zenos-bootloader/common/config",
     "zenos-bootloader/uefi",
     "zenos-init",
-    "zenos-fuzz",
+    "zenos-fuzz", "zenos-kernel/crates/mm", "zenos-kernel/crates/primitives",
 ]
 
 [workspace.package]
@@ -24,6 +24,8 @@ license = "MIT"
 bootloader_api = { version = "0.1.0", path = "zenos-bootloader/api" }
 bootloader-x86_64-common = { version = "0.1.0", path = "zenos-bootloader/common" }
 bootloader-boot-config = { version = "0.1.0", path = "zenos-bootloader/common/config" }
+kprimitives = { version = "0.1.0", path = "zenos-kernel/crates/primitives" }
+kmm = { version = "0.1.0", path = "zenos-kernel/crates/mm" }
 
 
 [dependencies]

@@ -13,6 +13,10 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 
+    /// Arguments forwarded verbatim to the host allocator stress test.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    host_test_args: Vec<std::ffi::OsString>,
+
     /// Enable color output in the kernel
     #[arg(long, short = 'c', global = true)]
     color: bool,
@@ -47,6 +51,8 @@ enum Command {
     Rerun,
     /// Run stress tests instead of shell
     Stress,
+    /// Run the host-native RawBuddyAllocator stress test
+    HostTest,
 }
 
 /// Internal args used by build functions
@@ -63,6 +69,18 @@ struct BuildArgs {
 fn main() {
     let cli = Cli::parse();
     let command = cli.command.unwrap_or_default();
+
+    if matches!(command, Command::HostTest) {
+        let status = std::process::Command::new("cargo")
+            .arg("run")
+            .arg("-p")
+            .arg("zenos-mm")
+            .arg("--")
+            .args(&cli.host_test_args)
+            .status()
+            .expect("Failed to launch zenos-mm host test");
+        exit(status.code().unwrap_or(1));
+    }
 
     let build_args = BuildArgs {
         color: cli.color,

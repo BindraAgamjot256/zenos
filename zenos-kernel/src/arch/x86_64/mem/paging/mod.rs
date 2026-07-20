@@ -24,13 +24,10 @@ pub use index::PageTableIndex;
 pub use page::{Frame, Page};
 pub use table::PageTable;
 
-use crate::arch::{
-    PhysAddr, VirtAddr,
-    x86_64::mem::frame_allocator::{FrameAllocError, FrameAllocator},
-};
+use crate::arch::{PhysAddr, VirtAddr};
 
-use core::{arch::asm, sync::atomic::AtomicUsize};
-
+use core::{arch::asm};
+use super::PHYS_OFFSET;
 use log::info;
 use page::PageSize;
 
@@ -38,7 +35,7 @@ use page::PageSize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapToError {
     /// Frame allocator returned no free frames.
-    FrameAllocationFailed(FrameAllocError),
+    FrameAllocationFailed,
 
     /// Attempted to map an already mapped page.
     PageAlreadyMapped,
@@ -139,13 +136,16 @@ impl<'a> OffsetPageTable<'a> {
     }
 
     /// Allocates a new page table.
-    fn alloc_table(
-        frame_alloc: &FrameAllocator,
+    fn alloc_table<T: FrameAllocator>(
+        frame_alloc: &T,
         physical_memory_offset: VirtAddr,
     ) -> Result<PhysAddr, MapToError> {
-        let frame = frame_alloc
-            .alloc()
-            .map_err(MapToError::FrameAllocationFailed)?;
+        let frame = PhysAddr::new(
+            frame_alloc
+                .alloc_frame()
+                .ok_or(MapToError::FrameAllocationFailed)?
+                .start_address() as u64,
+        );
 
         debug_assert_eq!(frame.as_u64() % 4096, 0);
 
@@ -159,10 +159,10 @@ impl<'a> OffsetPageTable<'a> {
     /// Walks to the next paging level.
     ///
     /// Allocates a new table if necessary.
-    fn next_table_create(
+    fn next_table_create<T: FrameAllocator>(
         current: &mut PageTable,
         index: PageTableIndex,
-        frame_alloc: &FrameAllocator,
+        frame_alloc: &T,
         table_flags: PageTableFlags,
         physical_memory_offset: VirtAddr,
     ) -> Result<&'a mut PageTable, MapToError> {
@@ -183,11 +183,11 @@ impl<'a> OffsetPageTable<'a> {
     }
 
     /// Maps a page.
-    pub unsafe fn map_to_with_table_flags_4k(
+    pub unsafe fn map_to_with_table_flags_4k<T: FrameAllocator>(
         &mut self,
         page: Page<page::Size4K>,
         frame: Frame<page::Size4K>,
-        frame_alloc: &FrameAllocator,
+        frame_alloc: &T,
         page_flags: PageTableFlags,
         table_flags: PageTableFlags,
     ) -> Result<MapperFlush<page::Size4K>, MapToError> {
@@ -238,11 +238,11 @@ impl<'a> OffsetPageTable<'a> {
     }
 
     /// Maps using default intermediate table flags.
-    pub unsafe fn map_to_4kib(
+    pub unsafe fn map_to_4kib<T: FrameAllocator>(
         &mut self,
         page: Page<page::Size4K>,
         frame: Frame<page::Size4K>,
-        frame_alloc: &FrameAllocator,
+        frame_alloc: &T,
         page_flags: PageTableFlags,
     ) -> Result<MapperFlush<page::Size4K>, MapToError> {
         self.map_to_with_table_flags_4k(
@@ -263,11 +263,11 @@ impl<'a> OffsetPageTable<'a> {
     }
 
     /// Maps a 2MiB huge page.
-    pub unsafe fn map_huge_2mib(
+    pub unsafe fn map_huge_2mib<T: FrameAllocator>(
         &mut self,
         page: Page<page::Size2M>,
         frame: Frame<page::Size2M>,
-        frame_alloc: &FrameAllocator,
+        frame_alloc: &T,
         flags: PageTableFlags,
     ) -> Result<MapperFlush<page::Size2M>, MapToError> {
         let virt_addr = VirtAddr::new(page.start_address() as u64);
@@ -309,11 +309,11 @@ impl<'a> OffsetPageTable<'a> {
     }
 
     /// Maps a 1GiB huge page.
-    pub unsafe fn map_huge_1gib(
+    pub unsafe fn map_huge_1gib<T: FrameAllocator>(
         &mut self,
         page: Page<page::Size1G>,
         frame: Frame<page::Size1G>,
-        frame_alloc: &FrameAllocator,
+        frame_alloc: &T,
         flags: PageTableFlags,
     ) -> Result<MapperFlush<page::Size1G>, MapToError> {
         let virt_addr = VirtAddr::new(page.start_address() as u64);
@@ -346,11 +346,11 @@ impl<'a> OffsetPageTable<'a> {
     }
 }
 
-static PHYS_OFFSET: AtomicUsize = AtomicUsize::new(0);
 
 #[inline(always)]
 pub fn init(phys_offset: usize) {
     PHYS_OFFSET.store(phys_offset, core::sync::atomic::Ordering::SeqCst);
+    info!("Phys ram offset: {phys_offset:#x}")
 }
 
 pub unsafe fn get_current_page_tables<'a>() -> OffsetPageTable<'a> {
@@ -363,4 +363,8 @@ pub unsafe fn get_current_page_tables<'a>() -> OffsetPageTable<'a> {
     let l4_table = unsafe { &mut *page_table_ptr };
 
     OffsetPageTable::new(l4_table, VirtAddr::new(physical_mem_offset as u64))
+}
+
+pub trait FrameAllocator {
+    fn alloc_frame(&self) -> Option<Frame<page::Size4K>>;
 }

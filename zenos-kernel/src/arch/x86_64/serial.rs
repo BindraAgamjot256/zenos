@@ -8,7 +8,7 @@
 //! the UART with standard settings (38400 baud, 8 bits, no parity) and provides
 //! `core::fmt::Write` support for convenient debug output.
 
-use crate::arch::ports::{ReadOnlyPort, WriteOnlyPort};
+use crate::arch::x86_64::ports::{ReadOnlyPort, WriteOnlyPort};
 use core::fmt;
 
 /// A 16550-compatible UART serial port driver.
