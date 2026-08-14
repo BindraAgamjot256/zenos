@@ -1,8 +1,7 @@
 use crate::arch::PAGE_SIZE;
 use crate::mm::{Page, PageFlags};
 use core::ptr::NonNull;
-use kmm::buddy::RawBuddyAllocator;
-use kmm::buddy::{BuddyBackend, PageFrameNum};
+use kmm::buddy::{AllocError, BuddyBackend, FreeError, PageFrameNum, RawBuddyAllocator};
 use kprimitives::mutex::Mutex;
 
 /// Buddy allocator managing free physical memory.
@@ -103,14 +102,14 @@ impl BuddyAllocator {
     /// order is reached.
     ///
     /// Returns `None` if no suitable block exists.
-    pub fn alloc(&self, order: u8) -> Option<Mapping> {
+    pub fn alloc(&self, order: u8) -> Result<Mapping, AllocError> {
         let mut raw = self.raw.lock();
         let pfn = raw.alloc(order as usize)?;
         let mapping = Mapping {
             start: pfn.number(),
             order: order as usize,
         };
-        Some(mapping)
+        Ok(mapping)
     }
 
     /// Frees a previously allocated buddy block.
@@ -118,21 +117,69 @@ impl BuddyAllocator {
     /// The block will eventually be returned to the buddy allocator and
     /// repeatedly merged with its free buddy whenever possible until no
     /// further merge is possible or the maximum order is reached.
-    pub fn free(&self, mapping: Mapping) {
+    pub fn free(&self, mapping: Mapping) -> Result<(), FreeError> {
         let mut raw = self.raw.lock();
         let pfn = PageFrameNum::new(mapping.start);
-        raw.free(pfn, mapping.order);
+        raw.free(pfn, mapping.order)
     }
 }
 
 /// Describes one contiguous physical allocation returned by the buddy
 /// allocator.
 ///
-/// The allocation spans `2^order` physical pages beginning at `start`.
+/// The allocation spans `2^order` physical pages beginning at `start(pfn)`.
 #[derive(Debug, Clone)]
 pub struct Mapping {
     start: usize,
     order: usize,
+}
+
+impl Mapping {
+    pub fn to_range(&self) -> core::ops::Range<usize> {
+        let start = self.start << PAGE_SIZE.ilog2();
+        let end = start + (1 << (self.order + PAGE_SIZE.ilog2() as usize));
+        start..end
+    }
+
+    #[allow(dead_code)]
+    pub fn as_slice(&self) -> &[u8] {
+        let range = self.to_range();
+        unsafe {
+            core::slice::from_raw_parts(
+                (range.start + crate::arch::get_phys_offset()) as *const u8,
+                range.len(),
+            )
+        }
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        let range = self.to_range();
+        unsafe {
+            core::slice::from_raw_parts_mut(
+                (range.start + crate::arch::get_phys_offset()) as *mut u8,
+                range.len(),
+            )
+        }
+    }
+
+    pub fn as_slice_pages(&self) -> &[Page] {
+        let range = self.to_range();
+        let page_count = range.len() / PAGE_SIZE;
+        unsafe { core::slice::from_raw_parts(crate::arch::memmap_addr(), page_count) }
+    }
+
+    pub fn as_mut_slice_pages(&mut self) -> &mut [Page] {
+        let range = self.to_range();
+        let page_count = range.len() / PAGE_SIZE;
+        unsafe { core::slice::from_raw_parts_mut(crate::arch::memmap_addr(), page_count) }
+    }
+
+    pub fn new(ptr: usize, order: usize) -> Self {
+        Self {
+            start: ptr >> PAGE_SIZE.ilog2(),
+            order,
+        }
+    }
 }
 
 unsafe impl Send for BuddyAllocator {}

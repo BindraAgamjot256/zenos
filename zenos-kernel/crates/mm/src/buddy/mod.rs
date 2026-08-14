@@ -1,9 +1,11 @@
+use crate::buddy;
 use core::ptr::NonNull;
 use log::*;
 
-use crate::buddy::{self, free_list::FreeBlockNode};
-
-mod free_list;
+pub(crate) struct FreeBlockNode {
+    pub(crate) next: Option<NonNull<FreeBlockNode>>,
+    pub(crate) prev: Option<NonNull<FreeBlockNode>>,
+}
 
 /// Maximum supported buddy order.
 ///
@@ -20,6 +22,33 @@ mod free_list;
 /// - ...
 /// - order 10 -> 1024 pages
 pub const MAX_ORDER: usize = 10;
+
+/// Errors returned by [`RawBuddyAllocator::alloc`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AllocError {
+    /// The requested order exceeds [`MAX_ORDER`].
+    InvalidOrder,
+    /// No free block of the requested order (or any larger order that could
+    /// be split down to it) is currently available.
+    OutOfMemory,
+}
+
+/// Errors returned by [`RawBuddyAllocator::free`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FreeError {
+    /// The requested order exceeds [`MAX_ORDER`].
+    InvalidOrder,
+    /// The block is already free, so freeing it again would be a double free.
+    AlreadyFree,
+    /// The block is not currently marked as an allocated block head.
+    ///
+    /// This variant is returned when the backend can determine that the page
+    /// frame does not refer to a block that was handed out by the allocator.
+    /// Some backends cannot distinguish this from a merely non-free page; in
+    /// that case [`FreeError::AlreadyFree`] is
+    /// returned instead.
+    NotAllocated,
+}
 
 /// Physical page frame number.
 ///
@@ -75,7 +104,7 @@ pub struct RawBuddyAllocator<B: BuddyBackend> {
     ///
     /// Each entry points to the first [`FreeBlockNode`] belonging to
     /// that order.
-    free_lists: [Option<NonNull<free_list::FreeBlockNode>>; MAX_ORDER + 1],
+    free_lists: [Option<NonNull<FreeBlockNode>>; MAX_ORDER + 1],
 
     /// Backend responsible for translating between PFNs and memory.
     backend: B,
@@ -121,7 +150,7 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
     /// Creates an empty buddy allocator.
     ///
     /// No physical memory is available immediately after creation.
-    /// Memory must be inserted through [`insert_block`] before allocations
+    /// Memory must be inserted through [`RawBuddyAllocator::insert_block`] before allocations
     /// can succeed.
     pub const fn new(backend: B) -> Self {
         Self {
@@ -236,7 +265,7 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
 
     /// Removes a specific block from its free list.
     ///
-    /// Unlike [`remove_block`], which removes the current list head, this
+    /// Unlike [`RawBuddyAllocator::remove_block`], which removes the current list head, this
     /// function searches for a known block directly through its PFN.
     ///
     /// This operation is mainly used during buddy merging, where the
@@ -347,7 +376,7 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
          *
          * gives the adjacent buddy.
          */
-        let buddy_pfn = buddy::buddy_of(block_pfn, order-1);
+        let buddy_pfn = buddy::buddy_of(block_pfn, order - 1);
 
         info!(
             "Splitting PFN {:?} order {} into {:?} and {:?} order {}",
@@ -358,7 +387,6 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
             order - 1
         );
 
-    
         /*
          * Both resulting blocks become valid blocks of the lower order.
          */
@@ -384,8 +412,7 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
         if order >= MAX_ORDER {
             trace!(
                 "Cannot merge PFN {:?} at order {}: already at MAX_ORDER",
-                block_pfn,
-                order
+                block_pfn, order
             );
 
             return None;
@@ -402,9 +429,10 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
          * A merge is only possible when both halves are free blocks of
          * identical size.
          */
-        if self.backend.is_free(buddy_pfn) && 
-            self.backend.get_order(buddy_pfn) == order && 
-            self.backend.get_order(block_pfn) == order {
+        if self.backend.is_free(buddy_pfn)
+            && self.backend.get_order(buddy_pfn) == order
+            && self.backend.get_order(block_pfn) == order
+        {
             info!(
                 "Merging PFN {:?} with buddy {:?} at order {}",
                 block_pfn, buddy_pfn, order
@@ -477,8 +505,16 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
     ///       v
     /// order 2 + order 2
     /// ```
-    pub fn alloc(&mut self, order: usize) -> Option<PageFrameNum> {
+    pub fn alloc(&mut self, order: usize) -> Result<PageFrameNum, AllocError> {
         info!("Allocating block of order {}", order);
+
+        if order > MAX_ORDER {
+            error!(
+                "Allocation failed: requested order {} exceeds MAX_ORDER {}",
+                order, MAX_ORDER
+            );
+            return Err(AllocError::InvalidOrder);
+        }
 
         let mut current_order = order;
 
@@ -492,7 +528,7 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
                     MAX_ORDER
                 );
 
-                return None;
+                return Err(AllocError::OutOfMemory);
             }
 
             if let Some(pfn) = self.remove_block(current_order) {
@@ -529,7 +565,7 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
             block_pfn, order
         );
 
-        Some(block_pfn)
+        Ok(block_pfn)
     }
     /// Frees a previously allocated buddy block.
     ///
@@ -542,8 +578,36 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
     ///
     /// The final merged block is inserted back into the appropriate free
     /// list.
-    pub fn free(&mut self, block_pfn: PageFrameNum, order: usize) {
+    ///
+    /// # Errors
+    ///
+    /// This function validates the request before mutating any allocator
+    /// state and returns [`FreeError`] without side effects if:
+    ///
+    /// - `order` exceeds [`MAX_ORDER`] ([`FreeError::InvalidOrder`]),
+    /// - the block is already free, i.e. a double free
+    ///   ([`FreeError::AlreadyFree`]),
+    pub fn free(&mut self, block_pfn: PageFrameNum, order: usize) -> Result<(), FreeError> {
         info!("Freeing block PFN {:?}, order {}", block_pfn, order);
+
+        if order > MAX_ORDER {
+            error!(
+                "Free failed: requested order {} exceeds MAX_ORDER {}",
+                order, MAX_ORDER
+            );
+            return Err(FreeError::InvalidOrder);
+        }
+
+        /*
+         * Reject a double free: a block that is still free is already
+         * tracked by the allocator and must not be freed again.
+         */
+        if self.backend.is_free(block_pfn) {
+            warn!("Double free attempted on PFN {:?}", block_pfn);
+            return Err(FreeError::AlreadyFree);
+        }
+
+        // If we reach here, this means that the block is currently allocated and can be freed.
 
         let mut current_order = order;
         let mut current_block_pfn = block_pfn;
@@ -589,6 +653,8 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
             "Free complete: PFN {:?}, final order {}",
             current_block_pfn, current_order
         );
+
+        Ok(())
     }
 }
 
@@ -641,7 +707,6 @@ fn buddy_of(pfn: PageFrameNum, order: usize) -> PageFrameNum {
 
     PageFrameNum(buddy_pfn)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -839,7 +904,7 @@ mod tests {
 
         let allocated = allocator.alloc(2);
 
-        assert_eq!(allocated, Some(pfn(0)));
+        assert_eq!(allocated, Ok(pfn(0)));
         assert!(!allocator.backend.is_free(pfn(0)));
     }
 
@@ -851,7 +916,7 @@ mod tests {
 
         let allocated = allocator.alloc(1);
 
-        assert_eq!(allocated, Some(pfn(0)));
+        assert_eq!(allocated, Ok(pfn(0)));
 
         // Original order 3 block:
         //
@@ -881,9 +946,9 @@ mod tests {
         let second = allocator.alloc(1);
         let third = allocator.alloc(1);
 
-        assert!(first.is_some());
-        assert!(second.is_some());
-        assert!(third.is_some());
+        assert!(first.is_ok());
+        assert!(second.is_ok());
+        assert!(third.is_ok());
 
         assert_ne!(first, second);
         assert_ne!(first, third);
@@ -896,8 +961,8 @@ mod tests {
 
         allocator.insert_block(pfn(0), 3);
 
-        assert!(allocator.alloc(3).is_some());
-        assert!(allocator.alloc(0).is_none());
+        assert!(allocator.alloc(3).is_ok());
+        assert!(allocator.alloc(0).is_err());
     }
 
     #[test]
@@ -908,7 +973,7 @@ mod tests {
 
         let allocated = allocator.alloc(2).unwrap();
 
-        allocator.free(allocated, 2);
+        allocator.free(allocated, 2).unwrap();
 
         assert!(allocator.backend.is_free(pfn(0)));
         assert_eq!(allocator.backend.get_order(pfn(0)), 2);
@@ -927,8 +992,8 @@ mod tests {
 
         assert_ne!(first, second);
 
-        allocator.free(first, 1);
-        allocator.free(second, 1);
+        allocator.free(first, 1).unwrap();
+        allocator.free(second, 1).unwrap();
 
         // The two order-1 blocks should have merged back into order 2.
         assert_eq!(allocator.remove_block(2), Some(pfn(0)));
@@ -946,10 +1011,10 @@ mod tests {
         // The buddy at PFN 1 is not necessarily an order-0 free block
         // in this situation. The allocator must respect the stored order.
         let sec = allocator.alloc(1).unwrap();
-        allocator.free(allocated, 0);
+        allocator.free(allocated, 1).unwrap();
 
         assert_ne!(allocator.remove_block(3), Some(pfn(0)));
-        allocator.free(sec, 1);
+        allocator.free(sec, 1).unwrap();
         assert_eq!(allocator.remove_block(3), Some(pfn(0)));
     }
 
@@ -961,7 +1026,7 @@ mod tests {
 
         let first = allocator.alloc(2).unwrap();
 
-        allocator.free(first, 2);
+        allocator.free(first, 2).unwrap();
 
         let second = allocator.alloc(2).unwrap();
 
@@ -979,10 +1044,10 @@ mod tests {
         let c = allocator.alloc(0).unwrap();
         let d = allocator.alloc(0).unwrap();
 
-        allocator.free(a, 0);
-        allocator.free(b, 0);
-        allocator.free(c, 0);
-        allocator.free(d, 0);
+        allocator.free(a, 0).unwrap();
+        allocator.free(b, 0).unwrap();
+        allocator.free(c, 0).unwrap();
+        allocator.free(d, 0).unwrap();
 
         // All four pages should eventually form an order-3 block.
         assert_eq!(allocator.remove_block(3), Some(pfn(0)));

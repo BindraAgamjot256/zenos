@@ -30,6 +30,4 @@ fn main() {
     // Rerun if libc changes
     println!("cargo:rerun-if-changed=../libc/build/crt0.o");
     println!("cargo:rerun-if-changed=../libc/build/libc.a");
-    let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0); // requires chrono
-    println!("cargo:rustc-env=BUILD_TIMESTAMP={}", ts);
 }

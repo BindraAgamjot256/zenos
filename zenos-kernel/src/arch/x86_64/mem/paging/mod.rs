@@ -26,8 +26,8 @@ pub use table::PageTable;
 
 use crate::arch::{PhysAddr, VirtAddr};
 
-use core::{arch::asm};
 use super::PHYS_OFFSET;
+use core::arch::asm;
 use log::info;
 use page::PageSize;
 
@@ -345,7 +345,6 @@ impl<'a> OffsetPageTable<'a> {
         Ok(MapperFlush::new(page))
     }
 }
-
 
 #[inline(always)]
 pub fn init(phys_offset: usize) {

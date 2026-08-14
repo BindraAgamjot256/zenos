@@ -19,7 +19,7 @@ pub mod registers;
 pub mod serial;
 
 pub use addr::{PhysAddr, VirtAddr};
-pub use mem::{frame_allocator::memmap_addr, get_phys_offset, PAGE_SIZE};
+pub use mem::{PAGE_SIZE, frame_allocator::memmap_addr, get_phys_offset};
 
 pub fn init(boot_info: &'static mut crate::BootInfo) {
     log::info!("Initializing architecture-specific components...");

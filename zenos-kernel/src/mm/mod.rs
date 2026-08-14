@@ -1,8 +1,10 @@
 pub use crate::mm::buddy::BUDDY_ALLOCATOR;
-use kmm::buddy::MAX_ORDER;
 use bitflags::bitflags;
 use core::{fmt::Debug, ptr::NonNull, sync::atomic::AtomicU32};
+use kmm::buddy::MAX_ORDER;
+use kmm::slab::Metadata as SlabMeta;
 
+mod alloc;
 mod buddy;
 
 bitflags! {
@@ -97,12 +99,22 @@ impl Page {
         self.flags.remove(PageFlags::FREE);
         self.clear_buddy_state();
     }
+
+    pub fn mark_slab(&mut self, meta: kmm::slab::Metadata) {
+        self.flags.insert(PageFlags::SLAB);
+        self.meta.slab = meta;
+    }
+
+    pub fn is_slab(&self) -> bool {
+        self.flags.contains(PageFlags::SLAB)
+    }
 }
 
 #[repr(C)]
 pub union PageMeta {
     pub buddy: BuddyMeta,
     pub null: NullMeta,
+    pub slab: SlabMeta,
 }
 
 #[repr(C)]
