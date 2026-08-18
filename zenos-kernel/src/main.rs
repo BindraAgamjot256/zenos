@@ -14,7 +14,6 @@ mod arch;
 mod log;
 mod mm;
 
-use crate::log::info;
 use alloc::vec::Vec;
 use bootloader_api::{config::*, *};
 
@@ -74,10 +73,12 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         BUDDY_ALLOCATOR.free(frame).unwrap();
     }
     let mut vec = Vec::new();
-    for i in 0..10 {
+    for i in 0..10u8 {
         vec.push(i);
+        log::info!("pushed: {}", i)
     }
-    info!("created vec: {:?}", vec);
+    log::info!("created vec: {:?}", vec);
+    drop(vec);
     loop {}
 }
 

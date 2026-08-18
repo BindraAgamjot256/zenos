@@ -9,31 +9,29 @@ use bootloader_boot_config::BootConfig;
 use bootloader_x86_64_common::{
     legacy_memory_region::LegacyFrameAllocator, Kernel, RawFrameBufferInfo, SystemInfo,
 };
-use core::{
-    cell::UnsafeCell,
-    ops::{Deref, DerefMut},
-    ptr, slice,
-};
+use core::panic;
+use core::{ops::DerefMut, ptr, slice};
+use uefi::boot;
+use uefi::boot::allocate_pages;
+use uefi::boot::exit_boot_services;
+use uefi::boot::AllocateType;
+use uefi::boot::ScopedProtocol;
+use uefi::entry;
+use uefi::mem::memory_map::MemoryMap;
+use uefi::mem::memory_map::MemoryMapMut;
+use uefi::mem::memory_map::MemoryType;
+use uefi::table::cfg::ConfigTableEntry;
+use uefi::Status;
 use uefi::{
-    prelude::{entry, Boot, Handle, Status, SystemTable},
     proto::{
         console::gop::{GraphicsOutput, PixelFormat},
-        device_path::DevicePath,
-        loaded_image::LoadedImage,
         media::{
             file::{File, FileAttribute, FileInfo, FileMode},
             fs::SimpleFileSystem,
         },
-        network::{
-            pxe::{BaseCode, DhcpV4Packet},
-            IpAddress,
-        },
         ProtocolPointer,
     },
-    table::boot::{
-        AllocateType, MemoryType, OpenProtocolAttributes, OpenProtocolParams, ScopedProtocol,
-    },
-    CStr16, CStr8,
+    CStr16,
 };
 use x86_64::{
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
@@ -42,57 +40,29 @@ use x86_64::{
 
 mod memory_descriptor;
 
-static SYSTEM_TABLE: RacyCell<Option<SystemTable<Boot>>> = RacyCell::new(None);
-
-struct RacyCell<T>(UnsafeCell<T>);
-
-impl<T> RacyCell<T> {
-    const fn new(v: T) -> Self {
-        Self(UnsafeCell::new(v))
-    }
-}
-
-unsafe impl<T> Sync for RacyCell<T> {}
-
-impl<T> Deref for RacyCell<T> {
-    type Target = UnsafeCell<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 #[entry]
-fn efi_main(image: Handle, st: SystemTable<Boot>) -> Status {
-    main_inner(image, st)
+fn main() -> Status {
+    uefi::helpers::init().unwrap();
+    main_inner()
 }
 
-fn main_inner(image: Handle, mut st: SystemTable<Boot>) -> Status {
+fn main_inner() -> Status {
     // temporarily clone the y table for printing panics
-    unsafe {
-        *SYSTEM_TABLE.get() = Some(st.unsafe_clone());
-    }
 
-    let mut boot_mode = BootMode::Disk;
-
-    let mut kernel = load_kernel(image, &mut st, boot_mode);
+    let kernel = load_kernel();
     if kernel.is_none() {
-        // Try TFTP boot
-        boot_mode = BootMode::Tftp;
-        kernel = load_kernel(image, &mut st, boot_mode);
+        panic!("We only support disk boot now.")
     }
     let kernel = kernel.expect("Failed to load kernel");
 
-    let config = load_config(image, &mut st, boot_mode).unwrap_or_default();
+    let config = load_config().unwrap_or_default();
 
-    let framebuffer = init_logger(image, &st, &config);
+    let framebuffer = init_logger(&config);
 
     // Load and render splash screen if configured
     if let Some(framebuffer) = framebuffer {
         if let Some(splash_path) = config.splash_path {
-            if let Some(splash_data) =
-                load_file_from_boot_method(image, &mut st, splash_path, boot_mode)
-            {
+            if let Some(splash_data) = load_file_from_boot_method(splash_path) {
                 unsafe {
                     bootloader_x86_64_common::bmp::draw_bmp(splash_data, &framebuffer);
                 }
@@ -107,14 +77,11 @@ fn main_inner(image: Handle, mut st: SystemTable<Boot>) -> Status {
             unsafe {
                 bootloader_x86_64_common::bmp::draw_bmp(&[], &framebuffer);
             }
+            panic!("Failed to load splash");
         }
     }
 
     log::info!("Boot config: {:?}", config);
-
-    unsafe {
-        *SYSTEM_TABLE.get() = None;
-    }
 
     log::info!("UEFI bootloader started");
 
@@ -122,9 +89,9 @@ fn main_inner(image: Handle, mut st: SystemTable<Boot>) -> Status {
         log::info!("Using framebuffer at {:#x}", framebuffer.addr);
     }
 
-    log::info!("Trying to load ramdisk via {:#?}", boot_mode);
+    log::info!("Trying to load ramdisk");
     // Ramdisk must load from same source, or not at all.
-    let ramdisk = load_ramdisk(image, &mut st, boot_mode);
+    let ramdisk = load_ramdisk();
 
     log::info!(
         "{}",
@@ -135,7 +102,7 @@ fn main_inner(image: Handle, mut st: SystemTable<Boot>) -> Status {
     );
 
     log::trace!("exiting boot services");
-    let (system_table, mut memory_map) = st.exit_boot_services();
+    let mut memory_map = unsafe { exit_boot_services(None) };
 
     memory_map.sort();
 
@@ -153,27 +120,7 @@ fn main_inner(image: Handle, mut st: SystemTable<Boot>) -> Status {
     };
     let system_info = SystemInfo {
         framebuffer,
-        rsdp_addr: {
-            use uefi::table::cfg;
-            let config_entries = system_table.config_table();
-
-            log::info!("UEFI Config Table has {} entries", config_entries.len());
-            for entry in config_entries.iter() {
-                log::info!("  GUID: {:?}, Address: {:p}", entry.guid, entry.address);
-            }
-
-            // look for an ACPI2 RSDP first
-            let acpi2_rsdp = config_entries
-                .iter()
-                .find(|entry| matches!(entry.guid, cfg::ACPI2_GUID));
-            // if no ACPI2 RSDP is found, look for a ACPI1 RSDP
-            let rsdp = acpi2_rsdp.or_else(|| {
-                config_entries
-                    .iter()
-                    .find(|entry| matches!(entry.guid, cfg::ACPI_GUID))
-            });
-            rsdp.map(|entry| PhysAddr::new(entry.address as u64))
-        },
+        rsdp_addr: { Some(PhysAddr::new(get_rsdp_addr())) },
         ramdisk_addr,
         ramdisk_len,
     };
@@ -194,127 +141,32 @@ pub enum BootMode {
     Tftp,
 }
 
-fn load_ramdisk(
-    image: Handle,
-    st: &mut SystemTable<Boot>,
-    boot_mode: BootMode,
-) -> Option<&'static mut [u8]> {
-    load_file_from_boot_method(image, st, "initrd\0", boot_mode)
+fn load_ramdisk() -> Option<&'static mut [u8]> {
+    load_file_from_boot_method("initrd\0")
 }
 
-fn load_kernel(
-    image: Handle,
-    st: &mut SystemTable<Boot>,
-    boot_mode: BootMode,
-) -> Option<Kernel<'static>> {
-    let kernel_slice = load_file_from_boot_method(image, st, "zenos_kernel\0", boot_mode)?;
+fn load_kernel() -> Option<Kernel<'static>> {
+    let kernel_slice = load_file_from_boot_method("zenos_kernel\0")?;
     Some(Kernel::parse(kernel_slice))
 }
 
-fn load_config(
-    image: Handle,
-    st: &mut SystemTable<Boot>,
-    boot_mode: BootMode,
-) -> Option<BootConfig<'static>> {
-    let config_slice = load_file_from_boot_method(image, st, "boot_config\0", boot_mode)?;
+fn load_config() -> Option<BootConfig<'static>> {
+    let config_slice = load_file_from_boot_method("boot_config\0")?;
     let config_str = core::str::from_utf8(config_slice).ok()?;
     Some(BootConfig::from_str(config_str))
 }
 
-fn load_file_from_boot_method(
-    image: Handle,
-    st: &mut SystemTable<Boot>,
-    filename: &str,
-    boot_mode: BootMode,
-) -> Option<&'static mut [u8]> {
-    match boot_mode {
-        BootMode::Disk => load_file_from_disk(filename, image, st),
-        BootMode::Tftp => load_file_from_tftp_boot_server(filename, image, st),
-    }
+fn load_file_from_boot_method(filename: &str) -> Option<&'static mut [u8]> {
+    load_file_from_disk(filename)
 }
 
-fn open_device_path_protocol(
-    image: Handle,
-    st: &SystemTable<Boot>,
-) -> Option<ScopedProtocol<DevicePath>> {
-    let this = st.boot_services();
-    let loaded_image = unsafe {
-        this.open_protocol::<LoadedImage>(
-            OpenProtocolParams {
-                handle: image,
-                agent: image,
-                controller: None,
-            },
-            OpenProtocolAttributes::Exclusive,
-        )
-    };
-
-    if loaded_image.is_err() {
-        log::error!("Failed to open protocol LoadedImage");
-        return None;
-    }
-    let loaded_image = loaded_image.unwrap();
-    let loaded_image = loaded_image.deref();
-
-    let device_handle = loaded_image.device();
-
-    let device_path = unsafe {
-        this.open_protocol::<DevicePath>(
-            OpenProtocolParams {
-                handle: device_handle,
-                agent: image,
-                controller: None,
-            },
-            OpenProtocolAttributes::Exclusive,
-        )
-    };
-    if device_path.is_err() {
-        log::error!("Failed to open protocol DevicePath");
-        return None;
-    }
-    Some(device_path.unwrap())
+fn locate_and_open_protocol<P: ProtocolPointer>() -> Option<ScopedProtocol<P>> {
+    let handle = boot::get_handle_for_protocol::<P>().ok()?;
+    boot::open_protocol_exclusive::<P>(handle).ok()
 }
 
-fn locate_and_open_protocol<P: ProtocolPointer>(
-    image: Handle,
-    st: &SystemTable<Boot>,
-) -> Option<ScopedProtocol<P>> {
-    let this = st.boot_services();
-    let device_path = open_device_path_protocol(image, st)?;
-    let mut device_path = device_path.deref();
-
-    let fs_handle = this.locate_device_path::<P>(&mut device_path);
-    if fs_handle.is_err() {
-        log::error!("Failed to open device path");
-        return None;
-    }
-
-    let fs_handle = fs_handle.unwrap();
-
-    let opened_handle = unsafe {
-        this.open_protocol::<P>(
-            OpenProtocolParams {
-                handle: fs_handle,
-                agent: image,
-                controller: None,
-            },
-            OpenProtocolAttributes::Exclusive,
-        )
-    };
-
-    if opened_handle.is_err() {
-        log::error!("Failed to open protocol {}", core::any::type_name::<P>());
-        return None;
-    }
-    Some(opened_handle.unwrap())
-}
-
-fn load_file_from_disk(
-    name: &str,
-    image: Handle,
-    st: &SystemTable<Boot>,
-) -> Option<&'static mut [u8]> {
-    let mut file_system_raw = locate_and_open_protocol::<SimpleFileSystem>(image, st)?;
+fn load_file_from_disk(name: &str) -> Option<&'static mut [u8]> {
+    let mut file_system_raw = locate_and_open_protocol::<SimpleFileSystem>()?;
     let file_system = file_system_raw.deref_mut();
 
     let mut root = file_system.open_volume().unwrap();
@@ -336,60 +188,18 @@ fn load_file_from_disk(
     let file_info: &mut FileInfo = file.get_info(&mut buf).unwrap();
     let file_size = usize::try_from(file_info.file_size()).unwrap();
 
-    let file_ptr = st
-        .boot_services()
-        .allocate_pages(
-            AllocateType::AnyPages,
-            MemoryType::LOADER_DATA,
-            ((file_size - 1) / 4096) + 1,
-        )
-        .unwrap() as *mut u8;
+    let file_ptr = allocate_pages(
+        AllocateType::AnyPages,
+        MemoryType::LOADER_DATA,
+        ((file_size - 1) / 4096) + 1,
+    )
+    .unwrap()
+    .as_ptr();
     unsafe { ptr::write_bytes(file_ptr, 0, file_size) };
     let file_slice = unsafe { slice::from_raw_parts_mut(file_ptr, file_size) };
     file.read(file_slice).unwrap();
 
     Some(file_slice)
-}
-
-/// Try to load a kernel from a TFTP boot server.
-fn load_file_from_tftp_boot_server(
-    name: &str,
-    image: Handle,
-    st: &SystemTable<Boot>,
-) -> Option<&'static mut [u8]> {
-    let mut base_code_raw = locate_and_open_protocol::<BaseCode>(image, st)?;
-    let base_code = base_code_raw.deref_mut();
-
-    // Find the TFTP boot server.
-    let mode = base_code.mode();
-    assert!(mode.dhcp_ack_received);
-    let dhcpv4: &DhcpV4Packet = mode.dhcp_ack.as_ref();
-    let server_ip = IpAddress::new_v4(dhcpv4.bootp_si_addr);
-    assert!(name.len() < 256);
-
-    let filename = CStr8::from_bytes_with_nul(name.as_bytes()).unwrap();
-
-    // Determine the kernel file size.
-    let file_size = base_code.tftp_get_file_size(&server_ip, filename).ok()?;
-    let kernel_size = usize::try_from(file_size).expect("The file size should fit into usize");
-
-    // Allocate some memory for the kernel file.
-    let ptr = st
-        .boot_services()
-        .allocate_pages(
-            AllocateType::AnyPages,
-            MemoryType::LOADER_DATA,
-            ((kernel_size - 1) / 4096) + 1,
-        )
-        .expect("Failed to allocate memory for the file") as *mut u8;
-    let slice = unsafe { slice::from_raw_parts_mut(ptr, kernel_size) };
-
-    // Load the kernel file.
-    base_code
-        .tftp_read_file(&server_ip, filename, Some(slice))
-        .expect("Failed to read kernel file from the TFTP boot server");
-
-    Some(slice)
 }
 
 /// Creates page table abstraction types for both the bootloader and kernel page tables.
@@ -472,29 +282,13 @@ fn create_page_tables(
     }
 }
 
-fn init_logger(
-    image_handle: Handle,
-    st: &SystemTable<Boot>,
-    config: &BootConfig,
-) -> Option<RawFrameBufferInfo> {
+fn init_logger(config: &BootConfig<'_>) -> Option<RawFrameBufferInfo> {
     bootloader_x86_64_common::init_logger(log::LevelFilter::Trace, true);
 
-    let gop_handle = st
-        .boot_services()
-        .get_handle_for_protocol::<GraphicsOutput>()
-        .ok()?;
-    let mut gop = unsafe {
-        st.boot_services()
-            .open_protocol::<GraphicsOutput>(
-                OpenProtocolParams {
-                    handle: gop_handle,
-                    agent: image_handle,
-                    controller: None,
-                },
-                OpenProtocolAttributes::Exclusive,
-            )
-            .ok()?
-    };
+    let mut gop = boot::get_handle_for_protocol::<GraphicsOutput>()
+        .ok()
+        .and_then(|h| boot::open_protocol_exclusive::<GraphicsOutput>(h).ok())
+        .unwrap();
 
     let mode = {
         let modes = gop.modes();
@@ -545,16 +339,35 @@ fn init_logger(
     })
 }
 
+fn get_rsdp_addr() -> u64 {
+    let st = unsafe { uefi::table::system_table_raw().unwrap().as_ref() };
+
+    let tables = st.configuration_table;
+    let count = st.number_of_configuration_table_entries as usize;
+
+    for i in 0..count {
+        let table = unsafe { tables.add(i).as_ref().unwrap() };
+
+        if table.vendor_guid == ConfigTableEntry::ACPI2_GUID {
+            return table.vendor_table as u64;
+        }
+    }
+
+    for i in 0..count {
+        let table = unsafe { tables.add(i).as_ref().unwrap() };
+
+        if table.vendor_guid == ConfigTableEntry::ACPI_GUID {
+            return table.vendor_table as u64;
+        }
+    }
+
+    panic!("RSDP not found");
+}
+
 #[cfg(target_os = "uefi")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     use core::arch::asm;
-    use core::fmt::Write;
-
-    if let Some(st) = unsafe { &mut *SYSTEM_TABLE.get() } {
-        let _ = st.stdout().clear();
-        let _ = writeln!(st.stdout(), "{}", info);
-    }
 
     unsafe {
         bootloader_x86_64_common::logger::LOGGER

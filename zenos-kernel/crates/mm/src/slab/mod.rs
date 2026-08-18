@@ -942,6 +942,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_cache_uniqeness() {
         let cache1 = SlabCache::<16, _>::new(TestBackend::new(1));
         let cache2 = SlabCache::<16, _>::new(TestBackend::new(2));

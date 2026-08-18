@@ -1,0 +1,13 @@
+[toolchain]
+channel = "nightly-2026-08-16"
+components = [
+    "rustfmt",
+    "clippy",
+    "rust-src",
+    "llvm-tools-preview"
+]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-unknown-none",
+    "x86_64-unknown-uefi"
+]

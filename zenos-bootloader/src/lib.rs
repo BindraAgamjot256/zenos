@@ -77,7 +77,11 @@ impl DiskImageBuilder {
     /// Add or replace a ramdisk to be included in the final image.
     pub fn set_ramdisk(&mut self, path: PathBuf) -> &mut Self {
         self.boot_files
-            .insert(RAMDISK_FILE_NAME.into(), FileDataSource::File(path));
+            .insert(RAMDISK_FILE_NAME.into(), FileDataSource::File(path.clone()));
+        if !self.data_files.contains_key(RAMDISK_FILE_NAME.into()) {
+            self.data_files
+                .insert(RAMDISK_FILE_NAME.into(), FileDataSource::File(path));
+        }
         self
     }
 

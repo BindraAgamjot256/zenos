@@ -534,19 +534,25 @@ where
             unsafe { &mut *boot_info_addr.as_mut_ptr() };
         let memory_regions: &'static mut [MaybeUninit<MemoryRegion>] =
             unsafe { slice::from_raw_parts_mut(memory_map_regions_addr.as_mut_ptr(), regions) };
-        let command_line: Option<MaybeUninit<&'static str>> =
-            if let Some(_) = boot_config.command_line {
-                unsafe {
-                    Some(MaybeUninit::new(str::from_utf8_unchecked(
-                        slice::from_raw_parts(
-                            command_line_addr.as_ptr(),
-                            command_line_end.as_u64() as usize,
-                        ),
-                    )))
-                }
-            } else {
-                None
-            };
+        let command_line: Option<MaybeUninit<&'static str>> = if let Some(_) =
+            boot_config.command_line
+        {
+            unsafe {
+                log::info!(
+                    "command_line: {:?} - {:?}",
+                    command_line_addr,
+                    command_line_end
+                );
+                Some(MaybeUninit::new(str::from_utf8_unchecked(
+                    slice::from_raw_parts(
+                        command_line_addr.as_ptr(),
+                        (command_line_end.as_u64() as usize) - command_line_addr.as_u64() as usize,
+                    ),
+                )))
+            }
+        } else {
+            None
+        };
         (boot_info, memory_regions, command_line)
     };
 

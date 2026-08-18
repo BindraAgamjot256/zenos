@@ -144,6 +144,7 @@ impl Mapping {
     #[allow(dead_code)]
     pub fn as_slice(&self) -> &[u8] {
         let range = self.to_range();
+
         unsafe {
             core::slice::from_raw_parts(
                 (range.start + crate::arch::get_phys_offset()) as *const u8,
@@ -154,6 +155,7 @@ impl Mapping {
 
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         let range = self.to_range();
+
         unsafe {
             core::slice::from_raw_parts_mut(
                 (range.start + crate::arch::get_phys_offset()) as *mut u8,
@@ -163,22 +165,41 @@ impl Mapping {
     }
 
     pub fn as_slice_pages(&self) -> &[Page] {
-        let range = self.to_range();
-        let page_count = range.len() / PAGE_SIZE;
-        unsafe { core::slice::from_raw_parts(crate::arch::memmap_addr(), page_count) }
+        let page_count = 1usize << self.order;
+
+        unsafe {
+            // 1. Get the base address as a pointer to Page structs rather than u8
+            let base_ptr = crate::arch::memmap_addr::<Page>() as usize;
+            let cptr = base_ptr.checked_add(self.start * size_of::<Page>());
+            assert!(
+                cptr.is_some(),
+                "{base_ptr:#x} + {:#x} * {:#x}",
+                self.start,
+                size_of::<Page>()
+            );
+            core::slice::from_raw_parts(cptr.unwrap() as *const Page, page_count)
+        }
     }
 
     pub fn as_mut_slice_pages(&mut self) -> &mut [Page] {
-        let range = self.to_range();
-        let page_count = range.len() / PAGE_SIZE;
-        unsafe { core::slice::from_raw_parts_mut(crate::arch::memmap_addr(), page_count) }
+        let page_count = 1usize << self.order;
+
+        unsafe {
+            let base_ptr = crate::arch::memmap_addr::<Page>() as usize;
+            let cptr = base_ptr.checked_add(self.start * size_of::<Page>());
+            assert!(
+                cptr.is_some(),
+                "{base_ptr:#x} + {:#x} * {:#x}",
+                self.start,
+                size_of::<Page>()
+            );
+            core::slice::from_raw_parts_mut(cptr.unwrap() as *mut Page, page_count)
+        }
     }
 
     pub fn new(ptr: usize, order: usize) -> Self {
-        Self {
-            start: ptr >> PAGE_SIZE.ilog2(),
-            order,
-        }
+        let start = (ptr - crate::arch::get_phys_offset()) >> PAGE_SIZE.ilog2();
+        Self { start, order }
     }
 }
 

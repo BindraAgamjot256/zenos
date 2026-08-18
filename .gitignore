@@ -163,3 +163,4 @@ iso/**/bin/**/*
 .bochsrc
 *.out
 .ovmf/**/*
+bootloader_build/
