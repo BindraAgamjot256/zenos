@@ -1,541 +1,368 @@
-/**
- * test_math.c - Unit tests for math.c functions
- *
- * Tests mathematical functions with tolerance for floating point comparison.
- */
-
-#include <stdio.h>
+#include <criterion/criterion.h>
 #include <math.h>
-#include <assert.h>
-
-/* Declare our implementations with zenos_ prefix */
-double zenos_fabs(double x);
-float zenos_fabsf(float x);
-double zenos_floor(double x);
-float zenos_floorf(float x);
-double zenos_ceil(double x);
-float zenos_ceilf(float x);
-double zenos_trunc(double x);
-float zenos_truncf(float x);
-double zenos_round(double x);
-float zenos_roundf(float x);
-double zenos_fmod(double x, double y);
-float zenos_fmodf(float x, float y);
-double zenos_fmin(double x, double y);
-float zenos_fminf(float x, float y);
-double zenos_fmax(double x, double y);
-float zenos_fmaxf(float x, float y);
-double zenos_sqrt(double x);
-float zenos_sqrtf(float x);
-double zenos_cbrt(double x);
-float zenos_cbrtf(float x);
-double zenos_hypot(double x, double y);
-float zenos_hypotf(float x, float y);
-double zenos_exp(double x);
-float zenos_expf(float x);
-double zenos_log(double x);
-float zenos_logf(float x);
-double zenos_log10(double x);
-float zenos_log10f(float x);
-double zenos_pow(double base, double exp_val);
-float zenos_powf(float base, float exp_val);
-double zenos_sin(double x);
-float zenos_sinf(float x);
-double zenos_cos(double x);
-float zenos_cosf(float x);
-double zenos_tan(double x);
-float zenos_tanf(float x);
-double zenos_copysign(double x, double y);
-float zenos_copysignf(float x, float y);
-double zenos_fdim(double x, double y);
-float zenos_fdimf(float x, float y);
-double zenos_atan(double x);
-double zenos_atan2(double y, double x);
-double zenos_asin(double x);
-double zenos_acos(double x);
-double zenos_sinh(double x);
-double zenos_cosh(double x);
-double zenos_tanh(double x);
-
-static int tests_run = 0;
-static int tests_passed = 0;
-
-#define TEST(name) static void test_##name(void)
-#define RUN_TEST(name) do { \
-    printf("  %-40s ", #name); \
-    tests_run++; \
-    test_##name(); \
-    tests_passed++; \
-    printf("\x1b[32mPASSED\x1b[0m\n"); \
-} while(0)
-
-#define EPSILON 1e-9
-#define EPSILON_LOW 1e-6
-#define EPSILON_TRIG 1e-2  /* Wider tolerance for Taylor-based trig inverses */
-
-static int approx_eq(double a, double b, double eps) {
-    if (isinf(a) && isinf(b)) return (a > 0) == (b > 0);
-    if (isnan(a) && isnan(b)) return 1;
-    return fabs(a - b) < eps;
-}
-
-static int approx_eqf(float a, float b, float eps) {
-    if (isinf(a) && isinf(b)) return (a > 0) == (b > 0);
-    if (isnan(a) && isnan(b)) return 1;
-    return fabsf(a - b) < eps;
-}
-
-/* fabs tests */
-TEST(fabs_positive) {
-    assert(approx_eq(zenos_fabs(3.14), 3.14, EPSILON));
-}
-
-TEST(fabs_negative) {
-    assert(approx_eq(zenos_fabs(-3.14), 3.14, EPSILON));
-}
-
-TEST(fabs_zero) {
-    assert(approx_eq(zenos_fabs(0.0), 0.0, EPSILON));
-}
-
-TEST(fabsf_positive) {
-    assert(approx_eqf(zenos_fabsf(2.5f), 2.5f, (float)EPSILON));
-}
-
-TEST(fabsf_negative) {
-    assert(approx_eqf(zenos_fabsf(-2.5f), 2.5f, (float)EPSILON));
-}
-
-/* floor tests */
-TEST(floor_positive) {
-    assert(approx_eq(zenos_floor(3.7), 3.0, EPSILON));
-}
-
-TEST(floor_negative) {
-    assert(approx_eq(zenos_floor(-3.7), -4.0, EPSILON));
-}
-
-TEST(floor_integer) {
-    assert(approx_eq(zenos_floor(5.0), 5.0, EPSILON));
-}
-
-TEST(floorf_positive) {
-    assert(approx_eqf(zenos_floorf(3.7f), 3.0f, (float)EPSILON));
-}
-
-/* ceil tests */
-TEST(ceil_positive) {
-    assert(approx_eq(zenos_ceil(3.2), 4.0, EPSILON));
-}
-
-TEST(ceil_negative) {
-    assert(approx_eq(zenos_ceil(-3.2), -3.0, EPSILON));
-}
-
-TEST(ceil_integer) {
-    assert(approx_eq(zenos_ceil(5.0), 5.0, EPSILON));
-}
-
-/* trunc tests */
-TEST(trunc_positive) {
-    assert(approx_eq(zenos_trunc(3.9), 3.0, EPSILON));
-}
-
-TEST(trunc_negative) {
-    assert(approx_eq(zenos_trunc(-3.9), -3.0, EPSILON));
-}
-
-/* round tests */
-TEST(round_up) {
-    assert(approx_eq(zenos_round(3.6), 4.0, EPSILON));
-}
-
-TEST(round_down) {
-    assert(approx_eq(zenos_round(3.4), 3.0, EPSILON));
-}
-
-TEST(round_half) {
-    assert(approx_eq(zenos_round(3.5), 4.0, EPSILON));
-}
-
-TEST(round_negative) {
-    assert(approx_eq(zenos_round(-3.5), -4.0, EPSILON));
-}
-
-/* fmod tests */
-TEST(fmod_positive) {
-    assert(approx_eq(zenos_fmod(5.3, 2.0), fmod(5.3, 2.0), EPSILON_LOW));
-}
-
-TEST(fmod_negative) {
-    assert(approx_eq(zenos_fmod(-5.3, 2.0), fmod(-5.3, 2.0), EPSILON_LOW));
-}
-
-/* fmin/fmax tests */
-TEST(fmin_first_smaller) {
-    assert(approx_eq(zenos_fmin(1.0, 2.0), 1.0, EPSILON));
-}
-
-TEST(fmin_second_smaller) {
-    assert(approx_eq(zenos_fmin(3.0, 2.0), 2.0, EPSILON));
-}
-
-TEST(fmax_first_larger) {
-    assert(approx_eq(zenos_fmax(3.0, 2.0), 3.0, EPSILON));
-}
-
-TEST(fmax_second_larger) {
-    assert(approx_eq(zenos_fmax(1.0, 2.0), 2.0, EPSILON));
-}
-
-/* sqrt tests */
-TEST(sqrt_perfect) {
-    assert(approx_eq(zenos_sqrt(4.0), 2.0, EPSILON_LOW));
-}
-
-TEST(sqrt_imperfect) {
-    assert(approx_eq(zenos_sqrt(2.0), sqrt(2.0), EPSILON_LOW));
-}
-
-TEST(sqrt_zero) {
-    assert(approx_eq(zenos_sqrt(0.0), 0.0, EPSILON));
-}
-
-TEST(sqrt_one) {
-    assert(approx_eq(zenos_sqrt(1.0), 1.0, EPSILON_LOW));
-}
-
-TEST(sqrt_large) {
-    assert(approx_eq(zenos_sqrt(10000.0), 100.0, EPSILON_LOW));
-}
-
-/* cbrt tests */
-TEST(cbrt_positive) {
-    assert(approx_eq(zenos_cbrt(8.0), 2.0, EPSILON_LOW));
-}
-
-TEST(cbrt_negative) {
-    assert(approx_eq(zenos_cbrt(-8.0), -2.0, EPSILON_LOW));
-}
-
-/* hypot tests */
-TEST(hypot_345) {
-    assert(approx_eq(zenos_hypot(3.0, 4.0), 5.0, EPSILON_LOW));
-}
-
-/* exp tests */
-TEST(exp_zero) {
-    assert(approx_eq(zenos_exp(0.0), 1.0, EPSILON_LOW));
-}
-
-TEST(exp_one) {
-    assert(approx_eq(zenos_exp(1.0), exp(1.0), EPSILON_LOW));
-}
-
-TEST(exp_negative) {
-    assert(approx_eq(zenos_exp(-1.0), exp(-1.0), EPSILON_LOW));
-}
-
-/* log tests */
-TEST(log_one) {
-    assert(approx_eq(zenos_log(1.0), 0.0, EPSILON_LOW));
-}
-
-TEST(log_e) {
-    assert(approx_eq(zenos_log(exp(1.0)), 1.0, EPSILON_LOW));
-}
-
-TEST(log_ten) {
-    assert(approx_eq(zenos_log(10.0), log(10.0), EPSILON_LOW));
-}
-
-/* log10 tests */
-TEST(log10_ten) {
-    assert(approx_eq(zenos_log10(10.0), 1.0, EPSILON_LOW));
-}
-
-TEST(log10_hundred) {
-    assert(approx_eq(zenos_log10(100.0), 2.0, EPSILON_LOW));
-}
-
-/* pow tests */
-TEST(pow_square) {
-    assert(approx_eq(zenos_pow(2.0, 2.0), 4.0, EPSILON_LOW));
-}
-
-TEST(pow_cube) {
-    assert(approx_eq(zenos_pow(2.0, 3.0), 8.0, EPSILON_LOW));
-}
-
-TEST(pow_zero_exp) {
-    assert(approx_eq(zenos_pow(5.0, 0.0), 1.0, EPSILON));
-}
-
-TEST(pow_one_exp) {
-    assert(approx_eq(zenos_pow(5.0, 1.0), 5.0, EPSILON_LOW));
-}
-
-TEST(pow_negative_exp) {
-    assert(approx_eq(zenos_pow(2.0, -1.0), 0.5, EPSILON_LOW));
-}
-
-TEST(pow_fractional) {
-    assert(approx_eq(zenos_pow(4.0, 0.5), 2.0, EPSILON_LOW));
-}
-
-/* sin tests */
-TEST(sin_zero) {
-    assert(approx_eq(zenos_sin(0.0), 0.0, EPSILON_LOW));
-}
-
-TEST(sin_pi_half) {
-    assert(approx_eq(zenos_sin(M_PI / 2.0), 1.0, EPSILON_LOW));
-}
-
-TEST(sin_pi) {
-    assert(approx_eq(zenos_sin(M_PI), 0.0, EPSILON_LOW));
-}
-
-/* cos tests */
-TEST(cos_zero) {
-    assert(approx_eq(zenos_cos(0.0), 1.0, EPSILON_LOW));
-}
-
-TEST(cos_pi_half) {
-    assert(approx_eq(zenos_cos(M_PI / 2.0), 0.0, EPSILON_LOW));
-}
-
-TEST(cos_pi) {
-    assert(approx_eq(zenos_cos(M_PI), -1.0, EPSILON_LOW));
-}
-
-/* tan tests */
-TEST(tan_zero) {
-    assert(approx_eq(zenos_tan(0.0), 0.0, EPSILON_LOW));
-}
-
-TEST(tan_pi_4) {
-    assert(approx_eq(zenos_tan(M_PI / 4.0), 1.0, EPSILON_LOW));
-}
-
-/* copysign tests */
-TEST(copysign_pos_pos) {
-    assert(approx_eq(zenos_copysign(1.0, 2.0), 1.0, EPSILON));
-}
-
-TEST(copysign_pos_neg) {
-    assert(approx_eq(zenos_copysign(1.0, -2.0), -1.0, EPSILON));
-}
-
-TEST(copysign_neg_pos) {
-    assert(approx_eq(zenos_copysign(-1.0, 2.0), 1.0, EPSILON));
-}
-
-/* fdim tests */
-TEST(fdim_positive_diff) {
-    assert(approx_eq(zenos_fdim(5.0, 3.0), 2.0, EPSILON));
-}
-
-TEST(fdim_negative_diff) {
-    assert(approx_eq(zenos_fdim(3.0, 5.0), 0.0, EPSILON));
-}
-
-/* atan tests */
-TEST(atan_zero) {
-    assert(approx_eq(zenos_atan(0.0), 0.0, EPSILON_LOW));
-}
-
-TEST(atan_one) {
-    assert(approx_eq(zenos_atan(1.0), M_PI / 4.0, EPSILON_TRIG));
-}
-
-/* atan2 tests */
-TEST(atan2_quadrant1) {
-    assert(approx_eq(zenos_atan2(1.0, 1.0), M_PI / 4.0, EPSILON_TRIG));
-}
-
-TEST(atan2_quadrant2) {
-    assert(approx_eq(zenos_atan2(1.0, -1.0), 3.0 * M_PI / 4.0, EPSILON_TRIG));
-}
-
-/* asin tests */
-TEST(asin_zero) {
-    assert(approx_eq(zenos_asin(0.0), 0.0, EPSILON_LOW));
-}
-
-TEST(asin_one) {
-    assert(approx_eq(zenos_asin(1.0), M_PI / 2.0, EPSILON_TRIG));
-}
-
-/* acos tests */
-TEST(acos_one) {
-    assert(approx_eq(zenos_acos(1.0), 0.0, EPSILON_LOW));
-}
-
-TEST(acos_zero) {
-    assert(approx_eq(zenos_acos(0.0), M_PI / 2.0, EPSILON_TRIG));
-}
-
-/* sinh tests */
-TEST(sinh_zero) {
-    assert(approx_eq(zenos_sinh(0.0), 0.0, EPSILON_LOW));
-}
-
-TEST(sinh_one) {
-    assert(approx_eq(zenos_sinh(1.0), sinh(1.0), EPSILON_LOW));
-}
-
-/* cosh tests */
-TEST(cosh_zero) {
-    assert(approx_eq(zenos_cosh(0.0), 1.0, EPSILON_LOW));
-}
-
-TEST(cosh_one) {
-    assert(approx_eq(zenos_cosh(1.0), cosh(1.0), EPSILON_LOW));
-}
-
-/* tanh tests */
-TEST(tanh_zero) {
-    assert(approx_eq(zenos_tanh(0.0), 0.0, EPSILON_LOW));
-}
-
-TEST(tanh_large) {
-    assert(approx_eq(zenos_tanh(100.0), 1.0, EPSILON_LOW));
-}
-
-void run_math_tests(void) {
-    printf("\n=== Math Tests ===\n");
-
-    /* fabs */
-    RUN_TEST(fabs_positive);
-    RUN_TEST(fabs_negative);
-    RUN_TEST(fabs_zero);
-    RUN_TEST(fabsf_positive);
-    RUN_TEST(fabsf_negative);
-
-    /* floor */
-    RUN_TEST(floor_positive);
-    RUN_TEST(floor_negative);
-    RUN_TEST(floor_integer);
-    RUN_TEST(floorf_positive);
-
-    /* ceil */
-    RUN_TEST(ceil_positive);
-    RUN_TEST(ceil_negative);
-    RUN_TEST(ceil_integer);
-
-    /* trunc */
-    RUN_TEST(trunc_positive);
-    RUN_TEST(trunc_negative);
-
-    /* round */
-    RUN_TEST(round_up);
-    RUN_TEST(round_down);
-    RUN_TEST(round_half);
-    RUN_TEST(round_negative);
-
-    /* fmod */
-    RUN_TEST(fmod_positive);
-    RUN_TEST(fmod_negative);
-
-    /* fmin/fmax */
-    RUN_TEST(fmin_first_smaller);
-    RUN_TEST(fmin_second_smaller);
-    RUN_TEST(fmax_first_larger);
-    RUN_TEST(fmax_second_larger);
-
-    /* sqrt */
-    RUN_TEST(sqrt_perfect);
-    RUN_TEST(sqrt_imperfect);
-    RUN_TEST(sqrt_zero);
-    RUN_TEST(sqrt_one);
-    RUN_TEST(sqrt_large);
-
-    /* cbrt */
-    RUN_TEST(cbrt_positive);
-    RUN_TEST(cbrt_negative);
-
-    /* hypot */
-    RUN_TEST(hypot_345);
-
-    /* exp */
-    RUN_TEST(exp_zero);
-    RUN_TEST(exp_one);
-    RUN_TEST(exp_negative);
-
-    /* log */
-    RUN_TEST(log_one);
-    RUN_TEST(log_e);
-    RUN_TEST(log_ten);
-
-    /* log10 */
-    RUN_TEST(log10_ten);
-    RUN_TEST(log10_hundred);
-
-    /* pow */
-    RUN_TEST(pow_square);
-    RUN_TEST(pow_cube);
-    RUN_TEST(pow_zero_exp);
-    RUN_TEST(pow_one_exp);
-    RUN_TEST(pow_negative_exp);
-    RUN_TEST(pow_fractional);
-
-    /* sin */
-    RUN_TEST(sin_zero);
-    RUN_TEST(sin_pi_half);
-    RUN_TEST(sin_pi);
-
-    /* cos */
-    RUN_TEST(cos_zero);
-    RUN_TEST(cos_pi_half);
-    RUN_TEST(cos_pi);
-
-    /* tan */
-    RUN_TEST(tan_zero);
-    RUN_TEST(tan_pi_4);
-
-    /* copysign */
-    RUN_TEST(copysign_pos_pos);
-    RUN_TEST(copysign_pos_neg);
-    RUN_TEST(copysign_neg_pos);
-
-    /* fdim */
-    RUN_TEST(fdim_positive_diff);
-    RUN_TEST(fdim_negative_diff);
-
-    /* atan */
-    RUN_TEST(atan_zero);
-    RUN_TEST(atan_one);
-
-    /* atan2 */
-    RUN_TEST(atan2_quadrant1);
-    RUN_TEST(atan2_quadrant2);
-
-    /* asin */
-    RUN_TEST(asin_zero);
-    RUN_TEST(asin_one);
-
-    /* acos */
-    RUN_TEST(acos_one);
-    RUN_TEST(acos_zero);
-
-    /* sinh */
-    RUN_TEST(sinh_zero);
-    RUN_TEST(sinh_one);
-
-    /* cosh */
-    RUN_TEST(cosh_zero);
-    RUN_TEST(cosh_one);
-
-    /* tanh */
-    RUN_TEST(tanh_zero);
-    RUN_TEST(tanh_large);
-
-    printf("\nMath tests: %d/%d passed\n", tests_passed, tests_run);
-}
-
-int get_math_test_results(int *passed, int *total) {
-    *passed = tests_passed;
-    *total = tests_run;
-    return tests_passed == tests_run ? 0 : 1;
+#include <stddef.h>
+
+#define DECLARE_UNARY(name)                                                    \
+  double zenos_##name(double value);                                           \
+  float zenos_##name##f(float value)
+#define DECLARE_BINARY(name)                                                   \
+  double zenos_##name(double left, double right);                              \
+  float zenos_##name##f(float left, float right)
+
+DECLARE_UNARY(fabs);
+DECLARE_UNARY(floor);
+DECLARE_UNARY(ceil);
+DECLARE_UNARY(trunc);
+DECLARE_UNARY(round);
+DECLARE_UNARY(sqrt);
+DECLARE_UNARY(cbrt);
+DECLARE_UNARY(exp);
+DECLARE_UNARY(exp2);
+DECLARE_UNARY(expm1);
+DECLARE_UNARY(log);
+DECLARE_UNARY(log2);
+DECLARE_UNARY(log10);
+DECLARE_UNARY(log1p);
+DECLARE_UNARY(sin);
+DECLARE_UNARY(cos);
+DECLARE_UNARY(tan);
+DECLARE_UNARY(atan);
+DECLARE_UNARY(asin);
+DECLARE_UNARY(acos);
+DECLARE_UNARY(sinh);
+DECLARE_UNARY(cosh);
+DECLARE_UNARY(tanh);
+DECLARE_UNARY(asinh);
+DECLARE_UNARY(acosh);
+DECLARE_UNARY(atanh);
+DECLARE_UNARY(logb);
+
+DECLARE_BINARY(copysign);
+DECLARE_BINARY(fmod);
+DECLARE_BINARY(fmin);
+DECLARE_BINARY(fmax);
+DECLARE_BINARY(fdim);
+DECLARE_BINARY(hypot);
+DECLARE_BINARY(pow);
+DECLARE_BINARY(atan2);
+DECLARE_BINARY(nextafter);
+DECLARE_BINARY(remainder);
+
+double zenos_modf(double value, double *integer_part);
+float zenos_modff(float value, float *integer_part);
+double zenos_ldexp(double value, int exponent);
+float zenos_ldexpf(float value, int exponent);
+double zenos_frexp(double value, int *exponent);
+float zenos_frexpf(float value, int *exponent);
+double zenos_scalbn(double value, int exponent);
+float zenos_scalbnf(float value, int exponent);
+int zenos_ilogb(double value);
+int zenos_ilogbf(float value);
+double zenos_fma(double x, double y, double z);
+float zenos_fmaf(float x, float y, float z);
+
+#define ARRAY_LEN(array) (sizeof(array) / sizeof((array)[0]))
+#define DOUBLE_TOLERANCE 1e-8
+#define FLOAT_TOLERANCE 1e-5f
+#define INVERSE_TRIG_TOLERANCE 1e-2
+#define INVERSE_TRIG_FLOAT_TOLERANCE 1e-2f
+
+static void expect_double(const char *function, size_t case_index,
+                          double actual, double expected, double tolerance) {
+  if (isnan(expected)) {
+    cr_expect(isnan(actual), "%s case %zu: expected NaN, got %.17g", function,
+              case_index, actual);
+    return;
+  }
+  if (isinf(expected)) {
+    cr_expect(isinf(actual) && !!signbit(actual) == !!signbit(expected),
+              "%s case %zu: expected %.17g, got %.17g", function, case_index,
+              expected, actual);
+    return;
+  }
+  if (expected == 0.0 && actual == 0.0) {
+    cr_expect_eq(!!signbit(actual), !!signbit(expected),
+                 "%s case %zu: zero signs differed", function, case_index);
+    return;
+  }
+
+  double scale = fmax(1.0, fabs(expected));
+  cr_expect_leq(fabs(actual - expected), tolerance * scale,
+                "%s case %zu: expected %.17g, got %.17g", function, case_index,
+                expected, actual);
+}
+
+static void expect_float(const char *function, size_t case_index, float actual,
+                         float expected, float tolerance) {
+  if (isnan(expected)) {
+    cr_expect(isnan(actual), "%s case %zu: expected NaN, got %.9g", function,
+              case_index, (double)actual);
+    return;
+  }
+  if (isinf(expected)) {
+    cr_expect(isinf(actual) && !!signbit(actual) == !!signbit(expected),
+              "%s case %zu: expected %.9g, got %.9g", function, case_index,
+              (double)expected, (double)actual);
+    return;
+  }
+  if (expected == 0.0f && actual == 0.0f) {
+    cr_expect_eq(!!signbit(actual), !!signbit(expected),
+                 "%s case %zu: zero signs differed", function, case_index);
+    return;
+  }
+
+  float scale = fmaxf(1.0f, fabsf(expected));
+  cr_expect_leq(fabsf(actual - expected), tolerance * scale,
+                "%s case %zu: expected %.9g, got %.9g", function, case_index,
+                (double)expected, (double)actual);
+}
+
+#define DEFINE_UNARY_DOUBLE_TEST(name, tolerance, ...)                         \
+  Test(math, name##_matches_host) {                                            \
+    const double inputs[] = {__VA_ARGS__};                                     \
+    for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {                           \
+      expect_double(#name, i, zenos_##name(inputs[i]), name(inputs[i]),        \
+                    tolerance);                                                \
+    }                                                                          \
+  }
+
+#define DEFINE_UNARY_FLOAT_TEST(name, tolerance, ...)                          \
+  Test(math, name##f_matches_host) {                                           \
+    const float inputs[] = {__VA_ARGS__};                                      \
+    for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {                           \
+      expect_float(#name "f", i, zenos_##name##f(inputs[i]),                   \
+                   name##f(inputs[i]), tolerance);                             \
+    }                                                                          \
+  }
+
+#define DEFINE_BINARY_DOUBLE_TEST(name, tolerance, ...)                        \
+  Test(math, name##_matches_host) {                                            \
+    const struct {                                                             \
+      double left;                                                             \
+      double right;                                                            \
+    } inputs[] = {__VA_ARGS__};                                                \
+    for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {                           \
+      expect_double(#name, i, zenos_##name(inputs[i].left, inputs[i].right),   \
+                    name(inputs[i].left, inputs[i].right), tolerance);         \
+    }                                                                          \
+  }
+
+#define DEFINE_BINARY_FLOAT_TEST(name, tolerance, ...)                         \
+  Test(math, name##f_matches_host) {                                           \
+    const struct {                                                             \
+      float left;                                                              \
+      float right;                                                             \
+    } inputs[] = {__VA_ARGS__};                                                \
+    for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {                           \
+      expect_float(#name "f", i,                                               \
+                   zenos_##name##f(inputs[i].left, inputs[i].right),           \
+                   name##f(inputs[i].left, inputs[i].right), tolerance);       \
+    }                                                                          \
+  }
+
+DEFINE_UNARY_DOUBLE_TEST(fabs, 0.0, -3.14, -1.0, 0.0, 2.5);
+DEFINE_UNARY_FLOAT_TEST(fabs, 0.0f, -3.14f, -1.0f, 0.0f, 2.5f);
+DEFINE_UNARY_DOUBLE_TEST(floor, 0.0, -3.7, -1.0, 0.0, 3.7, 5.0);
+DEFINE_UNARY_FLOAT_TEST(floor, 0.0f, -3.7f, -1.0f, 0.0f, 3.7f, 5.0f);
+DEFINE_UNARY_DOUBLE_TEST(ceil, 0.0, -3.7, -1.0, 0.0, 3.7, 5.0);
+DEFINE_UNARY_FLOAT_TEST(ceil, 0.0f, -3.7f, -1.0f, 0.0f, 3.7f, 5.0f);
+DEFINE_UNARY_DOUBLE_TEST(trunc, 0.0, -3.9, -1.0, 0.0, 3.9, 5.0);
+DEFINE_UNARY_FLOAT_TEST(trunc, 0.0f, -3.9f, -1.0f, 0.0f, 3.9f, 5.0f);
+DEFINE_UNARY_DOUBLE_TEST(round, 0.0, -3.5, -3.4, 0.0, 3.4, 3.5);
+DEFINE_UNARY_FLOAT_TEST(round, 0.0f, -3.5f, -3.4f, 0.0f, 3.4f, 3.5f);
+DEFINE_UNARY_DOUBLE_TEST(sqrt, DOUBLE_TOLERANCE, 0.0, 1.0, 2.0, 10000.0);
+DEFINE_UNARY_FLOAT_TEST(sqrt, FLOAT_TOLERANCE, 0.0f, 1.0f, 2.0f, 10000.0f);
+DEFINE_UNARY_DOUBLE_TEST(cbrt, DOUBLE_TOLERANCE, -27.0, -8.0, 0.0, 8.0, 27.0);
+DEFINE_UNARY_FLOAT_TEST(cbrt, FLOAT_TOLERANCE, -27.0f, -8.0f, 0.0f, 8.0f,
+                        27.0f);
+DEFINE_UNARY_DOUBLE_TEST(exp, DOUBLE_TOLERANCE, -2.0, -1.0, 0.0, 1.0, 5.0);
+DEFINE_UNARY_FLOAT_TEST(exp, FLOAT_TOLERANCE, -2.0f, -1.0f, 0.0f, 1.0f, 5.0f);
+DEFINE_UNARY_DOUBLE_TEST(exp2, DOUBLE_TOLERANCE, -2.0, -1.0, 0.0, 1.0, 5.0);
+DEFINE_UNARY_FLOAT_TEST(exp2, FLOAT_TOLERANCE, -2.0f, -1.0f, 0.0f, 1.0f, 5.0f);
+DEFINE_UNARY_DOUBLE_TEST(expm1, DOUBLE_TOLERANCE, -1.0, -1e-6, 0.0, 1e-6, 1.0);
+DEFINE_UNARY_FLOAT_TEST(expm1, FLOAT_TOLERANCE, -1.0f, -1e-4f, 0.0f, 1e-4f,
+                        1.0f);
+DEFINE_UNARY_DOUBLE_TEST(log, DOUBLE_TOLERANCE, 0.125, 0.5, 1.0, 2.0, 10.0);
+DEFINE_UNARY_FLOAT_TEST(log, FLOAT_TOLERANCE, 0.125f, 0.5f, 1.0f, 2.0f, 10.0f);
+DEFINE_UNARY_DOUBLE_TEST(log2, DOUBLE_TOLERANCE, 0.125, 0.5, 1.0, 2.0, 16.0);
+DEFINE_UNARY_FLOAT_TEST(log2, FLOAT_TOLERANCE, 0.125f, 0.5f, 1.0f, 2.0f, 16.0f);
+DEFINE_UNARY_DOUBLE_TEST(log10, DOUBLE_TOLERANCE, 0.1, 1.0, 10.0, 100.0);
+DEFINE_UNARY_FLOAT_TEST(log10, FLOAT_TOLERANCE, 0.1f, 1.0f, 10.0f, 100.0f);
+DEFINE_UNARY_DOUBLE_TEST(log1p, DOUBLE_TOLERANCE, -0.5, -1e-6, 0.0, 1e-6, 1.0);
+DEFINE_UNARY_FLOAT_TEST(log1p, FLOAT_TOLERANCE, -0.5f, -1e-4f, 0.0f, 1e-4f,
+                        1.0f);
+DEFINE_UNARY_DOUBLE_TEST(sin, DOUBLE_TOLERANCE, -3.141592653589793, -1.0, 0.0,
+                         1.0, 3.141592653589793);
+DEFINE_UNARY_FLOAT_TEST(sin, FLOAT_TOLERANCE, -3.1415927f, -1.0f, 0.0f, 1.0f,
+                        3.1415927f);
+DEFINE_UNARY_DOUBLE_TEST(cos, DOUBLE_TOLERANCE, -3.141592653589793, -1.0, 0.0,
+                         1.0, 3.141592653589793);
+DEFINE_UNARY_FLOAT_TEST(cos, FLOAT_TOLERANCE, -3.1415927f, -1.0f, 0.0f, 1.0f,
+                        3.1415927f);
+DEFINE_UNARY_DOUBLE_TEST(tan, DOUBLE_TOLERANCE, -1.0, -0.5, 0.0, 0.5, 1.0);
+DEFINE_UNARY_FLOAT_TEST(tan, FLOAT_TOLERANCE, -1.0f, -0.5f, 0.0f, 0.5f, 1.0f);
+DEFINE_UNARY_DOUBLE_TEST(atan, INVERSE_TRIG_TOLERANCE, -2.0, -1.0, 0.0, 1.0,
+                         2.0);
+DEFINE_UNARY_FLOAT_TEST(atan, INVERSE_TRIG_FLOAT_TOLERANCE, -2.0f, -1.0f, 0.0f,
+                        1.0f, 2.0f);
+DEFINE_UNARY_DOUBLE_TEST(asin, INVERSE_TRIG_TOLERANCE, -1.0, -0.5, 0.0, 0.5,
+                         1.0);
+DEFINE_UNARY_FLOAT_TEST(asin, INVERSE_TRIG_FLOAT_TOLERANCE, -1.0f, -0.5f, 0.0f,
+                        0.5f, 1.0f);
+DEFINE_UNARY_DOUBLE_TEST(acos, INVERSE_TRIG_TOLERANCE, -1.0, -0.5, 0.0, 0.5,
+                         1.0);
+DEFINE_UNARY_FLOAT_TEST(acos, INVERSE_TRIG_FLOAT_TOLERANCE, -1.0f, -0.5f, 0.0f,
+                        0.5f, 1.0f);
+DEFINE_UNARY_DOUBLE_TEST(sinh, DOUBLE_TOLERANCE, -2.0, -1.0, 0.0, 1.0, 2.0);
+DEFINE_UNARY_FLOAT_TEST(sinh, FLOAT_TOLERANCE, -2.0f, -1.0f, 0.0f, 1.0f, 2.0f);
+DEFINE_UNARY_DOUBLE_TEST(cosh, DOUBLE_TOLERANCE, -2.0, -1.0, 0.0, 1.0, 2.0);
+DEFINE_UNARY_FLOAT_TEST(cosh, FLOAT_TOLERANCE, -2.0f, -1.0f, 0.0f, 1.0f, 2.0f);
+DEFINE_UNARY_DOUBLE_TEST(tanh, DOUBLE_TOLERANCE, -2.0, -1.0, 0.0, 1.0, 2.0);
+DEFINE_UNARY_FLOAT_TEST(tanh, FLOAT_TOLERANCE, -2.0f, -1.0f, 0.0f, 1.0f, 2.0f);
+DEFINE_UNARY_DOUBLE_TEST(asinh, DOUBLE_TOLERANCE, -2.0, -1.0, 0.0, 1.0, 2.0);
+DEFINE_UNARY_FLOAT_TEST(asinh, FLOAT_TOLERANCE, -2.0f, -1.0f, 0.0f, 1.0f, 2.0f);
+DEFINE_UNARY_DOUBLE_TEST(acosh, DOUBLE_TOLERANCE, 1.0, 1.5, 2.0, 10.0);
+DEFINE_UNARY_FLOAT_TEST(acosh, FLOAT_TOLERANCE, 1.0f, 1.5f, 2.0f, 10.0f);
+DEFINE_UNARY_DOUBLE_TEST(atanh, DOUBLE_TOLERANCE, -0.75, -0.25, 0.0, 0.25,
+                         0.75);
+DEFINE_UNARY_FLOAT_TEST(atanh, FLOAT_TOLERANCE, -0.75f, -0.25f, 0.0f, 0.25f,
+                        0.75f);
+DEFINE_UNARY_DOUBLE_TEST(logb, 0.0, 0.125, 0.5, 1.0, 2.0, 16.0);
+DEFINE_UNARY_FLOAT_TEST(logb, 0.0f, 0.125f, 0.5f, 1.0f, 2.0f, 16.0f);
+
+DEFINE_BINARY_DOUBLE_TEST(copysign, 0.0, {1.0, 2.0}, {1.0, -2.0}, {-1.0, 2.0});
+DEFINE_BINARY_FLOAT_TEST(copysign, 0.0f, {1.0f, 2.0f}, {1.0f, -2.0f},
+                         {-1.0f, 2.0f});
+DEFINE_BINARY_DOUBLE_TEST(fmod, DOUBLE_TOLERANCE, {5.3, 2.0}, {-5.3, 2.0},
+                          {5.3, -2.0});
+DEFINE_BINARY_FLOAT_TEST(fmod, FLOAT_TOLERANCE, {5.3f, 2.0f}, {-5.3f, 2.0f},
+                         {5.3f, -2.0f});
+DEFINE_BINARY_DOUBLE_TEST(fmin, 0.0, {1.0, 2.0}, {3.0, 2.0}, {-1.0, -2.0});
+DEFINE_BINARY_FLOAT_TEST(fmin, 0.0f, {1.0f, 2.0f}, {3.0f, 2.0f},
+                         {-1.0f, -2.0f});
+DEFINE_BINARY_DOUBLE_TEST(fmax, 0.0, {1.0, 2.0}, {3.0, 2.0}, {-1.0, -2.0});
+DEFINE_BINARY_FLOAT_TEST(fmax, 0.0f, {1.0f, 2.0f}, {3.0f, 2.0f},
+                         {-1.0f, -2.0f});
+DEFINE_BINARY_DOUBLE_TEST(fdim, DOUBLE_TOLERANCE, {5.0, 3.0}, {3.0, 5.0},
+                          {-1.0, -2.0});
+DEFINE_BINARY_FLOAT_TEST(fdim, FLOAT_TOLERANCE, {5.0f, 3.0f}, {3.0f, 5.0f},
+                         {-1.0f, -2.0f});
+DEFINE_BINARY_DOUBLE_TEST(hypot, DOUBLE_TOLERANCE, {3.0, 4.0}, {5.0, 12.0},
+                          {-3.0, 4.0});
+DEFINE_BINARY_FLOAT_TEST(hypot, FLOAT_TOLERANCE, {3.0f, 4.0f}, {5.0f, 12.0f},
+                         {-3.0f, 4.0f});
+DEFINE_BINARY_DOUBLE_TEST(pow, DOUBLE_TOLERANCE, {2.0, 3.0}, {2.0, -1.0},
+                          {4.0, 0.5}, {5.0, 0.0});
+DEFINE_BINARY_FLOAT_TEST(pow, FLOAT_TOLERANCE, {2.0f, 3.0f}, {2.0f, -1.0f},
+                         {4.0f, 0.5f}, {5.0f, 0.0f});
+DEFINE_BINARY_DOUBLE_TEST(atan2, INVERSE_TRIG_TOLERANCE, {1.0, 1.0},
+                          {1.0, -1.0}, {-1.0, -1.0}, {-1.0, 1.0});
+DEFINE_BINARY_FLOAT_TEST(atan2, INVERSE_TRIG_FLOAT_TOLERANCE, {1.0f, 1.0f},
+                         {1.0f, -1.0f}, {-1.0f, -1.0f}, {-1.0f, 1.0f});
+DEFINE_BINARY_DOUBLE_TEST(nextafter, 0.0, {0.0, 1.0}, {1.0, 2.0}, {1.0, 0.0},
+                          {-1.0, -2.0});
+DEFINE_BINARY_FLOAT_TEST(nextafter, 0.0f, {0.0f, 1.0f}, {1.0f, 2.0f},
+                         {1.0f, 0.0f}, {-1.0f, -2.0f});
+DEFINE_BINARY_DOUBLE_TEST(remainder, DOUBLE_TOLERANCE, {5.3, 2.0}, {-5.3, 2.0},
+                          {6.0, 4.0});
+DEFINE_BINARY_FLOAT_TEST(remainder, FLOAT_TOLERANCE, {5.3f, 2.0f},
+                         {-5.3f, 2.0f}, {6.0f, 4.0f});
+
+Test(math, modf_matches_host) {
+  const double inputs[] = {-3.75, -1.0, 0.0, 1.0, 3.75};
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    double actual_integer;
+    double expected_integer;
+    double actual = zenos_modf(inputs[i], &actual_integer);
+    double expected = modf(inputs[i], &expected_integer);
+    expect_double("modf return", i, actual, expected, DOUBLE_TOLERANCE);
+    expect_double("modf integer", i, actual_integer, expected_integer, 0.0);
+  }
+}
+
+Test(math, modff_matches_host) {
+  const float inputs[] = {-3.75f, -1.0f, 0.0f, 1.0f, 3.75f};
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    float actual_integer;
+    float expected_integer;
+    float actual = zenos_modff(inputs[i], &actual_integer);
+    float expected = modff(inputs[i], &expected_integer);
+    expect_float("modff return", i, actual, expected, FLOAT_TOLERANCE);
+    expect_float("modff integer", i, actual_integer, expected_integer, 0.0f);
+  }
+}
+
+Test(math, ldexp_matches_host) {
+  const struct {
+    double value;
+    int exponent;
+  } inputs[] = {{0.0, 10}, {1.0, 3}, {-1.5, 4}, {8.0, -2}};
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    expect_double("ldexp", i, zenos_ldexp(inputs[i].value, inputs[i].exponent),
+                  ldexp(inputs[i].value, inputs[i].exponent), 0.0);
+    expect_float("ldexpf", i,
+                 zenos_ldexpf((float)inputs[i].value, inputs[i].exponent),
+                 ldexpf((float)inputs[i].value, inputs[i].exponent), 0.0f);
+  }
+}
+
+Test(math, frexp_matches_host) {
+  const double inputs[] = {-8.0, -1.5, 0.0, 1.0, 12.0};
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    int actual_exponent;
+    int expected_exponent;
+    double actual = zenos_frexp(inputs[i], &actual_exponent);
+    double expected = frexp(inputs[i], &expected_exponent);
+    expect_double("frexp return", i, actual, expected, 0.0);
+    cr_expect_eq(actual_exponent, expected_exponent, "frexp exponent case %zu",
+                 i);
+
+    float actual_float = zenos_frexpf((float)inputs[i], &actual_exponent);
+    float expected_float = frexpf((float)inputs[i], &expected_exponent);
+    expect_float("frexpf return", i, actual_float, expected_float, 0.0f);
+    cr_expect_eq(actual_exponent, expected_exponent, "frexpf exponent case %zu",
+                 i);
+  }
+}
+
+Test(math, scalbn_matches_host) {
+  const struct {
+    double value;
+    int exponent;
+  } inputs[] = {{0.0, 10}, {1.0, 3}, {-1.5, 4}, {8.0, -2}};
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    expect_double("scalbn", i,
+                  zenos_scalbn(inputs[i].value, inputs[i].exponent),
+                  scalbn(inputs[i].value, inputs[i].exponent), 0.0);
+    expect_float("scalbnf", i,
+                 zenos_scalbnf((float)inputs[i].value, inputs[i].exponent),
+                 scalbnf((float)inputs[i].value, inputs[i].exponent), 0.0f);
+  }
+}
+
+Test(math, ilogb_matches_host) {
+  const double inputs[] = {0.125, 0.5, 1.0, 2.0, 16.0};
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    cr_expect_eq(zenos_ilogb(inputs[i]), ilogb(inputs[i]),
+                 "ilogb differed for case %zu", i);
+    cr_expect_eq(zenos_ilogbf((float)inputs[i]), ilogbf((float)inputs[i]),
+                 "ilogbf differed for case %zu", i);
+  }
+}
+
+Test(math, fma_matches_host) {
+  const struct {
+    double x;
+    double y;
+    double z;
+  } inputs[] = {{2.0, 3.0, 4.0}, {-2.0, 3.0, 4.0}, {0.5, 0.25, -1.0}};
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    expect_double("fma", i, zenos_fma(inputs[i].x, inputs[i].y, inputs[i].z),
+                  fma(inputs[i].x, inputs[i].y, inputs[i].z), DOUBLE_TOLERANCE);
+    expect_float(
+        "fmaf", i,
+        zenos_fmaf((float)inputs[i].x, (float)inputs[i].y, (float)inputs[i].z),
+        fmaf((float)inputs[i].x, (float)inputs[i].y, (float)inputs[i].z),
+        FLOAT_TOLERANCE);
+  }
 }

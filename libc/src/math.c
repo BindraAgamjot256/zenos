@@ -130,7 +130,8 @@ float fmodf(float x, float y) {
 
 double modf(double x, double *iptr) {
     *iptr = trunc(x);
-    return x - *iptr;
+    double fractional = x - *iptr;
+    return fractional == 0.0 ? copysign(0.0, x) : fractional;
 }
 
 float modff(float x, float *iptr) {

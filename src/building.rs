@@ -114,7 +114,13 @@ pub(crate) fn host_test() -> Result<()> {
 
     run_command(&mut command, "Host tests")?;
 
-    println!("[TEST] Host test completed successfully.");
+    let mut command = Command::new("make");
+    command.arg("test");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    command.current_dir(root.join("libc"));
+
+    run_command(&mut command, "Host libc tests")?;
+    println!("[TEST] Host tests completed successfully.");
 
     Ok(())
 }

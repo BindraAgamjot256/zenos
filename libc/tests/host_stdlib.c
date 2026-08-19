@@ -14,9 +14,6 @@
 #define _Exit zenos__Exit
 #define _exit zenos__exit
 
-/* Use standard types from host */
-#include <stddef.h>
-
 /* Stub out _exit for host testing */
 static void zenos__exit(int status) { (void)status; }
 

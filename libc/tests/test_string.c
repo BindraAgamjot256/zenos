@@ -1,14 +1,7 @@
-/**
- * test_string.c - Unit tests for string.c functions
- *
- * Tests string and memory manipulation functions against host libc.
- */
-
-#include <stdio.h>
+#include <criterion/criterion.h>
+#include <stddef.h>
 #include <string.h>
-#include <assert.h>
 
-/* Declare our implementations with zenos_ prefix */
 size_t zenos_strlen(const char *s);
 char *zenos_strcpy(char *dest, const char *src);
 char *zenos_strncpy(char *dest, const char *src, size_t n);
@@ -19,360 +12,339 @@ char *zenos_strncat(char *dest, const char *src, size_t n);
 char *zenos_strchr(const char *s, int c);
 char *zenos_strrchr(const char *s, int c);
 char *zenos_strstr(const char *haystack, const char *needle);
+char *zenos_strtok(char *str, const char *delim);
 void *zenos_memset(void *s, int c, size_t n);
 int zenos_memcmp(const void *s1, const void *s2, size_t n);
 void *zenos_memcpy(void *dest, const void *src, size_t n);
 void *zenos_memmove(void *dest, const void *src, size_t n);
 
-static int tests_run = 0;
-static int tests_passed = 0;
+#define ARRAY_LEN(array) (sizeof(array) / sizeof((array)[0]))
 
-#define TEST(name) static void test_##name(void)
-#define RUN_TEST(name) do { \
-    printf("  %-40s ", #name); \
-    tests_run++; \
-    test_##name(); \
-    tests_passed++; \
-    printf("\x1b[32mPASSED\x1b[0m\n"); \
-} while(0)
+static int comparison_sign(int result) { return (result > 0) - (result < 0); }
 
-/* strlen tests */
-TEST(strlen_empty) {
-    assert(zenos_strlen("") == 0);
-}
+static ptrdiff_t pointer_offset(const void *base, size_t size,
+                                const void *result) {
+  if (result == NULL) {
+    return -1;
+  }
 
-TEST(strlen_simple) {
-    assert(zenos_strlen("hello") == 5);
-}
-
-TEST(strlen_with_spaces) {
-    assert(zenos_strlen("hello world") == 11);
-}
-
-TEST(strlen_single_char) {
-    assert(zenos_strlen("x") == 1);
-}
-
-/* strcpy tests */
-TEST(strcpy_simple) {
-    char dest[32];
-    zenos_strcpy(dest, "hello");
-    assert(strcmp(dest, "hello") == 0);
-}
-
-TEST(strcpy_empty) {
-    char dest[32] = "garbage";
-    zenos_strcpy(dest, "");
-    assert(strcmp(dest, "") == 0);
-}
-
-TEST(strcpy_returns_dest) {
-    char dest[32];
-    assert(zenos_strcpy(dest, "test") == dest);
-}
-
-/* strncpy tests */
-TEST(strncpy_exact) {
-    char dest[6];
-    zenos_strncpy(dest, "hello", 6);
-    assert(strcmp(dest, "hello") == 0);
-}
-
-TEST(strncpy_truncate) {
-    char dest[4];
-    zenos_strncpy(dest, "hello", 3);
-    dest[3] = '\0';
-    assert(strncmp(dest, "hel", 3) == 0);
-}
-
-TEST(strncpy_pad_zeros) {
-    char dest[10] = "xxxxxxxxx";
-    zenos_strncpy(dest, "hi", 10);
-    assert(dest[2] == '\0');
-    assert(dest[9] == '\0');
-}
-
-/* strcmp tests */
-TEST(strcmp_equal) {
-    assert(zenos_strcmp("hello", "hello") == 0);
-}
-
-TEST(strcmp_less) {
-    assert(zenos_strcmp("abc", "abd") < 0);
-}
-
-TEST(strcmp_greater) {
-    assert(zenos_strcmp("abd", "abc") > 0);
-}
-
-TEST(strcmp_empty) {
-    assert(zenos_strcmp("", "") == 0);
-}
-
-TEST(strcmp_prefix) {
-    assert(zenos_strcmp("hello", "helloworld") < 0);
-}
-
-/* strncmp tests */
-TEST(strncmp_equal_within_n) {
-    assert(zenos_strncmp("hello", "helps", 3) == 0);
-}
-
-TEST(strncmp_differ_within_n) {
-    assert(zenos_strncmp("hello", "hallo", 3) != 0);
-}
-
-TEST(strncmp_zero_n) {
-    assert(zenos_strncmp("abc", "xyz", 0) == 0);
-}
-
-/* strcat tests */
-TEST(strcat_simple) {
-    char dest[32] = "hello";
-    zenos_strcat(dest, " world");
-    assert(strcmp(dest, "hello world") == 0);
-}
-
-TEST(strcat_empty_src) {
-    char dest[32] = "hello";
-    zenos_strcat(dest, "");
-    assert(strcmp(dest, "hello") == 0);
-}
-
-TEST(strcat_empty_dest) {
-    char dest[32] = "";
-    zenos_strcat(dest, "hello");
-    assert(strcmp(dest, "hello") == 0);
-}
-
-/* strncat tests */
-TEST(strncat_partial) {
-    char dest[32] = "hello";
-    zenos_strncat(dest, " world", 3);
-    assert(strcmp(dest, "hello wo") == 0);
-}
-
-TEST(strncat_full) {
-    char dest[32] = "hello";
-    zenos_strncat(dest, " world", 10);
-    assert(strcmp(dest, "hello world") == 0);
-}
-
-/* strchr tests */
-TEST(strchr_found) {
-    const char *s = "hello";
-    assert(zenos_strchr(s, 'l') == s + 2);
-}
-
-TEST(strchr_not_found) {
-    assert(zenos_strchr("hello", 'x') == NULL);
-}
-
-TEST(strchr_null_terminator) {
-    const char *s = "hello";
-    assert(zenos_strchr(s, '\0') == s + 5);
-}
-
-TEST(strchr_first_char) {
-    const char *s = "hello";
-    assert(zenos_strchr(s, 'h') == s);
-}
-
-/* strrchr tests */
-TEST(strrchr_found_last) {
-    const char *s = "hello";
-    assert(zenos_strrchr(s, 'l') == s + 3);
-}
-
-TEST(strrchr_not_found) {
-    assert(zenos_strrchr("hello", 'x') == NULL);
-}
-
-TEST(strrchr_null_terminator) {
-    const char *s = "hello";
-    assert(zenos_strrchr(s, '\0') == s + 5);
-}
-
-/* strstr tests */
-TEST(strstr_found) {
-    const char *s = "hello world";
-    assert(zenos_strstr(s, "world") == s + 6);
-}
-
-TEST(strstr_not_found) {
-    assert(zenos_strstr("hello", "xyz") == NULL);
-}
-
-TEST(strstr_empty_needle) {
-    const char *s = "hello";
-    assert(zenos_strstr(s, "") == s);
-}
-
-TEST(strstr_at_start) {
-    const char *s = "hello world";
-    assert(zenos_strstr(s, "hello") == s);
-}
-
-TEST(strstr_same) {
-    const char *s = "hello";
-    assert(zenos_strstr(s, "hello") == s);
-}
-
-/* memset tests */
-TEST(memset_zero) {
-    char buf[10] = "xxxxxxxxx";
-    zenos_memset(buf, 0, 5);
-    assert(buf[0] == 0 && buf[4] == 0);
-    assert(buf[5] == 'x');
-}
-
-TEST(memset_char) {
-    char buf[10];
-    zenos_memset(buf, 'A', 10);
-    for (int i = 0; i < 10; i++) {
-        assert(buf[i] == 'A');
+  const unsigned char *bytes = base;
+  for (size_t i = 0; i < size; i++) {
+    if (result == bytes + i) {
+      return (ptrdiff_t)i;
     }
+  }
+  return -2;
 }
 
-TEST(memset_returns_ptr) {
-    char buf[10];
-    assert(zenos_memset(buf, 0, 10) == buf);
+Test(string, strlen_matches_host) {
+  const char *inputs[] = {"", "x", "hello", "hello world",
+                          "with\ttabs\nand\nlines"};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    cr_expect_eq(zenos_strlen(inputs[i]), strlen(inputs[i]),
+                 "strlen differed for input %zu (%s)", i, inputs[i]);
+  }
 }
 
-/* memcmp tests */
-TEST(memcmp_equal) {
-    assert(zenos_memcmp("hello", "hello", 5) == 0);
+Test(string, strcpy_matches_host) {
+  const char *inputs[] = {"", "x", "hello", "a longer string with spaces"};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    char actual[64] = {0};
+    char expected[64] = {0};
+    char *actual_result = zenos_strcpy(actual, inputs[i]);
+    char *expected_result = strcpy(expected, inputs[i]);
+
+    cr_expect_eq(pointer_offset(actual, sizeof(actual), actual_result),
+                 pointer_offset(expected, sizeof(expected), expected_result));
+    cr_expect_eq(memcmp(actual, expected, sizeof(actual)), 0,
+                 "strcpy output differed for input %zu (%s)", i, inputs[i]);
+  }
 }
 
-TEST(memcmp_less) {
-    assert(zenos_memcmp("abc", "abd", 3) < 0);
+Test(string, strncpy_matches_host) {
+  const struct {
+    const char *source;
+    size_t count;
+  } inputs[] = {{"", 0}, {"", 8}, {"hi", 8}, {"hello", 5}, {"hello", 3}};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    unsigned char actual[16];
+    unsigned char expected[16];
+    memset(actual, 0xa5, sizeof(actual));
+    memset(expected, 0xa5, sizeof(expected));
+
+    char *actual_result =
+        zenos_strncpy((char *)actual, inputs[i].source, inputs[i].count);
+    char *expected_result =
+        strncpy((char *)expected, inputs[i].source, inputs[i].count);
+
+    cr_expect_eq(pointer_offset(actual, sizeof(actual), actual_result),
+                 pointer_offset(expected, sizeof(expected), expected_result));
+    cr_expect_eq(memcmp(actual, expected, sizeof(actual)), 0,
+                 "strncpy output differed for case %zu", i);
+  }
 }
 
-TEST(memcmp_greater) {
-    assert(zenos_memcmp("abd", "abc", 3) > 0);
+Test(string, strcmp_matches_host) {
+  const struct {
+    const char *left;
+    const char *right;
+  } inputs[] = {{"", ""},       {"abc", "abc"}, {"abc", "abd"},
+                {"abd", "abc"}, {"hello", ""},  {"hello", "hello world"}};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    int actual = zenos_strcmp(inputs[i].left, inputs[i].right);
+    int expected = strcmp(inputs[i].left, inputs[i].right);
+    cr_expect_eq(comparison_sign(actual), comparison_sign(expected),
+                 "strcmp differed for case %zu", i);
+  }
 }
 
-TEST(memcmp_partial) {
-    assert(zenos_memcmp("hello", "helps", 3) == 0);
+Test(string, strncmp_matches_host) {
+  const struct {
+    const char *left;
+    const char *right;
+    size_t count;
+  } inputs[] = {{"abc", "xyz", 0}, {"hello", "helps", 3}, {"hello", "hallo", 3},
+                {"abc", "abd", 3}, {"abc", "abc", 8},     {"", "x", 1}};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    int actual =
+        zenos_strncmp(inputs[i].left, inputs[i].right, inputs[i].count);
+    int expected = strncmp(inputs[i].left, inputs[i].right, inputs[i].count);
+    cr_expect_eq(comparison_sign(actual), comparison_sign(expected),
+                 "strncmp differed for case %zu", i);
+  }
 }
 
-/* memcpy tests */
-TEST(memcpy_simple) {
-    char src[] = "hello";
-    char dest[10];
-    zenos_memcpy(dest, src, 6);
-    assert(strcmp(dest, "hello") == 0);
+Test(string, strcat_matches_host) {
+  const struct {
+    const char *destination;
+    const char *source;
+  } inputs[] = {{"", ""}, {"", "hello"}, {"hello", ""}, {"hello", " world"}};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    char actual[64] = {0};
+    char expected[64] = {0};
+    strcpy(actual, inputs[i].destination);
+    strcpy(expected, inputs[i].destination);
+
+    char *actual_result = zenos_strcat(actual, inputs[i].source);
+    char *expected_result = strcat(expected, inputs[i].source);
+
+    cr_expect_eq(pointer_offset(actual, sizeof(actual), actual_result),
+                 pointer_offset(expected, sizeof(expected), expected_result));
+    cr_expect_eq(memcmp(actual, expected, sizeof(actual)), 0,
+                 "strcat output differed for case %zu", i);
+  }
 }
 
-TEST(memcpy_returns_dest) {
-    char src[] = "test";
-    char dest[10];
-    assert(zenos_memcpy(dest, src, 5) == dest);
+Test(string, strncat_matches_host) {
+  const struct {
+    const char *destination;
+    const char *source;
+    size_t count;
+  } inputs[] = {{"", "hello", 0},
+                {"", "hello", 5},
+                {"hello", " world", 3},
+                {"hello", " world", 16}};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    char actual[64] = {0};
+    char expected[64] = {0};
+    strcpy(actual, inputs[i].destination);
+    strcpy(expected, inputs[i].destination);
+
+    char *actual_result =
+        zenos_strncat(actual, inputs[i].source, inputs[i].count);
+    char *expected_result =
+        strncat(expected, inputs[i].source, inputs[i].count);
+
+    cr_expect_eq(pointer_offset(actual, sizeof(actual), actual_result),
+                 pointer_offset(expected, sizeof(expected), expected_result));
+    cr_expect_eq(memcmp(actual, expected, sizeof(actual)), 0,
+                 "strncat output differed for case %zu", i);
+  }
 }
 
-/* memmove tests */
-TEST(memmove_non_overlapping) {
-    char src[] = "hello";
-    char dest[10];
-    zenos_memmove(dest, src, 6);
-    assert(strcmp(dest, "hello") == 0);
+Test(string, strchr_matches_host) {
+  const char *inputs[] = {"", "hello", "banana"};
+  const int characters[] = {'x', 'h', 'l', 'a', '\0'};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    for (size_t j = 0; j < ARRAY_LEN(characters); j++) {
+      cr_expect_eq(pointer_offset(inputs[i], strlen(inputs[i]) + 1,
+                                  zenos_strchr(inputs[i], characters[j])),
+                   pointer_offset(inputs[i], strlen(inputs[i]) + 1,
+                                  strchr(inputs[i], characters[j])),
+                   "strchr differed for input %zu, character %d", i,
+                   characters[j]);
+    }
+  }
 }
 
-TEST(memmove_overlap_forward) {
-    char buf[] = "hello world";
-    zenos_memmove(buf + 2, buf, 5);
-    assert(strncmp(buf + 2, "hello", 5) == 0);
+Test(string, strrchr_matches_host) {
+  const char *inputs[] = {"", "hello", "banana"};
+  const int characters[] = {'x', 'h', 'l', 'a', '\0'};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    for (size_t j = 0; j < ARRAY_LEN(characters); j++) {
+      cr_expect_eq(pointer_offset(inputs[i], strlen(inputs[i]) + 1,
+                                  zenos_strrchr(inputs[i], characters[j])),
+                   pointer_offset(inputs[i], strlen(inputs[i]) + 1,
+                                  strrchr(inputs[i], characters[j])),
+                   "strrchr differed for input %zu, character %d", i,
+                   characters[j]);
+    }
+  }
 }
 
-TEST(memmove_overlap_backward) {
-    char buf[] = "hello world";
-    zenos_memmove(buf, buf + 6, 5);
-    assert(strncmp(buf, "world", 5) == 0);
+Test(string, strstr_matches_host) {
+  const struct {
+    const char *haystack;
+    const char *needle;
+  } inputs[] = {{"", ""},           {"hello", ""},
+                {"hello", "hello"}, {"hello world", "world"},
+                {"banana", "ana"},  {"hello", "xyz"}};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    cr_expect_eq(
+        pointer_offset(inputs[i].haystack, strlen(inputs[i].haystack) + 1,
+                       zenos_strstr(inputs[i].haystack, inputs[i].needle)),
+        pointer_offset(inputs[i].haystack, strlen(inputs[i].haystack) + 1,
+                       strstr(inputs[i].haystack, inputs[i].needle)),
+        "strstr differed for case %zu", i);
+  }
 }
 
-void run_string_tests(void) {
-    printf("\n=== String Tests ===\n");
+Test(string, strtok_matches_host) {
+  const struct {
+    const char *input;
+    const char *delimiters;
+  } inputs[] = {{"", ","},
+                {",one,,two,three,", ","},
+                {"one two\tthree", " \t"},
+                {"no-delimiters", ",;"}};
 
-    /* strlen */
-    RUN_TEST(strlen_empty);
-    RUN_TEST(strlen_simple);
-    RUN_TEST(strlen_with_spaces);
-    RUN_TEST(strlen_single_char);
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    char actual[64] = {0};
+    char expected[64] = {0};
+    strcpy(actual, inputs[i].input);
+    strcpy(expected, inputs[i].input);
 
-    /* strcpy */
-    RUN_TEST(strcpy_simple);
-    RUN_TEST(strcpy_empty);
-    RUN_TEST(strcpy_returns_dest);
+    char *actual_token = zenos_strtok(actual, inputs[i].delimiters);
+    char *expected_token = strtok(expected, inputs[i].delimiters);
+    size_t token_index = 0;
 
-    /* strncpy */
-    RUN_TEST(strncpy_exact);
-    RUN_TEST(strncpy_truncate);
-    RUN_TEST(strncpy_pad_zeros);
+    while (actual_token != NULL || expected_token != NULL) {
+      cr_expect((actual_token == NULL) == (expected_token == NULL),
+                "strtok token count differed for case %zu", i);
+      if (actual_token == NULL || expected_token == NULL) {
+        break;
+      }
+      cr_expect_str_eq(actual_token, expected_token,
+                       "strtok token %zu differed for case %zu", token_index,
+                       i);
+      cr_expect_eq(pointer_offset(actual, sizeof(actual), actual_token),
+                   pointer_offset(expected, sizeof(expected), expected_token),
+                   "strtok token %zu location differed for case %zu",
+                   token_index, i);
+      actual_token = zenos_strtok(NULL, inputs[i].delimiters);
+      expected_token = strtok(NULL, inputs[i].delimiters);
+      token_index++;
+    }
 
-    /* strcmp */
-    RUN_TEST(strcmp_equal);
-    RUN_TEST(strcmp_less);
-    RUN_TEST(strcmp_greater);
-    RUN_TEST(strcmp_empty);
-    RUN_TEST(strcmp_prefix);
-
-    /* strncmp */
-    RUN_TEST(strncmp_equal_within_n);
-    RUN_TEST(strncmp_differ_within_n);
-    RUN_TEST(strncmp_zero_n);
-
-    /* strcat */
-    RUN_TEST(strcat_simple);
-    RUN_TEST(strcat_empty_src);
-    RUN_TEST(strcat_empty_dest);
-
-    /* strncat */
-    RUN_TEST(strncat_partial);
-    RUN_TEST(strncat_full);
-
-    /* strchr */
-    RUN_TEST(strchr_found);
-    RUN_TEST(strchr_not_found);
-    RUN_TEST(strchr_null_terminator);
-    RUN_TEST(strchr_first_char);
-
-    /* strrchr */
-    RUN_TEST(strrchr_found_last);
-    RUN_TEST(strrchr_not_found);
-    RUN_TEST(strrchr_null_terminator);
-
-    /* strstr */
-    RUN_TEST(strstr_found);
-    RUN_TEST(strstr_not_found);
-    RUN_TEST(strstr_empty_needle);
-    RUN_TEST(strstr_at_start);
-    RUN_TEST(strstr_same);
-
-    /* memset */
-    RUN_TEST(memset_zero);
-    RUN_TEST(memset_char);
-    RUN_TEST(memset_returns_ptr);
-
-    /* memcmp */
-    RUN_TEST(memcmp_equal);
-    RUN_TEST(memcmp_less);
-    RUN_TEST(memcmp_greater);
-    RUN_TEST(memcmp_partial);
-
-    /* memcpy */
-    RUN_TEST(memcpy_simple);
-    RUN_TEST(memcpy_returns_dest);
-
-    /* memmove */
-    RUN_TEST(memmove_non_overlapping);
-    RUN_TEST(memmove_overlap_forward);
-    RUN_TEST(memmove_overlap_backward);
-
-    printf("\nString tests: %d/%d passed\n", tests_passed, tests_run);
+    cr_expect_eq(memcmp(actual, expected, strlen(inputs[i].input) + 1), 0,
+                 "strtok buffer differed for case %zu", i);
+  }
 }
 
-int get_string_test_results(int *passed, int *total) {
-    *passed = tests_passed;
-    *total = tests_run;
-    return tests_passed == tests_run ? 0 : 1;
+Test(string, memset_matches_host) {
+  const struct {
+    int value;
+    size_t count;
+  } inputs[] = {{0, 0}, {0, 8}, {'A', 16}, {0x1ff, 7}};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    unsigned char actual[32];
+    unsigned char expected[32];
+    memset(actual, 0xa5, sizeof(actual));
+    memset(expected, 0xa5, sizeof(expected));
+
+    void *actual_result =
+        zenos_memset(actual, inputs[i].value, inputs[i].count);
+    void *expected_result = memset(expected, inputs[i].value, inputs[i].count);
+
+    cr_expect_eq(pointer_offset(actual, sizeof(actual), actual_result),
+                 pointer_offset(expected, sizeof(expected), expected_result));
+    cr_expect_eq(memcmp(actual, expected, sizeof(actual)), 0,
+                 "memset output differed for case %zu", i);
+  }
+}
+
+Test(string, memcmp_matches_host) {
+  const struct {
+    const unsigned char *left;
+    const unsigned char *right;
+    size_t count;
+  } inputs[] = {
+      {(const unsigned char *)"abc", (const unsigned char *)"xyz", 0},
+      {(const unsigned char *)"hello", (const unsigned char *)"hello", 5},
+      {(const unsigned char *)"abc", (const unsigned char *)"abd", 3},
+      {(const unsigned char *)"abd", (const unsigned char *)"abc", 3},
+      {(const unsigned char *)"hello", (const unsigned char *)"helps", 3}};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    int actual = zenos_memcmp(inputs[i].left, inputs[i].right, inputs[i].count);
+    int expected = memcmp(inputs[i].left, inputs[i].right, inputs[i].count);
+    cr_expect_eq(comparison_sign(actual), comparison_sign(expected),
+                 "memcmp differed for case %zu", i);
+  }
+}
+
+Test(string, memcpy_matches_host) {
+  const size_t counts[] = {0, 1, 6, 16, 32};
+  const unsigned char source[32] = "a source buffer with some data";
+
+  for (size_t i = 0; i < ARRAY_LEN(counts); i++) {
+    unsigned char actual[32];
+    unsigned char expected[32];
+    memset(actual, 0xa5, sizeof(actual));
+    memset(expected, 0xa5, sizeof(expected));
+
+    void *actual_result = zenos_memcpy(actual, source, counts[i]);
+    void *expected_result = memcpy(expected, source, counts[i]);
+
+    cr_expect_eq(pointer_offset(actual, sizeof(actual), actual_result),
+                 pointer_offset(expected, sizeof(expected), expected_result));
+    cr_expect_eq(memcmp(actual, expected, sizeof(actual)), 0,
+                 "memcpy output differed for count %zu", counts[i]);
+  }
+}
+
+Test(string, memmove_matches_host) {
+  const struct {
+    size_t destination;
+    size_t source;
+    size_t count;
+  } inputs[] = {{0, 8, 0}, {0, 8, 8}, {2, 0, 12}, {0, 6, 12}, {4, 4, 16}};
+
+  for (size_t i = 0; i < ARRAY_LEN(inputs); i++) {
+    unsigned char actual[32] = "0123456789abcdefghijklmnopqrstu";
+    unsigned char expected[32] = "0123456789abcdefghijklmnopqrstu";
+
+    void *actual_result =
+        zenos_memmove(actual + inputs[i].destination, actual + inputs[i].source,
+                      inputs[i].count);
+    void *expected_result =
+        memmove(expected + inputs[i].destination, expected + inputs[i].source,
+                inputs[i].count);
+
+    cr_expect_eq(pointer_offset(actual, sizeof(actual), actual_result),
+                 pointer_offset(expected, sizeof(expected), expected_result));
+    cr_expect_eq(memcmp(actual, expected, sizeof(actual)), 0,
+                 "memmove output differed for case %zu", i);
+  }
 }

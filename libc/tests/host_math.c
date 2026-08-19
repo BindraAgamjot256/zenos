@@ -92,9 +92,6 @@
 #define fma zenos_fma
 #define fmaf zenos_fmaf
 
-/* Use standard types and math macros from host */
-#include <stdint.h>
-
 /* Provide math constants and macros */
 #define HUGE_VAL   __builtin_huge_val()
 #define INFINITY   __builtin_inf()

@@ -1,0 +1,150 @@
+name: Cargo Test on Push
+
+on:
+    push:
+        branches: ["**"]
+
+# Prevent multiple runs for the same branch from modifying
+# the same GitHub issue at the same time.
+concurrency:
+    group: cargo-test-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+    issues: write
+
+jobs:
+    run-tests:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+
+            # Added: Automatic, optimized smart caching for Rust dependencies
+            - name: Rust Cache
+              uses: Swatinem/rust-cache@v2
+
+            - name: Install Criterion
+              run: |
+                  if ! pkg-config --exists criterion; then
+                    sudo apt-get update
+                    sudo apt-get install -y libcriterion-dev pkg-config
+                  fi
+
+            - name: Run Cargo Command
+              id: run_cmd
+              continue-on-error: true
+              run: cargo r -- t
+
+            - name: Create or Update Failure Issue
+              if: steps.run_cmd.outcome == 'failure'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  ISSUE_TITLE: "Cargo run failed on branch ${{ github.ref_name }}"
+                  BRANCH: ${{ github.ref_name }}
+                  COMMIT: ${{ github.sha }}
+                  ACTOR: ${{ github.actor }}
+                  RUN_ID: ${{ github.run_id }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -e
+
+                  echo "Looking for an existing open issue..."
+
+                  EXISTING_ISSUE=$(gh api \
+                    "repos/${REPOSITORY}/issues?state=open&per_page=100" \
+                    --jq '[.[] | select(.pull_request == null) | select(.title == $ENV.ISSUE_TITLE) | .number] | first // ""')
+
+                  if [ -n "$EXISTING_ISSUE" ]; then
+                    echo "Found existing issue #$EXISTING_ISSUE"
+                    echo "Updating existing issue..."
+
+                    gh issue comment "$EXISTING_ISSUE" \
+                      --repo "$REPOSITORY" \
+                      --body "$(cat <<EOF
+                  ## Cargo run failed again
+
+                  The command \`cargo r -- t\` failed again during the automated push workflow.
+
+                  * **Triggered By:** @${ACTOR}
+                  * **Branch:** \`${BRANCH}\`
+                  * **Commit:** \`${COMMIT}\`
+                  * **Workflow Run:** https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}
+
+                  This failure was added to the existing issue because the issue is still open.
+                  EOF
+                  )"
+
+                    echo "Updated issue #$EXISTING_ISSUE"
+
+                  else
+                    echo "No existing open issue found."
+                    echo "Creating a new issue..."
+
+                    gh issue create \
+                      --repo "$REPOSITORY" \
+                      --title "$ISSUE_TITLE" \
+                      --label "bug" \
+                      --label "automated-alert" \
+                      --body "$(cat <<EOF
+                  ### Build/Test Failure Detected
+
+                  The command \`cargo r -- t\` failed during the automated push workflow.
+
+                  * **Triggered By:** @${ACTOR}
+                  * **Branch:** \`${BRANCH}\`
+                  * **Commit:** \`${COMMIT}\`
+                  * **View Failed Run Logs:** https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}
+                  EOF
+                  )"
+                  fi
+
+            - name: Close Issue on Success
+              if: steps.run_cmd.outcome == 'success'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  ISSUE_TITLE: "Cargo run failed on branch ${{ github.ref_name }}"
+                  REPOSITORY: ${{ github.repository }}
+                  COMMIT: ${{ github.sha }}
+                  RUN_ID: ${{ github.run_id }}
+              run: |
+                  set -e
+
+                  echo "Checking if there is an open failure issue to close..."
+
+                  EXISTING_ISSUE=$(gh api \
+                    "repos/${REPOSITORY}/issues?state=open&per_page=100" \
+                    --jq '[.[] | select(.pull_request == null) | select(.title == $ENV.ISSUE_TITLE) | .number] | first // ""')
+
+                  if [ -n "$EXISTING_ISSUE" ]; then
+                    echo "Found open failure issue #$EXISTING_ISSUE. Closing it now..."
+
+                    gh issue comment "$EXISTING_ISSUE" \
+                      --repo "$REPOSITORY" \
+                      --body "## Fixed
+
+                  \`cargo r -- t\` passed successfully on commit \`${COMMIT}\`.
+
+                  Workflow Run: https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}"
+
+                    gh issue close "$EXISTING_ISSUE" \
+                      --repo "$REPOSITORY" \
+                      --reason "completed"
+
+                    echo "Successfully closed issue #$EXISTING_ISSUE"
+                  else
+                    echo "No open failure issue found for this branch. Nothing to close."
+                  fi
+
+            # Patched: Fixed missing multi-line quote syntax error
+            - name: Reflect Final Cargo Status
+              if: steps.run_cmd.outcome == 'failure'
+              run: |
+                  echo "cargo r -- t failed."
+                  echo "The failure issue has been created or updated."
+                  exit 1

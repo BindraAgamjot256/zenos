@@ -6,18 +6,20 @@ edition = "2021"
 [workspace]
 members = [
     "zenos-kernel",
+    "zenos-kernel/crates/mm",
+    "zenos-kernel/crates/primitives",
     "zenos-bootloader",
     "zenos-bootloader/api",
     "zenos-bootloader/common",
     "zenos-bootloader/common/config",
     "zenos-bootloader/uefi",
     "zenos-init",
-    "zenos-fuzz", "zenos-kernel/crates/mm", "zenos-kernel/crates/primitives",
+    "zenos-fuzz",
 ]
 
 [workspace.package]
 version = "0.1.0"
-repository = "unknown"
+repository = "https://github.com/BindraAgamjot256/zenos"
 license = "MIT"
 
 [workspace.dependencies]
@@ -26,11 +28,12 @@ bootloader-x86_64-common = { version = "0.1.0", path = "zenos-bootloader/common"
 bootloader-boot-config = { version = "0.1.0", path = "zenos-bootloader/common/config" }
 kprimitives = { version = "0.1.0", path = "zenos-kernel/crates/primitives" }
 kmm = { version = "0.1.0", path = "zenos-kernel/crates/mm" }
+zenos-bootloader = { path = "zenos-bootloader" }
 
 
 [dependencies]
 ovmf-prebuilt = "0.1.0-alpha.1"
-zenos-bootloader = { path = "zenos-bootloader" }
+zenos-bootloader = { workspace = true }
 clap = { version = "4.5.48", features = ["derive"] }
 paste = "1.0.15"
 
