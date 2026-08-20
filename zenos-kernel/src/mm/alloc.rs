@@ -7,7 +7,7 @@ use kprimitives::mutex::Mutex;
 
 use crate::mm::{BUDDY_ALLOCATOR, buddy::Mapping};
 
-struct SlabBackend;
+pub struct SlabBackend;
 
 impl kmm::slab::Backend for SlabBackend {
     unsafe fn allocate(&mut self) -> Option<NonNull<u8>> {

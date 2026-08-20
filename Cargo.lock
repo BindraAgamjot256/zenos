@@ -503,6 +503,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernel-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
+]
+
+[[package]]
 name = "kmm"
 version = "0.1.0"
 dependencies = [
@@ -1360,6 +1369,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.11.1",
  "bootloader_api",
+ "kernel-macros",
  "kmm",
  "kprimitives",
  "log",

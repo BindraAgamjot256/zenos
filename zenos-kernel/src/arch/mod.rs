@@ -9,6 +9,7 @@
 //! - `ports`: Low-level I/O port access for hardware communication
 //! - `serial`: Serial port driver for debugging and early-stage output
 
+#[cfg(target_arch = "x86_64")]
 mod x86_64;
 
 #[cfg(target_arch = "x86_64")]

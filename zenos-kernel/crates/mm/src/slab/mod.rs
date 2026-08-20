@@ -23,10 +23,9 @@
 //! Object sizes must be powers of two, large enough to hold a free-list link,
 //! and small enough to leave room for at least one object after the header.
 
-use core::ptr::NonNull;
-
 pub use self::helpers::Metadata;
 use self::helpers::validate_size;
+use core::ptr::NonNull;
 
 mod helpers;
 

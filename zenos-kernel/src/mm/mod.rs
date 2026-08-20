@@ -1,3 +1,4 @@
+pub use crate::mm::alloc::SlabBackend;
 pub use crate::mm::buddy::BUDDY_ALLOCATOR;
 use bitflags::bitflags;
 use core::{fmt::Debug, ptr::NonNull, sync::atomic::AtomicU32};

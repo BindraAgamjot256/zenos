@@ -6,6 +6,7 @@
 #![no_std]
 #![no_main]
 
+#[cfg(target_os = "none")]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     loop {}
@@ -13,5 +14,5 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> u64 {
-   -1i64 as u64
+    -1i64 as u64
 }

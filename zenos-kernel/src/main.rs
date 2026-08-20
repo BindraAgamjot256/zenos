@@ -2,9 +2,6 @@
 //!
 //! This file contains the entry point for the zenos kernel and basic error handling.
 //!
-//! # Note about pronunciation
-//! the name "zenos" is pronounced as one word, like in zeno's paradox, but with more emphasis on the s.
-//! The name is not pronounced as "zen os" (like "zen operating system").\
 
 #![no_std]
 #![no_main]
@@ -14,10 +11,12 @@ mod arch;
 mod log;
 mod mm;
 
+use core::fmt::Debug;
+
+use crate::{mm::BUDDY_ALLOCATOR, test_alloc_macro::TestAllocator};
 use alloc::vec::Vec;
 use bootloader_api::{config::*, *};
-
-use crate::mm::BUDDY_ALLOCATOR;
+use kprimitives::alloc::{KernelObject, boxed::KBox};
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -79,6 +78,19 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     }
     log::info!("created vec: {:?}", vec);
     drop(vec);
+
+    let tbox = KBox::new(test_alloc_macro::Test { data: [0u16; 510] })
+        .unwrap_or_else(|_| panic!("alloc failed."));
+
+    log::info!("tbox: {:?}", tbox);
+    log::info!(
+        "layout of Test: {:?}",
+        core::alloc::Layout::new::<test_alloc_macro::Test>()
+    );
+
+    let dyn_kbox: KBox<dyn KernelObject, _> = tbox;
+    log::info!("dyn_kbox: {:?}", dyn_kbox.raw_ptr());
+
     loop {}
 }
 
@@ -86,4 +98,21 @@ fn kinit(boot_info: &'static mut BootInfo) {
     log::init();
     log::info!("Hello, zenos!");
     arch::init(boot_info);
+}
+
+mod test_alloc_macro {
+    use kernel_macros::*;
+    use kprimitives::alloc::{CreatableKernelObject, KernelObject};
+
+    #[derive(Debug)]
+    pub struct Test {
+        pub data: [u16; 510],
+    }
+    impl KernelObject for Test {}
+    impl CreatableKernelObject for Test {
+        type Allocator = TestAllocator;
+    }
+
+    #[allocator(type = Test)]
+    pub struct TestAllocator;
 }

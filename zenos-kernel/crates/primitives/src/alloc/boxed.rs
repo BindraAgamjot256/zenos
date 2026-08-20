@@ -1,0 +1,75 @@
+use crate::alloc::{Allocation, Allocator, CreatableKernelObject};
+use core::{
+    alloc::Layout,
+    marker::{PhantomData, Unsize},
+    ops::{CoerceUnsized, Deref, DerefMut},
+    ptr::NonNull,
+};
+
+use crate::alloc::{AllocationError, KernelObject};
+
+#[must_use = "KBox Allocates heap memory. DO NOT WASTE THE FUCKING MEMORY."]
+pub struct KBox<T: KernelObject + ?Sized, A: Allocator> {
+    data: NonNull<T>,
+    allocator: PhantomData<A>,
+    _marker: PhantomData<T>,
+}
+
+impl<T: CreatableKernelObject + Sized> KBox<T, T::Allocator> {
+    #[inline]
+    pub fn new(data: T) -> Result<Self, AllocationError> {
+        let allocation = T::Allocator::allocate(T::layout())?;
+        let raw = allocation.as_ptr().cast::<T>();
+        unsafe { raw.write(data) };
+        Ok(Self {
+            data: raw,
+            _marker: PhantomData,
+            allocator: PhantomData,
+        })
+    }
+}
+
+impl<T: KernelObject + ?Sized, A: Allocator> KBox<T, A> {
+    pub fn raw_ptr(&self) -> *mut T {
+        self.data.as_ptr()
+    }
+}
+
+impl<T: KernelObject + core::fmt::Debug + ?Sized, A: Allocator> core::fmt::Debug for KBox<T, A> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let data = unsafe { self.data.as_ref() };
+        f.debug_tuple("KBox").field(&data).finish()
+    }
+}
+
+impl<T: KernelObject + ?Sized, A: Allocator> Deref for KBox<T, A> {
+    type Target = T;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.data.as_ref() }
+    }
+}
+
+impl<T: KernelObject + ?Sized, A: Allocator> DerefMut for KBox<T, A> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.data.as_mut() }
+    }
+}
+
+impl<T: KernelObject + ?Sized, A: Allocator> Drop for KBox<T, A> {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe { core::ptr::drop_in_place(self.data.as_ptr()) };
+        A::deallocate(Allocation::from_ptr(self.data.cast()), unsafe {
+            Layout::for_value_raw(self.data.as_ptr())
+        })
+    }
+}
+
+impl<T: KernelObject + Unsize<U>, U: ?Sized + KernelObject, A: Allocator> CoerceUnsized<KBox<U, A>>
+    for KBox<T, A>
+{
+}
