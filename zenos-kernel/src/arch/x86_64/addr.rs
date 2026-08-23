@@ -24,14 +24,14 @@ pub struct PhysAddr(u64);
 
 /// A validated canonical x86_64 virtual address.
 ///
-/// x86_64 virtual addresses must be "canonical": bits [0:47] can be any value,
-/// but bits [48:63] must match bit 47 (sign extension). This ensures proper addressing
+/// x86_64 virtual addresses must be "canonical": bits \[0:47\] can be any value,
+/// but bits \[48:63\] must match bit 47 (sign extension). This ensures proper addressing
 /// and prevents invalid addresses from being used.
 ///
 /// # Canonical Form
 /// For an address to be canonical:
-/// - If bit 47 is 0, bits [48:63] must all be 0 (kernel space)
-/// - If bit 47 is 1, bits [48:63] must all be 1 (user space)
+/// - If bit 47 is 0, bits \[48:63\] must all be 0 (kernel space)
+/// - If bit 47 is 1, bits \[48:63\] must all be 1 (user space)
 ///
 /// # Example
 /// ```
@@ -199,8 +199,8 @@ impl core::ops::DerefMut for PhysAddr {
 impl VirtAddr {
     /// Checks if the given address is canonical (bits 48-63 match bit 47).
     ///
-    /// A canonical address has proper sign extension: if bit 47 is set, all of bits [48:63]
-    /// must be set; if bit 47 is clear, all of bits [48:63] must be clear.
+    /// A canonical address has proper sign extension: if bit 47 is set, all of bits \[48:63\]
+    /// must be set; if bit 47 is clear, all of bits \[48:63\] must be clear.
     #[inline]
     fn is_canonical(addr: u64) -> bool {
         let bit_47 = (addr >> 47) & 1;

@@ -1,9 +1,13 @@
+use alloc::alloc::alloc;
+use alloc::alloc::dealloc;
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::NonNull,
 };
-
-use kprimitives::mutex::Mutex;
+use kprimitives::{
+    alloc::{Allocation, AllocationError},
+    mutex::Mutex,
+};
 
 use crate::mm::{BUDDY_ALLOCATOR, buddy::Mapping};
 
@@ -174,3 +178,18 @@ unsafe impl GlobalAlloc for SlabAllocator {
 
 #[global_allocator]
 static ALLOCATOR: SlabAllocator = SlabAllocator::new();
+
+pub struct GlobalAllocator;
+unsafe impl kprimitives::alloc::Allocator for GlobalAllocator {
+    fn allocate(layout: Layout) -> Result<Allocation, AllocationError> {
+        let alloc = unsafe { alloc(layout) };
+        if alloc.is_null() {
+            return Err(AllocationError::OutOfMemory);
+        }
+        Ok(Allocation::from_ptr(NonNull::new(alloc).unwrap()))
+    }
+
+    fn deallocate(ptr: Allocation, layout: Layout) {
+        unsafe { dealloc(ptr.as_ptr().as_ptr(), layout) };
+    }
+}

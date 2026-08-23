@@ -73,3 +73,6 @@ impl<T: KernelObject + Unsize<U>, U: ?Sized + KernelObject, A: Allocator> Coerce
     for KBox<T, A>
 {
 }
+
+unsafe impl<T: KernelObject + ?Sized + Send, A: Allocator> Send for KBox<T, A> {}
+unsafe impl<T: KernelObject + ?Sized + Sync, A: Allocator> Sync for KBox<T, A> {}

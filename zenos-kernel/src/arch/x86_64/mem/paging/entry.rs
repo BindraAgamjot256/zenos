@@ -13,9 +13,9 @@ use crate::arch::PhysAddr;
 /// When the HUGE_PAGE flag is set, the physical address may span multiple pages.
 ///
 /// # Layout
-/// - Bits [0:11]: Flags (PRESENT, WRITABLE, etc.)
-/// - Bits [12:51]: Physical address (40 bits)
-/// - Bits [52:62]: Available for software use
+/// - Bits \[0:11\]: Flags (PRESENT, WRITABLE, etc.)
+/// - Bits \[12:51\]: Physical address (40 bits)
+/// - Bits \[52:62\]: Available for software use
 /// - Bit 63: NO_EXECUTE flag
 ///
 /// # Example
@@ -60,7 +60,7 @@ impl PageTableEntry {
 
     /// Returns the physical address contained in this entry.
     ///
-    /// The address is extracted from bits [12:51] and aligned to 4096-byte (4KB) pages.
+    /// The address is extracted from bits \[12:51\] and aligned to 4096-byte (4KB) pages.
     ///
     /// # Returns
     /// The physical address stored in this entry
@@ -73,8 +73,8 @@ impl PageTableEntry {
 
     /// Sets the physical address for this entry.
     ///
-    /// The address must be 4KB-aligned (bits [0:11] must be zero). The address
-    /// is stored in bits [12:51]; higher bits are preserved.
+    /// The address must be 4KB-aligned (bits \[0:11\] must be zero). The address
+    /// is stored in bits \[12:51\]; higher bits are preserved.
     ///
     /// # Arguments
     /// * `addr` - The physical address to store

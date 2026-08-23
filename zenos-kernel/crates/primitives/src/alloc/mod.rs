@@ -30,6 +30,7 @@ pub trait CreatableKernelObject: KernelObject + Sized {
 }
 
 /// Errors that can occur while allocating memory.
+#[derive(Debug, Clone, Copy)]
 pub enum AllocationError {
     /// The requested allocation size is invalid.
     InvalidSize,
@@ -95,7 +96,7 @@ pub unsafe trait Allocator {
     /// Returns [`AllocationError::InvalidSize`] if the requested size is not
     /// supported by the allocator.
     ///
-    /// Returns [`AllocationError::InvalidLayout`] if the requested layout
+    /// Returns [`AllocationError::UnsupportedLayout`] if the requested layout
     /// cannot be handled by the allocator.
     ///
     /// Returns [`AllocationError::OutOfMemory`] if sufficient memory is not

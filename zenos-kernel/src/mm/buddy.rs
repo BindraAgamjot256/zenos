@@ -67,7 +67,7 @@ impl BuddyAllocator {
     /// Creates an empty buddy allocator.
     ///
     /// All free lists begin empty. Memory is added later by inserting
-    /// buddy blocks with [`insert_block`].
+    /// buddy blocks with [`Self::insert_block`].
     pub const fn new() -> Self {
         Self {
             raw: Mutex::new(RawBuddyAllocator::new(Backend)),

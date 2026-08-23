@@ -1,3 +1,4 @@
+pub use crate::mm::alloc::GlobalAllocator;
 pub use crate::mm::alloc::SlabBackend;
 pub use crate::mm::buddy::BUDDY_ALLOCATOR;
 use bitflags::bitflags;
