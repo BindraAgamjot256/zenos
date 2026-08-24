@@ -1,4 +1,5 @@
 mod allocator;
+mod isrs;
 
 #[proc_macro_attribute]
 pub fn allocator(
@@ -10,4 +11,9 @@ pub fn allocator(
     expanded
         .unwrap_or_else(|e| e.to_compile_error().into())
         .into()
+}
+
+#[proc_macro]
+pub fn gen_isrs(args: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    isrs::expand(args).into()
 }

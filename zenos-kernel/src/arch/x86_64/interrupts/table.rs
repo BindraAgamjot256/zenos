@@ -5,8 +5,6 @@
 
 use super::handlers::*;
 use core::arch::asm;
-use paste::paste;
-use seq_macro::seq;
 
 const IDT_ENTRIES: usize = 256;
 const KERNEL_CS: u16 = 0x08;
@@ -100,30 +98,7 @@ struct Idtr {
 static mut IDT: Idt = Idt::new();
 
 // Declare symbols
-seq!(N in 0..256 {
-    paste! {
-        unsafe extern "C" {
-            fn [<isr_ N>]();
-        }
-    }
-});
-
-// Generate handler array
-macro_rules! make_isr_array {
-    () => {
-        seq!(N in 0..256 {
-            [
-                #(
-                    paste! {
-                        [<isr_ N>] as unsafe extern "C" fn()
-                    },
-                )*
-            ]
-        })
-    };
-}
-
-static ISR_HANDLERS: [unsafe extern "C" fn(); 256] = make_isr_array!();
+kernel_macros::gen_isrs!();
 
 /// Initializes the interrupt descriptor table and registers the page-fault handler.
 ///
@@ -151,7 +126,6 @@ pub fn init_idt() {
         (*idt).load();
     }
 
-    log::info!("Registering page-fault handler for vector {PAGE_FAULT_VECTOR:#x}");
     super::registry::register_guardless(PAGE_FAULT_VECTOR, pf_handler);
     super::registry::register_guardless(DOUBLE_FAULT_VECTOR, df_handler);
 }

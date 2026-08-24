@@ -11,9 +11,7 @@ mod arch;
 mod log;
 mod mm;
 
-use core::fmt::Debug;
-
-use crate::{mm::BUDDY_ALLOCATOR, test_alloc_macro::TestAllocator};
+use crate::mm::BUDDY_ALLOCATOR;
 use alloc::vec::Vec;
 use bootloader_api::{config::*, *};
 use kprimitives::alloc::{KernelObject, boxed::KBox};
