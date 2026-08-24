@@ -37,6 +37,7 @@ impl InterruptRegistry {
     /// Every vector starts with a fallback handler so an unconfigured entry
     /// fails loudly instead of silently continuing with an invalid dispatch.
     pub const fn new() -> Self {
+        #[allow(clippy::declare_interior_mutable_const)]
         const INIT: core::sync::atomic::AtomicPtr<fn(&mut InterruptContext)> =
             core::sync::atomic::AtomicPtr::new(default_handler as *mut fn(&mut InterruptContext));
         Self {
@@ -70,7 +71,11 @@ impl InterruptRegistry {
             );
             default_handler
         } else {
-            unsafe { core::mem::transmute(handler_ptr) }
+            unsafe {
+                core::mem::transmute::<*mut fn(&mut InterruptContext), fn(&mut InterruptContext)>(
+                    handler_ptr,
+                )
+            }
         }
     }
 }

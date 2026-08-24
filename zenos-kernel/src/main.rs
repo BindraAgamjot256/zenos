@@ -11,6 +11,8 @@ mod arch;
 mod log;
 mod mm;
 
+use core::hint::spin_loop;
+
 use crate::mm::BUDDY_ALLOCATOR;
 use alloc::vec::Vec;
 use bootloader_api::{config::*, *};
@@ -89,7 +91,9 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     let dyn_kbox: KBox<dyn KernelObject, _> = tbox;
     log::info!("dyn_kbox: {:?}", dyn_kbox.raw_ptr());
 
-    loop {}
+    loop {
+        spin_loop();
+    }
 }
 
 fn kinit(boot_info: &'static mut BootInfo) {

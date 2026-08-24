@@ -8,7 +8,7 @@ pub trait PageSize {
     const SIZE: usize;
 
     fn is_aligned(addr: usize) -> bool {
-        addr % Self::SIZE == 0
+        addr.is_multiple_of(Self::SIZE)
     }
 }
 

@@ -37,9 +37,9 @@ impl log::Log for SerialLogger {
 
         let seq = LOG_SEQUENCE.fetch_add(1, Ordering::Relaxed);
 
-        let _ = write!(
+        let _ = writeln!(
             self.port.clone(),
-            "#{:06} [{:<5}] {}: {}\n",
+            "#{:06} [{:<5}] {}: {}",
             seq,
             record.level(),
             record.target(),

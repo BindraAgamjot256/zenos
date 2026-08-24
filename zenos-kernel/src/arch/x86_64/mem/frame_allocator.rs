@@ -251,7 +251,12 @@ pub(super) fn init(mem_map: impl Iterator<Item = (usize, usize, bool)> + Clone) 
             last_page,
         );
 
-        for page_index in first_page..last_page {
+        for (page_index, i) in slice
+            .iter_mut()
+            .enumerate()
+            .take(last_page)
+            .skip(first_page)
+        {
             let phys = page_index * PAGE_SIZE;
 
             /*
@@ -262,7 +267,7 @@ pub(super) fn init(mem_map: impl Iterator<Item = (usize, usize, bool)> + Clone) 
                 continue;
             }
 
-            slice[page_index].mark_usable();
+            i.mark_usable();
         }
     }
 

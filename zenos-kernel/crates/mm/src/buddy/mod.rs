@@ -204,7 +204,7 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
              * newly inserted head.
              */
             if let Some(mut next_node) = self.free_lists[order] {
-                (*next_node.as_mut()).prev = Some(NonNull::new_unchecked(node_ptr));
+                (next_node.as_mut()).prev = Some(NonNull::new_unchecked(node_ptr));
             }
 
             self.free_lists[order] = Some(NonNull::new_unchecked(node_ptr));
@@ -235,10 +235,10 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
                 /*
                  * Advance the list head to the next node.
                  */
-                let next_node = (*node_ptr.as_mut()).next;
+                let next_node = (node_ptr.as_mut()).next;
 
                 if let Some(mut next_node_ptr) = next_node {
-                    (*next_node_ptr.as_mut()).prev = None;
+                    (next_node_ptr.as_mut()).prev = None;
                 }
 
                 self.free_lists[order] = next_node;
@@ -308,13 +308,13 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
                 let next_node = (*node_ptr).next;
 
                 if let Some(mut prev_node_ptr) = prev_node {
-                    (*prev_node_ptr.as_mut()).next = next_node;
+                    (prev_node_ptr.as_mut()).next = next_node;
                 } else {
                     self.free_lists[order] = next_node;
                 }
 
                 if let Some(mut next_node_ptr) = next_node {
-                    (*next_node_ptr.as_mut()).prev = prev_node;
+                    (next_node_ptr.as_mut()).prev = prev_node;
                 }
             }
 
@@ -629,17 +629,13 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
          *
          * The process continues until the block can no longer grow.
          */
-        loop {
-            if let Some(merged_block) = self.merge_buddy(current_block_pfn, current_order) {
-                /*
-                 * The merged block may itself have a free buddy at the
-                 * next order, so continue attempting larger merges.
-                 */
-                current_block_pfn = merged_block;
-                current_order += 1;
-            } else {
-                break;
-            }
+        while let Some(merged_block) = self.merge_buddy(current_block_pfn, current_order) {
+            /*
+             * The merged block may itself have a free buddy at the
+             * next order, so continue attempting larger merges.
+             */
+            current_block_pfn = merged_block;
+            current_order += 1;
         }
 
         /*

@@ -30,7 +30,7 @@ static PHYS_OFFSET: AtomicUsize = AtomicUsize::new(0);
 
 bitflags! {
     /// Permissions and memory attributes for mapped pages.
-    #[derive(Debug)]
+    #[derive(Debug, Clone, Copy)]
     pub struct MemoryType: u32 {
         /// The page is readable.
         const READABLE = 1 << 0;

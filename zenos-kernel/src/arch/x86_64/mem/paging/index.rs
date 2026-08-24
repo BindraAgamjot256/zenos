@@ -24,8 +24,7 @@ impl PageTableIndex {
     ///
     /// # Arguments
     /// * `addr` - The virtual address to extract the index from
-    /// * `level` - The paging level (0-3 for 4-level paging)
-    ///            Level 0 extracts the highest 9 bits of the address
+    /// * `level` - The paging level (0-3 for 4-level paging) Level 0 extracts the highest 9 bits of the address
     ///
     /// # Returns
     /// The 9-bit index into the page table at the specified level
@@ -38,7 +37,7 @@ impl PageTableIndex {
     /// ```
     #[inline(always)]
     pub fn new(addr: VirtAddr, level: usize) -> Self {
-        let shift = 12 + (3 - level) * 9; // DO NOT FUCKING REPLACE THIS WITH LEVEL. IT TOOK ME TWO FUCKING DAYS TO FIND A PAGING BUG HERE. 
+        let shift = 12 + (3 - level) * 9; // DO NOT FUCKING REPLACE THIS WITH LEVEL. IT TOOK ME TWO FUCKING DAYS TO FIND A PAGING BUG HERE.
         let index = (addr.as_u64() >> shift) & 0o777;
         Self(index as u16)
     }

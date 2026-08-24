@@ -1,4 +1,4 @@
-use proc_macro2::{Ident, Span, TokenStream};
+use proc_macro2::{Ident, Span};
 use quote::quote;
 
 pub fn expand(args: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -26,5 +26,5 @@ pub fn expand(args: proc_macro::TokenStream) -> proc_macro::TokenStream {
         ];
     };
 
-    TokenStream::from(expanded).into()
+    expanded.into()
 }

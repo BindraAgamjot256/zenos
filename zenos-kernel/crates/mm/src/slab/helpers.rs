@@ -69,7 +69,7 @@ pub const fn header_size(size: usize) -> usize {
 pub const fn get_num_objects(size: usize) -> usize {
     assert!(size > 0);
     assert!(size.is_power_of_two());
-    assert!(size % align_of::<FreeSlot>() == 0);
+    assert!(size.is_multiple_of(align_of::<FreeSlot>()));
 
     // Integer division intentionally discards any tail too small for a full
     // object slot.
@@ -93,7 +93,7 @@ pub const fn validate_size(size: usize) {
     // A free slot stores allocator metadata in-band, so every object must be
     // able to contain and align that metadata.
     assert!(size >= size_of::<FreeSlot>());
-    assert!(size % align_of::<FreeSlot>() == 0);
+    assert!(size.is_multiple_of(align_of::<FreeSlot>()));
     assert!(size.is_power_of_two());
 
     // Reject caches whose padded header leaves no usable object storage.
