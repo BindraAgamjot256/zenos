@@ -72,6 +72,7 @@ impl PhysAddr {
     /// // PhysAddr::new(0x1_0000_0000_0000); // Panics: exceeds 48 bits
     /// ```
     #[inline]
+    #[track_caller]
     pub fn new(addr: u64) -> Self {
         Self::try_new(addr).expect("invalid physical address (exceeds 48 bits)")
     }

@@ -5,55 +5,26 @@
 //! - `paging`: Virtual memory management through x86_64 paging structures
 //!
 
-#![allow(unused)] // we have a bunch of unsed stuff that will be used in the future, but we want to avoid warnings for now
-
 pub(super) mod frame_allocator;
 pub(super) mod paging;
 
-use core::sync::atomic::AtomicUsize;
-
-use log::{debug, error, info, trace, warn};
-
-use bitflags::bitflags;
-
-use crate::arch::{
-    MemMapErr,
-    x86_64::addr::{PhysAddr, VirtAddr},
-    x86_64::mem::paging::{
-        Frame, Page, PageTableFlags, get_current_page_tables,
-        page::{self, PageSize, Size1G, Size2M, Size4K},
+pub use crate::arch::x86_64::mem::frame_allocator::{memmap_addr, memmap_len};
+use crate::vmm::VmmArena;
+use crate::{
+    arch::{
+        VirtAddr,
+        common::mem_types::{MappingError, MemoryType},
+        mem::paging::{FrameAllocator, get_current_page_tables},
+        x86_64::{addr::PhysAddr, mem::paging::PageTableFlags},
     },
+    mm::BUDDY_ALLOCATOR,
 };
+use core::sync::atomic::AtomicUsize;
+use kprimitives::mutex::Mutex;
 
 pub const PAGE_SIZE: usize = 4096;
 static PHYS_OFFSET: AtomicUsize = AtomicUsize::new(0);
-
-bitflags! {
-    /// Permissions and memory attributes for mapped pages.
-    #[derive(Debug, Clone, Copy)]
-    pub struct MemoryType: u32 {
-        /// The page is readable.
-        const READABLE = 1 << 0;
-
-        /// The page is writable.
-        const WRITABLE = 1 << 1;
-
-        /// The page is executable.
-        const EXECUTABLE = 1 << 2;
-
-        /// The page is accessible from user mode.
-        const USER_ACCESSIBLE = 1 << 3;
-
-        /// The page is global and should not be flushed from the TLB when CR3 changes.
-        const GLOBAL = 1 << 4;
-
-        /// The page is not cached.
-        const NO_CACHE = 1 << 5;
-
-        /// The page uses write-through caching.
-        const WRITE_THROUGH = 1 << 6;
-    }
-}
+static IO_VMM_ARENA: Mutex<Option<VmmArena>> = Mutex::new(None);
 
 impl MemoryType {
     #[inline]
@@ -106,29 +77,53 @@ pub fn init(
 ) {
     paging::init(phys_offset);
     frame_allocator::init(mem_map.clone());
-}
-
-fn map_to_mem_map_err(err: paging::MapToError) -> MemMapErr {
-    match err {
-        paging::MapToError::PageAlreadyMapped => MemMapErr::AlreadyMapped,
-        paging::MapToError::ParentEntryHugePage => MemMapErr::ParentHugePage,
-        paging::MapToError::FrameAllocationFailed => MemMapErr::Uninit, //todo: fix.
-    }
-}
-
-pub fn map_mem_region(
-    virt: VirtAddr,
-    phys: Option<PhysAddr>,
-    len: usize,
-    mem_type: MemoryType,
-) -> Result<PhysAddr, MemMapErr> {
-    todo!();
-}
-
-pub fn free_mem_region(virt: VirtAddr, len: usize) -> Result<(), MemMapErr> {
-    todo!();
+    let memmap_len = memmap_len();
+    let memmap_end = memmap_addr::<u8>() as usize + memmap_len;
+    let iovmm = VmmArena::new(
+        VirtAddr::new(memmap_end as u64),
+        VirtAddr::new(memmap_end as u64 + 0x10000),
+    );
+    IO_VMM_ARENA.lock().replace(iovmm);
 }
 
 pub fn get_phys_offset() -> usize {
     PHYS_OFFSET.load(core::sync::atomic::Ordering::SeqCst)
+}
+
+pub fn ioremap(addr: PhysAddr, size: usize) -> Result<VirtAddr, MappingError> {
+    let size = (size + PAGE_SIZE - 1) & !(PAGE_SIZE - 1);
+    let mut va_arena = IO_VMM_ARENA.lock();
+    let va = va_arena.as_mut().ok_or(MappingError::Uninit)?;
+    let vaddr = va
+        .allocate_region(addr, size)
+        .ok_or(MappingError::OutOfMem)?;
+    let mut pt = unsafe { get_current_page_tables() };
+    let fa = &BUDDY_ALLOCATOR;
+    for i in (0..size).step_by(PAGE_SIZE) {
+        unsafe {
+            pt.map_to_with_table_flags_4k(
+                VirtAddr::new(vaddr.as_u64() + i as u64),
+                PhysAddr::new(addr.as_u64() + i as u64),
+                fa,
+                PageTableFlags::PRESENT
+                    | PageTableFlags::WRITABLE
+                    | PageTableFlags::NO_CACHE
+                    | PageTableFlags::NO_EXECUTE,
+                PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE,
+            )
+            .map_err(|e| todo!("error: {e:?}"))?
+            .flush();
+        }
+    }
+    Ok(vaddr)
+}
+
+// this impl only exists for x86_64
+impl FrameAllocator for crate::mm::buddy::BuddyAllocator {
+    fn alloc_frame(&self) -> Option<PhysAddr> {
+        let mapping = self.alloc(0).ok()?;
+        let start = (mapping.as_slice().as_ptr() as usize) - get_phys_offset();
+        let phys_addr = PhysAddr::new(start as u64);
+        Some(phys_addr)
+    }
 }

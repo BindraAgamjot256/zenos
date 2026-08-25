@@ -174,11 +174,6 @@ impl<B: BuddyBackend> RawBuddyAllocator<B> {
     pub fn insert_block(&mut self, block_pfn: PageFrameNum, order: usize) {
         assert!(order <= MAX_ORDER);
 
-        debug!(
-            "Inserting block PFN {:?} into free list order {}",
-            block_pfn, order
-        );
-
         /*
          * Store the order before linking the block.
          *

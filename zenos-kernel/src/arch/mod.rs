@@ -9,6 +9,8 @@
 //! - `ports`: Low-level I/O port access for hardware communication
 //! - `serial`: Serial port driver for debugging and early-stage output
 
+pub mod common;
+
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 
@@ -18,9 +20,4 @@ pub use x86_64::*;
 #[cfg(not(target_arch = "x86_64"))]
 compile_error!("Unsupported architecture");
 
-#[derive(Debug)]
-pub enum MemMapErr {
-    Uninit,
-    AlreadyMapped,
-    ParentHugePage,
-}
+pub use common::*;

@@ -9,19 +9,15 @@
 //! These types work together to implement multi-level paging translation
 //! from virtual addresses to physical addresses.
 
-#![allow(unused)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
 pub mod entry;
 pub mod flags;
 pub mod index;
-pub mod page;
 pub mod table;
 
-pub use entry::PageTableEntry;
 pub use flags::PageTableFlags;
 pub use index::PageTableIndex;
-pub use page::{Frame, Page};
 pub use table::PageTable;
 
 use crate::arch::{PhysAddr, VirtAddr};
@@ -29,7 +25,6 @@ use crate::arch::{PhysAddr, VirtAddr};
 use super::PHYS_OFFSET;
 use core::arch::asm;
 use log::info;
-use page::PageSize;
 
 /// Errors returned by mapping operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,13 +44,13 @@ pub enum MapToError {
 /// This type is intentionally `#[must_use]` so callers are forced to
 /// explicitly decide whether to invalidate the TLB.
 #[must_use = "TLB flushes must be handled explicitly via .flush() or .ignore()"]
-pub struct MapperFlush<S: PageSize> {
-    page: Page<S>,
+pub struct MapperFlush {
+    page: VirtAddr,
 }
 
-impl<S: PageSize> MapperFlush<S> {
+impl MapperFlush {
     #[inline]
-    pub fn new(page: Page<S>) -> Self {
+    pub fn new(page: VirtAddr) -> Self {
         Self { page }
     }
 
@@ -65,7 +60,7 @@ impl<S: PageSize> MapperFlush<S> {
         unsafe {
             asm!(
                 "invlpg [{}]",
-                in(reg) self.page.start_address(),
+                in(reg) self.page.as_u64(),
                 options(nostack, preserves_flags)
             );
         }
@@ -76,7 +71,7 @@ impl<S: PageSize> MapperFlush<S> {
     /// Useful during early boot before paging is fully active,
     /// or before a later CR3 reload.
     #[inline]
-    pub fn ignore(self) {}
+    pub fn _ignore(self) {}
 }
 
 pub struct OffsetPageTable<'a> {
@@ -106,7 +101,7 @@ impl<'a> OffsetPageTable<'a> {
     /// Must only be used on inactive page tables.
     /// Calling this on the active table will invalidate currently
     /// active mappings and almost certainly crash the kernel.
-    pub unsafe fn init(&mut self) {
+    pub unsafe fn _init(&mut self) {
         self.l4_table.zero();
 
         info!(
@@ -144,7 +139,7 @@ impl<'a> OffsetPageTable<'a> {
             frame_alloc
                 .alloc_frame()
                 .ok_or(MapToError::FrameAllocationFailed)?
-                .start_address() as u64,
+                .as_u64(),
         );
 
         debug_assert_eq!(frame.as_u64() % 4096, 0);
@@ -185,15 +180,12 @@ impl<'a> OffsetPageTable<'a> {
     /// Maps a page.
     pub unsafe fn map_to_with_table_flags_4k<T: FrameAllocator>(
         &mut self,
-        page: Page<page::Size4K>,
-        frame: Frame<page::Size4K>,
+        virt_addr: VirtAddr,
+        phys_addr: PhysAddr,
         frame_alloc: &T,
         page_flags: PageTableFlags,
         table_flags: PageTableFlags,
-    ) -> Result<MapperFlush<page::Size4K>, MapToError> {
-        let virt_addr = VirtAddr::new(page.start_address() as u64);
-        let phys_addr = PhysAddr::new(frame.start_address() as u64);
-
+    ) -> Result<MapperFlush, MapToError> {
         let l4_index = PageTableIndex::new(virt_addr, 0);
         let l3_index = PageTableIndex::new(virt_addr, 1);
         let l2_index = PageTableIndex::new(virt_addr, 2);
@@ -234,20 +226,20 @@ impl<'a> OffsetPageTable<'a> {
         entry.set_addr(phys_addr);
         entry.add_flags(page_flags | PageTableFlags::PRESENT);
 
-        Ok(MapperFlush::new(page))
+        Ok(MapperFlush::new(virt_addr))
     }
 
     /// Maps using default intermediate table flags.
     pub unsafe fn map_to_4kib<T: FrameAllocator>(
         &mut self,
-        page: Page<page::Size4K>,
-        frame: Frame<page::Size4K>,
+        virt_addr: VirtAddr,
+        phys_addr: PhysAddr,
         frame_alloc: &T,
         page_flags: PageTableFlags,
-    ) -> Result<MapperFlush<page::Size4K>, MapToError> {
+    ) -> Result<MapperFlush, MapToError> {
         self.map_to_with_table_flags_4k(
-            page,
-            frame,
+            virt_addr,
+            phys_addr,
             frame_alloc,
             page_flags,
             PageTableFlags::GLOBAL
@@ -263,16 +255,13 @@ impl<'a> OffsetPageTable<'a> {
     }
 
     /// Maps a 2MiB huge page.
-    pub unsafe fn map_huge_2mib<T: FrameAllocator>(
+    pub unsafe fn _map_huge_2mib<T: FrameAllocator>(
         &mut self,
-        page: Page<page::Size2M>,
-        frame: Frame<page::Size2M>,
+        virt_addr: VirtAddr,
+        phys_addr: PhysAddr,
         frame_alloc: &T,
         flags: PageTableFlags,
-    ) -> Result<MapperFlush<page::Size2M>, MapToError> {
-        let virt_addr = VirtAddr::new(page.start_address() as u64);
-        let phys_addr = PhysAddr::new(frame.start_address() as u64);
-
+    ) -> Result<MapperFlush, MapToError> {
         debug_assert_eq!(phys_addr.as_u64() % (2 * 1024 * 1024), 0);
         debug_assert_eq!(virt_addr.as_u64() % (2 * 1024 * 1024), 0);
 
@@ -305,20 +294,17 @@ impl<'a> OffsetPageTable<'a> {
         entry.set_addr(phys_addr);
         entry.add_flags(flags | PageTableFlags::PRESENT | PageTableFlags::HUGE_PAGE);
 
-        Ok(MapperFlush::new(page))
+        Ok(MapperFlush::new(virt_addr))
     }
 
     /// Maps a 1GiB huge page.
-    pub unsafe fn map_huge_1gib<T: FrameAllocator>(
+    pub unsafe fn _map_huge_1gib<T: FrameAllocator>(
         &mut self,
-        page: Page<page::Size1G>,
-        frame: Frame<page::Size1G>,
+        virt_addr: VirtAddr,
+        phys_addr: PhysAddr,
         frame_alloc: &T,
         flags: PageTableFlags,
-    ) -> Result<MapperFlush<page::Size1G>, MapToError> {
-        let virt_addr = VirtAddr::new(page.start_address() as u64);
-        let phys_addr = PhysAddr::new(frame.start_address() as u64);
-
+    ) -> Result<MapperFlush, MapToError> {
         debug_assert_eq!(phys_addr.as_u64() % (1024 * 1024 * 1024), 0);
         debug_assert_eq!(virt_addr.as_u64() % (1024 * 1024 * 1024), 0);
 
@@ -342,7 +328,7 @@ impl<'a> OffsetPageTable<'a> {
         entry.set_addr(phys_addr);
         entry.add_flags(flags | PageTableFlags::PRESENT | PageTableFlags::HUGE_PAGE);
 
-        Ok(MapperFlush::new(page))
+        Ok(MapperFlush::new(virt_addr))
     }
 }
 
@@ -356,7 +342,7 @@ pub unsafe fn get_current_page_tables<'a>() -> OffsetPageTable<'a> {
     let physical_mem_offset = PHYS_OFFSET.load(core::sync::atomic::Ordering::SeqCst);
 
     let (l4_table, _) = crate::arch::registers::control::CR3::read_raw();
-    let virt = l4_table.start_address() + physical_mem_offset;
+    let virt = l4_table.as_usize() + physical_mem_offset;
     let page_table_ptr = virt as *mut PageTable;
 
     let l4_table = unsafe { &mut *page_table_ptr };
@@ -365,5 +351,5 @@ pub unsafe fn get_current_page_tables<'a>() -> OffsetPageTable<'a> {
 }
 
 pub trait FrameAllocator {
-    fn alloc_frame(&self) -> Option<Frame<page::Size4K>>;
+    fn alloc_frame(&self) -> Option<PhysAddr>;
 }

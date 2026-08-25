@@ -8,31 +8,30 @@
 //!
 //! The module initializes architecture-specific components during kernel boot.
 
-use bootloader_api::info::{MemoryRegion as Region, MemoryRegionKind};
-
 mod addr;
 mod gdt;
 mod interrupts;
-mod mem;
+pub mod mem;
 pub mod ports;
 pub mod registers;
 pub mod serial;
+mod timers;
 
+use crate::firmware;
 pub use addr::{PhysAddr, VirtAddr};
-pub use mem::{PAGE_SIZE, frame_allocator::memmap_addr, get_phys_offset};
+use bootloader_api::info::{MemoryRegion as Region, MemoryRegionKind};
+pub use timers::CLOCKSOURCE;
 
 pub fn init(boot_info: &'static mut crate::BootInfo) {
     log::info!("Initializing architecture-specific components...");
 
     let regions = &mut *boot_info.memory_regions;
-
     let write = merge_contiguous_regions(regions);
-
     let iter = regions[..write].iter().map(|r| {
         (
-            r.start as usize,
-            (r.end - r.start) as usize,
-            r.kind == MemoryRegionKind::Usable,
+            r.start as usize,                   // start
+            (r.end - r.start) as usize,         // length
+            r.kind == MemoryRegionKind::Usable, // usable
         )
     });
 
@@ -46,6 +45,13 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
             .into_option()
             .unwrap_or_default() as usize,
     );
+
+    let bootdata = firmware::init(boot_info);
+    if let Some(ref hpet) = bootdata.hpet {
+        log::info!("HPET: {:?}", hpet);
+    }
+
+    timers::init(&bootdata);
 
     self::interrupts::with_handler(
         0x3,

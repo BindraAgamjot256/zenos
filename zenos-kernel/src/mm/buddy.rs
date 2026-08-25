@@ -1,4 +1,4 @@
-use crate::arch::PAGE_SIZE;
+use crate::arch::mem::PAGE_SIZE;
 use crate::mm::{Page, PageFlags};
 use core::ptr::NonNull;
 use kmm::buddy::{AllocError, BuddyBackend, FreeError, PageFrameNum, RawBuddyAllocator};
@@ -25,12 +25,12 @@ struct Backend;
 
 impl BuddyBackend for Backend {
     fn ptr_to_pfn(&self, ptr: *mut u8) -> kmm::buddy::PageFrameNum {
-        let addr = ptr.addr() - crate::arch::get_phys_offset();
+        let addr = ptr.addr() - crate::arch::mem::get_phys_offset();
         PageFrameNum::new(addr >> PAGE_SIZE.ilog2())
     }
 
     fn pfn_to_ptr(&self, pfn: kmm::buddy::PageFrameNum) -> *mut u8 {
-        let addr = (pfn.number() << PAGE_SIZE.ilog2()) + crate::arch::get_phys_offset();
+        let addr = (pfn.number() << PAGE_SIZE.ilog2()) + crate::arch::mem::get_phys_offset();
         addr as *mut u8
     }
 
@@ -147,7 +147,7 @@ impl Mapping {
 
         unsafe {
             core::slice::from_raw_parts(
-                (range.start + crate::arch::get_phys_offset()) as *const u8,
+                (range.start + crate::arch::mem::get_phys_offset()) as *const u8,
                 range.len(),
             )
         }
@@ -158,7 +158,7 @@ impl Mapping {
 
         unsafe {
             core::slice::from_raw_parts_mut(
-                (range.start + crate::arch::get_phys_offset()) as *mut u8,
+                (range.start + crate::arch::mem::get_phys_offset()) as *mut u8,
                 range.len(),
             )
         }
@@ -169,7 +169,7 @@ impl Mapping {
 
         unsafe {
             // 1. Get the base address as a pointer to Page structs rather than u8
-            let base_ptr = crate::arch::memmap_addr::<Page>() as usize;
+            let base_ptr = crate::arch::mem::memmap_addr::<Page>() as usize;
             let cptr = base_ptr.checked_add(self.start * size_of::<Page>());
             assert!(
                 cptr.is_some(),
@@ -185,7 +185,7 @@ impl Mapping {
         let page_count = 1usize << self.order;
 
         unsafe {
-            let base_ptr = crate::arch::memmap_addr::<Page>() as usize;
+            let base_ptr = crate::arch::mem::memmap_addr::<Page>() as usize;
             let cptr = base_ptr.checked_add(self.start * size_of::<Page>());
             assert!(
                 cptr.is_some(),
@@ -198,7 +198,7 @@ impl Mapping {
     }
 
     pub fn new(ptr: usize, order: usize) -> Self {
-        let start = (ptr - crate::arch::get_phys_offset()) >> PAGE_SIZE.ilog2();
+        let start = (ptr - crate::arch::mem::get_phys_offset()) >> PAGE_SIZE.ilog2();
         Self { start, order }
     }
 }

@@ -1,17 +1,19 @@
+use crate::arch::PhysAddr;
+use crate::arch::VirtAddr;
+use crate::{
+    arch::x86_64::mem::paging::{FrameAllocator, PageTableFlags, get_current_page_tables},
+    mm::{Page as s_Page, PageFlags},
+};
 use core::{
     mem::MaybeUninit,
     ops::Range,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::{
-    arch::x86_64::mem::paging::{FrameAllocator, Page, PageTableFlags, get_current_page_tables},
-    mm::{Page as s_Page, PageFlags},
-};
-
 const PAGE_SIZE: usize = 4096;
 const MEMMAP_START: usize = 0xffffea0000000000;
 const MEMMAP_HEADROOM_PERCENT: usize = 10; // 10% extra memory is taken, to be used by the BootFrameAllocator, when it maps page tables.
+static MEMMAP_LEN: AtomicUsize = AtomicUsize::new(0);
 
 pub(super) fn init(mem_map: impl Iterator<Item = (usize, usize, bool)> + Clone) {
     log::info!("Initializing frame allocator...");
@@ -144,15 +146,15 @@ pub(super) fn init(mem_map: impl Iterator<Item = (usize, usize, bool)> + Clone) 
      * Map only the pages actually occupied by the struct-page array.
      */
     for page_index in 0..memmap_pages {
-        let frame = boot_frame_allocator
+        let phys_addr = boot_frame_allocator
             .alloc_frame()
             .expect("Boot frame allocator exhausted");
 
         unsafe {
             page_tables
                 .map_to_4kib(
-                    Page::containing_address(MEMMAP_START + page_index * PAGE_SIZE),
-                    frame,
+                    VirtAddr::new((MEMMAP_START + page_index * PAGE_SIZE) as u64),
+                    phys_addr,
                     &boot_frame_allocator,
                     PageTableFlags::GLOBAL | PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
                 )
@@ -206,6 +208,10 @@ pub(super) fn init(mem_map: impl Iterator<Item = (usize, usize, bool)> + Clone) 
     }
 
     let slice = unsafe { slice.assume_init_mut() };
+    MEMMAP_LEN.store(
+        slice.len() * size_of::<s_Page>(),
+        core::sync::atomic::Ordering::SeqCst,
+    );
 
     log::info!("Struct page array initialized as RESERVED.");
 
@@ -311,6 +317,10 @@ pub const fn memmap_addr<T>() -> *mut T {
     MEMMAP_START as *mut T
 }
 
+pub fn memmap_len() -> usize {
+    MEMMAP_LEN.load(core::sync::atomic::Ordering::SeqCst)
+}
+
 pub struct BootFrameAllocator {
     /// Physical byte address of the first frame.
     start: usize,
@@ -323,16 +333,14 @@ pub struct BootFrameAllocator {
 }
 
 impl FrameAllocator for BootFrameAllocator {
-    fn alloc_frame(&self) -> Option<super::paging::Frame<super::paging::page::Size4K>> {
+    fn alloc_frame(&self) -> Option<PhysAddr> {
         let idx = self.next.fetch_add(1, Ordering::SeqCst);
 
         if idx >= self.count {
             return None;
         }
 
-        Some(super::paging::Frame::containing_address(
-            self.start + idx * PAGE_SIZE,
-        ))
+        Some(PhysAddr::new((self.start + idx * PAGE_SIZE) as u64))
     }
 }
 

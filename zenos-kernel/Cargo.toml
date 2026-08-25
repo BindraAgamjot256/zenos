@@ -13,6 +13,7 @@ kprimitives = { workspace = true }
 kmm = {workspace = true}
 kernel-macros = { workspace = true }
 bootloader_api = { workspace = true }
+acpi = { version = "6.1.1", default-features = false }
 
 [[bin]]
 name = "zenos-kernel"

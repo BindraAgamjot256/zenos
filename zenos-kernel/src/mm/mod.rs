@@ -7,7 +7,7 @@ use kmm::buddy::MAX_ORDER;
 use kmm::slab::Metadata as SlabMeta;
 
 mod alloc;
-mod buddy;
+pub mod buddy;
 
 bitflags! {
     /// Flags for the state of a page.
@@ -72,11 +72,11 @@ impl Page {
     }
 
     pub fn pfn(&self) -> usize {
-        unsafe { (self as *const Self).offset_from(crate::arch::memmap_addr()) as usize }
+        unsafe { (self as *const Self).offset_from(crate::arch::mem::memmap_addr()) as usize }
     }
 
     pub fn from_pfn(pfn: usize) -> NonNull<Self> {
-        let pfn = unsafe { crate::arch::memmap_addr::<Self>().add(pfn) };
+        let pfn = unsafe { crate::arch::mem::memmap_addr::<Self>().add(pfn) };
         NonNull::new(pfn).unwrap()
     }
 
@@ -154,12 +154,6 @@ pub(crate) fn init(slice: &mut [Page], usable_iter: impl Iterator<Item = (usize,
 
             let block_size = 1usize << order;
 
-            log::info!(
-                "buddy: start={:#x}, order={}, pages={}",
-                current << 12,
-                order,
-                block_size,
-            );
             let raw = &raw mut slice[current];
             BUDDY_ALLOCATOR
                 .insert_block(NonNull::new(raw).unwrap(), order as u8)
