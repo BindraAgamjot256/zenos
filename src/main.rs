@@ -1,6 +1,7 @@
 mod building;
 mod disk_image;
 mod emulator;
+mod qmp;
 
 use std::{
     io::{self, Write},
@@ -25,6 +26,10 @@ struct Cli {
     /// Use FAT filesystem for data partition instead of ext2
     #[arg(long, short = 'f')]
     fat: bool,
+
+    /// Run the kernel timer checks using QEMU's machine protocol
+    #[arg(long, global = true, conflicts_with = "bochs")]
+    test_timer: bool,
 
     /// Initial ramdisk
     #[arg(long)]
@@ -59,18 +64,18 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command.unwrap_or_default() {
-        CliCommand::Check => check(),
+        CliCommand::Check => check(cli.test_timer),
         CliCommand::Rerun => rerun(&cli),
         CliCommand::Test => building::host_test(),
         CliCommand::Run | CliCommand::Debug => build_and_run(&cli, cli.command.unwrap_or_default()),
     }
 }
 
-fn check() -> Result<()> {
+fn check(test_timer: bool) -> Result<()> {
     println!("[CHECK] Verification mode: building components...");
 
     building::build_init()?;
-    building::build_kernel()?;
+    building::build_kernel(test_timer)?;
 
     println!("[CHECK] All components compiled successfully.");
 
@@ -86,7 +91,7 @@ fn rerun(cli: &Cli) -> Result<()> {
         return Err("No existing uefi.img found. Run a full build first.".into());
     }
 
-    emulator::run(cli.bochs, image, false)
+    emulator::run(cli.bochs, image, false, cli.test_timer)
 }
 
 fn build_and_run(cli: &Cli, command: CliCommand) -> Result<()> {
@@ -98,7 +103,7 @@ fn build_and_run(cli: &Cli, command: CliCommand) -> Result<()> {
     building::build_coreutils()?;
     building::build_shell()?;
 
-    let kernel = building::build_kernel()?;
+    let kernel = building::build_kernel(cli.test_timer)?;
     let image = disk_image::build(&kernel, cli.initrd.as_deref(), cli.fat)?;
 
     println!("[INFO] Kernel binary: {}", kernel.display());
@@ -106,7 +111,7 @@ fn build_and_run(cli: &Cli, command: CliCommand) -> Result<()> {
 
     let debugger = matches!(command, CliCommand::Debug);
 
-    emulator::run(cli.bochs, &image, debugger)
+    emulator::run(cli.bochs, &image, debugger, cli.test_timer)
 }
 
 fn run_command(command: &mut Command, name: &str) -> Result<()> {

@@ -105,6 +105,28 @@ impl SerialPort {
         }
     }
 
+    #[cfg(feature = "__test_timer")]
+    fn is_receive_ready(&self) -> bool {
+        unsafe {
+            let line_status = ReadOnlyPort::<u8>::new(self.port + 5);
+            (line_status.read() & 0x01) != 0
+        }
+    }
+
+    /// Reads a single byte from the serial port.
+    ///
+    /// This method blocks until a byte is available.
+    #[cfg(feature = "__test_timer")]
+    pub fn read_byte(&self) -> u8 {
+        unsafe {
+            let data = ReadOnlyPort::<u8>::new(self.port);
+
+            while !self.is_receive_ready() {}
+
+            data.read()
+        }
+    }
+
     /// Writes a single byte to the serial port.
     ///
     /// This method blocks until the transmitter is empty before writing the byte.

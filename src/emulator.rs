@@ -1,15 +1,15 @@
 use std::{fs, path::Path, process::Command};
 
-use crate::{run_command, Result};
+use crate::{qmp, run_command, Result};
 
-pub(crate) fn run(bochs: bool, image: &Path, debugger: bool) -> Result<()> {
+pub(crate) fn run(bochs: bool, image: &Path, debugger: bool, test_timer: bool) -> Result<()> {
     match bochs {
         true => run_bochs(image, debugger),
-        false => run_qemu(image, debugger),
+        false => run_qemu(image, debugger, test_timer),
     }
 }
 
-fn run_qemu(image: &Path, debugger: bool) -> Result<()> {
+fn run_qemu(image: &Path, debugger: bool, test_timer: bool) -> Result<()> {
     println!("[RUN] Launching QEMU...");
 
     let mut command = Command::new("qemu-system-x86_64");
@@ -49,7 +49,11 @@ fn run_qemu(image: &Path, debugger: bool) -> Result<()> {
 
     command.args(["-serial", "stdio"]);
 
-    run_command(&mut command, "QEMU")
+    if test_timer {
+        qmp::run(&mut command)
+    } else {
+        run_command(&mut command, "QEMU")
+    }
 }
 
 fn run_bochs(image: &Path, debugger: bool) -> Result<()> {

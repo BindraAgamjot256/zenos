@@ -5,6 +5,14 @@ use core::sync::atomic::{AtomicU64, Ordering};
 pub use ::log::*;
 
 const COM1_PORT: u16 = 0x3F8;
+#[cfg(feature = "__test_timer")]
+const QMP_PAUSE_MARKER: &[u8] = &[0xFF, 0xFF, 0x00, 0x00];
+#[cfg(feature = "__test_timer")]
+const QMP_COMPLETE_MARKER: &[u8] = &[0xFF, 0xFF, 0x00, 0x01];
+#[cfg(feature = "__test_timer")]
+const QMP_PAUSE_ACK: u8 = 0xAC;
+#[cfg(feature = "__test_timer")]
+const QMP_COMPLETE_ACK: u8 = 0xAD;
 
 /// Monotonic sequence counter for log entries.
 static LOG_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -56,4 +64,26 @@ pub fn init() {
     LOGGER.init();
     log::set_logger(&LOGGER).unwrap();
     log::set_max_level(log::LevelFilter::Debug);
+}
+
+#[cfg(feature = "__test_timer")]
+fn write_raw(bytes: &[u8]) {
+    let port = LOGGER.port;
+    for &byte in bytes {
+        port.write_byte(byte);
+    }
+}
+
+#[cfg(feature = "__test_timer")]
+pub fn qmp_pause_barrier() {
+    write_raw(QMP_PAUSE_MARKER);
+
+    while LOGGER.port.read_byte() != QMP_PAUSE_ACK {}
+}
+
+#[cfg(feature = "__test_timer")]
+pub fn qmp_pause_complete() {
+    write_raw(QMP_COMPLETE_MARKER);
+
+    while LOGGER.port.read_byte() != QMP_COMPLETE_ACK {}
 }

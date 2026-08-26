@@ -5,6 +5,7 @@ edition = "2024"
 
 [features]
 default = []
+__test_timer = []
 
 [dependencies]
 log = { version = "0.4.17", default-features = false }

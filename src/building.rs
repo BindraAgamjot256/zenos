@@ -22,7 +22,7 @@ const COREUTILS: &[&str] = &[
     "ls", "cat", "grep", "echo", "true", "false", "yes", "wc", "head", "tail", "od",
 ];
 
-pub(crate) fn build_kernel() -> Result<PathBuf> {
+pub(crate) fn build_kernel(test_timer: bool) -> Result<PathBuf> {
     println!("[BUILD] Compiling kernel...");
 
     let mut command = cargo_build(KERNEL_PACKAGE, KERNEL_TARGET);
@@ -34,6 +34,10 @@ pub(crate) fn build_kernel() -> Result<PathBuf> {
         "-Z",
         "build-std-features=compiler-builtins-mem",
     ]);
+
+    if test_timer {
+        command.arg("--features=__test_timer");
+    }
 
     apply_debug_rustflags(&mut command);
     run_build(&mut command, "Kernel")?;

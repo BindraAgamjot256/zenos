@@ -14,10 +14,7 @@ mod log;
 mod mm;
 mod vmm;
 
-use alloc::vec::Vec;
 use bootloader_api::{config::*, *};
-use core::hint::spin_loop;
-use kprimitives::alloc::{KernelObject, boxed::KBox};
 
 static CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
@@ -65,49 +62,35 @@ entry_point!(kmain, config = &CONFIG);
 fn kmain(boot_info: &'static mut BootInfo) -> ! {
     kinit(boot_info);
 
+    #[cfg(feature = "__test_timer")]
+    test_timer();
+
+    let now = arch::CLOCKSOURCE.read().as_ref().unwrap().now();
+    log::info!(
+        "good day everyone, it is {:?} (according to the clock)",
+        now
+    );
+
+    loop {}
+}
+
+#[cfg(feature = "__test_timer")]
+fn test_timer() {
     log::info!("getting clock");
     let clock = arch::CLOCKSOURCE.read();
     let clock = clock.as_ref().unwrap();
-    for _ in 0..10 {
-        let then = clock.now();
-
-        unsafe {
-            log::set_max_level_racy(::log::LevelFilter::Off);
-        }
-        let mut vec = Vec::new();
-        unsafe {
-            log::set_max_level_racy(::log::LevelFilter::Debug);
-        }
-        for i in 0..10u8 {
-            vec.push(i);
-            //log::info!("pushed: {}", i)
-        }
-        //log::info!("created vec: {:?}", vec);
-
-        let delta = clock.delta_now(then);
-        log::info!("delta: {:?}", delta);
-        drop(vec);
-    }
 
     for _ in 0..10 {
         let then = clock.now();
-
-        let mut x = 0u64;
-        for i in 0..10_000 {
-            x = core::hint::black_box(x.wrapping_add(i));
-        }
-
+        log::qmp_pause_barrier();
         let delta = clock.delta_now(then);
-        log::info!("delta: {:?}", delta);
+        log::qmp_pause_complete();
+        log::info!("delta sleep: {:?}", delta);
     }
 
     let then = clock.now();
     let delta = clock.delta_now(then);
     log::info!("delta_instant: {:?}", delta);
-
-    loop {
-        spin_loop();
-    }
 }
 
 fn kinit(boot_info: &'static mut BootInfo) {
