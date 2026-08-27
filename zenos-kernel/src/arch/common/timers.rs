@@ -45,6 +45,7 @@ impl DerefMut for Instant {
     }
 }
 
+#[allow(unused)]
 /// Represents a clock source that can be used to measure time.
 pub trait Clocksource: KernelObject {
     /// Configures the clock source, setting up any necessary hardware or software state.
@@ -53,6 +54,11 @@ pub trait Clocksource: KernelObject {
     fn now(&self) -> Instant;
     /// Returns the duration between two [`Instant`]s.
     fn delta(&self, a: Instant, b: Instant) -> Duration;
+    /// Cleans up any resources used by the clock source.
+    /// The clocksource will no longer be usable after this is called.
+    fn _cleanup(&mut self) -> Result<(), TimerErrors> {
+        Ok(())
+    }
     /// Returns the duration between an [`Instant`] and the current time
     #[inline(always)]
     fn delta_now(&self, a: Instant) -> Duration {

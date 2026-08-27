@@ -4,7 +4,7 @@
 //! in an x86_64 page table. Each entry contains a physical address and flags
 //! controlling access and caching behavior.
 
-use super::flags::PageTableFlags;
+use super::{PageTable, flags::PageTableFlags};
 use crate::arch::PhysAddr;
 
 /// A single entry in an x86_64 page table.
@@ -191,5 +191,23 @@ impl PageTableEntry {
     #[inline(always)]
     pub fn set_raw(&mut self, value: u64) {
         self.0 = value;
+    }
+
+    /// Returns a reference to the page table pointed to by this entry.
+    ///
+    /// # Safety
+    /// The caller must ensure the entry is present and points to a valid page table.
+    #[inline(always)]
+    pub fn get_table(&self) -> &PageTable {
+        unsafe { &*(self.0 as *const PageTable) }
+    }
+
+    /// Returns a mutable reference to the page table pointed to by this entry.
+    ///
+    /// # Safety
+    /// The caller must ensure the entry is present and points to a valid page table.
+    #[inline(always)]
+    pub fn get_table_mut(&mut self) -> &mut PageTable {
+        unsafe { &mut *(self.0 as *mut PageTable) }
     }
 }

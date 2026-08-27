@@ -37,6 +37,9 @@ pub enum MapToError {
 
     /// Encountered a huge page while walking page tables.
     ParentEntryHugePage,
+
+    /// Attempted to unmap a page that is not mapped.
+    PageNotMapped,
 }
 
 /// Returned by mapping operations.
@@ -327,6 +330,37 @@ impl<'a> OffsetPageTable<'a> {
 
         entry.set_addr(phys_addr);
         entry.add_flags(flags | PageTableFlags::PRESENT | PageTableFlags::HUGE_PAGE);
+
+        Ok(MapperFlush::new(virt_addr))
+    }
+    pub unsafe fn unmap(&mut self, virt_addr: VirtAddr) -> Result<MapperFlush, MapToError> {
+        let l4_index = PageTableIndex::new(virt_addr, 0);
+        let l3_index = PageTableIndex::new(virt_addr, 1);
+        let l2_index = PageTableIndex::new(virt_addr, 2);
+        let l1_index = PageTableIndex::new(virt_addr, 3);
+
+        let l4_entry = &mut self.l4_table[l4_index];
+        if !l4_entry.is_present() {
+            return Err(MapToError::PageNotMapped);
+        }
+
+        let mut l3_entry = l4_entry.get_table_mut()[l3_index];
+        if !l3_entry.is_present() {
+            return Err(MapToError::PageNotMapped);
+        }
+
+        let mut l2_entry = l3_entry.get_table_mut()[l2_index];
+        if !l2_entry.is_present() {
+            return Err(MapToError::PageNotMapped);
+        }
+
+        let mut l1_entry = l2_entry.get_table_mut()[l1_index];
+        if !l1_entry.is_present() {
+            return Err(MapToError::PageNotMapped);
+        }
+
+        l1_entry.set_addr(PhysAddr::new(0));
+        l1_entry.remove_flags(PageTableFlags::PRESENT | PageTableFlags::HUGE_PAGE);
 
         Ok(MapperFlush::new(virt_addr))
     }

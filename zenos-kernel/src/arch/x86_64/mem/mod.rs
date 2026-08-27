@@ -118,6 +118,24 @@ pub fn ioremap(addr: PhysAddr, size: usize) -> Result<VirtAddr, MappingError> {
     Ok(vaddr)
 }
 
+pub fn iounmap(vaddr: VirtAddr, size: usize) -> Result<(), MappingError> {
+    let size = (size + PAGE_SIZE - 1) & !(PAGE_SIZE - 1);
+    let mut pt = unsafe { get_current_page_tables() };
+    for i in (0..size).step_by(PAGE_SIZE) {
+        unsafe {
+            pt.unmap(VirtAddr::new(vaddr.as_u64() + i as u64))
+                .map_err(|e| todo!("error: {e:?}"))?
+                .flush();
+        }
+    }
+    IO_VMM_ARENA
+        .lock()
+        .as_mut()
+        .map(|v| v.free_region(vaddr))
+        .flatten()
+        .ok_or(MappingError::Uninit)
+}
+
 // this impl only exists for x86_64
 impl FrameAllocator for crate::mm::buddy::BuddyAllocator {
     fn alloc_frame(&self) -> Option<PhysAddr> {

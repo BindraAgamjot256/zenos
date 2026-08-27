@@ -1,5 +1,9 @@
 use crate::{
-    arch::{PhysAddr, mem::ioremap, timers::Clocksource},
+    arch::{
+        PhysAddr, VirtAddr,
+        mem::{ioremap, iounmap},
+        timers::Clocksource,
+    },
     mm::GlobalAllocator,
 };
 use kprimitives::alloc::{CreatableKernelObject, KernelObject};
@@ -7,8 +11,8 @@ use kprimitives::alloc::{CreatableKernelObject, KernelObject};
 const NSEC_PER_SEC: u64 = 1_000_000_000;
 const FSEC_PER_SEC: u64 = 1_000_000_000_000_000;
 
-// Ten years of conversion range.
-const MAX_SEC: u64 = 10 * 365 * 24 * 60 * 60;
+// Ten minutes of conversion range. (for easier maths)
+const MAX_SEC: u64 = 10 * 60;
 
 #[repr(C)]
 pub struct HpetRegisters {
@@ -71,7 +75,8 @@ impl Clocksource for HpetTimer {
     fn configure(&mut self) -> Result<(), crate::arch::timers::TimerErrors> {
         let addr = PhysAddr::new(self.addr as u64);
 
-        let va = ioremap(addr, core::mem::size_of::<HpetRegisters>()).map_err(|_| todo!())?;
+        let va = ioremap(addr, core::mem::size_of::<HpetRegisters>())
+            .map_err(|_| crate::arch::timers::TimerErrors::UnavailableDevice)?;
 
         self.regs = va.as_usize();
 
@@ -89,7 +94,7 @@ impl Clocksource for HpetTimer {
         let period_fs = capabilities >> 32;
 
         if period_fs == 0 {
-            return Err(todo!());
+            return Err(crate::arch::timers::TimerErrors::UnavailableDevice);
         }
 
         /*
@@ -104,7 +109,7 @@ impl Clocksource for HpetTimer {
         let frequency = FSEC_PER_SEC / period_fs;
 
         if frequency == 0 {
-            return Err(todo!());
+            return Err(crate::arch::timers::TimerErrors::UnavailableDevice);
         }
 
         /*
@@ -160,5 +165,15 @@ impl Clocksource for HpetTimer {
         let b_ns = *b;
 
         core::time::Duration::from_nanos_u128(b_ns.wrapping_sub(a_ns))
+    }
+
+    fn _cleanup(&mut self) -> Result<(), crate::arch::timers::TimerErrors> {
+        /* Free the virtual address range used by the HPET registers */
+        iounmap(
+            VirtAddr::new(self.addr as u64),
+            core::mem::size_of::<HpetRegisters>(),
+        )
+        .map_err(|_| todo!() /* I have no clue what to return here. */)?;
+        Ok(())
     }
 }

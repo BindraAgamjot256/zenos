@@ -15,7 +15,7 @@ use core::ops::{Index, IndexMut};
 ///
 /// The paging hierarchy:
 /// - PML4 (Level 0): Indexes into PDPT tables
-/// - PDPT (Level 1): Indexes into PDT tables  
+/// - PDPT (Level 1): Indexes into PDT tables
 /// - PDT (Level 2): Indexes into PT tables
 /// - PT (Level 3): Indexes into actual pages
 ///
@@ -75,6 +75,18 @@ impl PageTable {
     /// A mutable iterator yielding mutable references to each entry
     pub fn iter_mut<'a>(&'a mut self) -> core::slice::IterMut<'a, PageTableEntry> {
         self.entries.iter_mut()
+    }
+
+    pub fn get_table(&self, index: usize) -> &PageTable {
+        &self.entries[index].get_table()
+    }
+
+    /// Returns a mutable reference to the page table pointed to by the entry at `index`.
+    ///
+    /// # Safety
+    /// The caller must ensure the entry is present and points to a valid page table.
+    pub fn get_table_mut(&mut self, index: usize) -> &mut PageTable {
+        self.entries[index].get_table_mut()
     }
 }
 
