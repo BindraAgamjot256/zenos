@@ -19,7 +19,7 @@ use core::ops::{Add, Deref, Div, Mul, Sub};
 /// let addr = PhysAddr::new(0x1000); // 4 KiB physical address
 /// assert_eq!(addr.as_u64(), 0x1000);
 /// ```
-#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct PhysAddr(u64);
 
 /// A validated canonical x86_64 virtual address.

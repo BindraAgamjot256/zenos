@@ -1,4 +1,8 @@
-use crate::{arch::timers::Clocksource, firmware, mm};
+use crate::{
+    arch::{timers::Clocksource, x86_64::timers::hpet::HpetTimer},
+    firmware::{self, DeviceId, Resource},
+    mm,
+};
 use kprimitives::{alloc::boxed::KBox, rwlock::RwLock};
 
 mod hpet;
@@ -32,27 +36,28 @@ fn init_tsc() -> Result<(), ()> {
 
 #[inline]
 fn init_hpet(bootdata: &firmware::RuntimeBootInfo) -> Result<(), ()> {
-    let Some(hpet_info) = bootdata.hpet.as_ref() else {
-        log::warn!("HPET is not available in firmware boot data");
-        return Err(());
+    let hpet_device = bootdata
+        .devices
+        .iter()
+        .find(|d| d.device_id() == DeviceId::new(DeviceId::uuid_namespace_timer(), b"HPET"))
+        .ok_or_else(|| log::warn!("Failed to find HPET device"))?;
+    let hpet_address = hpet_device
+        .resources()
+        .iter()
+        .find(|r| matches!(r, Resource::MmioRegion { .. }))
+        .ok_or_else(|| log::warn!("Failed to find HPET address"))?;
+    
+    let hpet_address = match hpet_address {
+        Resource::MmioRegion { address, .. } => address.as_usize(),
+        _ => return Err(()),
     };
-
-    if !hpet_info.bits_64 {
-        log::warn!("HPET timer is not 64-bit, giving up(I don't wanna support it :sob:)");
-        return Err(());
-    }
-
-    let mut hpet =
-        KBox::new(hpet::HpetTimer::new(hpet_info.address, hpet_info.bits_64)).map_err(|err| {
-            log::warn!("failed to allocate HPET timer: {:?}", err);
-        })?;
-
-    hpet.configure().map_err(|err| {
-        log::warn!("failed to configure HPET timer: {:?}", err);
-    })?;
-
-    install_clocksource(hpet);
-
+    
+    let mut hpet = HpetTimer::new(hpet_address, cfg!(target_arch = "x86_64"));
+    hpet.configure()
+        .map_err(|e| log::warn!("failed to configure HPET timer: {:?}", e))?;
+    install_clocksource(
+        KBox::new(hpet).map_err(|e| log::warn!("failed to allocate HPET timer: {:?}", e))?,
+    );
     Ok(())
 }
 

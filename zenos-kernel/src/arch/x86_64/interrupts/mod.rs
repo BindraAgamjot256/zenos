@@ -5,13 +5,18 @@
 //! and provides the context structure used by exception and interrupt stubs.
 //! The public API is intentionally small so higher-level kernel code can hook
 //! into interrupts without reaching into the lower-level assembly details.
+#![allow(unused_imports)]
 
 mod ctx;
 mod handlers;
 mod registry;
 mod table;
 
-pub use table::init_idt;
-
-#[allow(dead_code, unused_imports)]
+use crate::{firmware::RuntimeBootInfo, mm::GlobalAllocator};
+use kprimitives::{alloc::boxed::KBox, rwlock::RwLock};
 pub use registry::{deregister_interrupt_handler, register_interrupt_handler, with_handler};
+use table::init_idt;
+
+pub fn init(_bootdata: &RuntimeBootInfo) {
+    init_idt();
+}

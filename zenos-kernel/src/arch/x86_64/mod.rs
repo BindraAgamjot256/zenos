@@ -35,9 +35,6 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
         )
     });
 
-    gdt::init_gdt();
-    interrupts::init_idt();
-
     mem::init(
         iter,
         boot_info
@@ -47,11 +44,14 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
     );
 
     let bootdata = firmware::init(boot_info);
-    if let Some(ref hpet) = bootdata.hpet {
-        log::info!("HPET: {:?}", hpet);
-    }
-
+    log::info!("{:#?}", bootdata);
+    log::info!(
+        "Running on machine with OEM: {}",
+        bootdata.platform.oem_id.clone().unwrap_or("unknown".into())
+    );
     timers::init(&bootdata);
+    gdt::init_gdt();
+    interrupts::init(&bootdata);
 
     self::interrupts::with_handler(
         0x3,

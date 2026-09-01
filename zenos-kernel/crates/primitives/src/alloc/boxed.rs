@@ -69,8 +69,11 @@ impl<T: KernelObject + ?Sized, A: Allocator> Drop for KBox<T, A> {
     }
 }
 
-impl<T: KernelObject + Unsize<U>, U: ?Sized + KernelObject, A: Allocator> CoerceUnsized<KBox<U, A>>
-    for KBox<T, A>
+impl<T, U, A> CoerceUnsized<KBox<U, A>> for KBox<T, A>
+where
+    T: KernelObject + ?Sized + Unsize<U>,
+    U: KernelObject + ?Sized,
+    A: Allocator,
 {
 }
 

@@ -53,12 +53,14 @@ type Slab16 = kmm::slab::SlabCache<16, SlabBackend>;
 type Slab32 = kmm::slab::SlabCache<32, SlabBackend>;
 type Slab64 = kmm::slab::SlabCache<64, SlabBackend>;
 type Slab128 = kmm::slab::SlabCache<128, SlabBackend>;
+type Slab256 = kmm::slab::SlabCache<256, SlabBackend>;
 
 struct SlabAllocator {
     slab16: Mutex<Slab16>,
     slab32: Mutex<Slab32>,
     slab64: Mutex<Slab64>,
     slab128: Mutex<Slab128>,
+    slab256: Mutex<Slab256>,
 }
 
 impl SlabAllocator {
@@ -68,6 +70,7 @@ impl SlabAllocator {
             slab32: Mutex::new(Slab32::new(SlabBackend)),
             slab64: Mutex::new(Slab64::new(SlabBackend)),
             slab128: Mutex::new(Slab128::new(SlabBackend)),
+            slab256: Mutex::new(Slab256::new(SlabBackend)),
         }
     }
 
@@ -80,6 +83,7 @@ impl SlabAllocator {
             17..=32 => Some(SlabClass::Size32),
             33..=64 => Some(SlabClass::Size64),
             65..=128 => Some(SlabClass::Size128),
+            129..=256 => Some(SlabClass::Size256),
             _ => None,
         }
     }
@@ -91,6 +95,7 @@ enum SlabClass {
     Size32,
     Size64,
     Size128,
+    Size256,
 }
 
 unsafe impl Send for SlabAllocator {}
@@ -134,6 +139,13 @@ unsafe impl GlobalAlloc for SlabAllocator {
                 slab.allocate()
                     .map_or(core::ptr::null_mut(), NonNull::as_ptr)
             }
+
+            SlabClass::Size256 => {
+                let mut slab = self.slab256.lock();
+
+                slab.allocate()
+                    .map_or(core::ptr::null_mut(), NonNull::as_ptr)
+            }
         }
     }
 
@@ -168,6 +180,12 @@ unsafe impl GlobalAlloc for SlabAllocator {
 
                 SlabClass::Size128 => {
                     let mut slab = self.slab128.lock();
+
+                    slab.deallocate(NonNull::new_unchecked(ptr));
+                }
+
+                SlabClass::Size256 => {
+                    let mut slab = self.slab256.lock();
 
                     slab.deallocate(NonNull::new_unchecked(ptr));
                 }

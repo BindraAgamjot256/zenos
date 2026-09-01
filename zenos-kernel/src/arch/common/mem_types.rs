@@ -29,6 +29,5 @@ bitflags! {
 
 pub enum MappingError {
     OutOfMem,
-    InvalidMemoryType,
     Uninit,
 }

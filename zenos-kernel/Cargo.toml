@@ -14,7 +14,7 @@ kprimitives = { workspace = true }
 kmm = {workspace = true}
 kernel-macros = { workspace = true }
 bootloader_api = { workspace = true }
-acpi = { version = "6.1.1", default-features = false }
+uuid = { version = "1.26.0", default-features = false, features = ["v5"]}
 
 [[bin]]
 name = "zenos-kernel"
