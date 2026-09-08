@@ -22,6 +22,8 @@ pub struct Platform {
     pub oem_id: Option<String>,
     /// The CPUs found during boot.
     pub cpus: Vec<Cpu>,
+    /// The CPU ID of the boot CPU.
+    pub boot_cpu_id: Option<u16>,
 }
 
 /// A device found during boot.
@@ -55,15 +57,13 @@ impl DeviceId {
     ///
     /// The class of the device is determined from the namespace.
     /// Each [`DeviceClass`] has a unique namespace, defined as the function `uuid_namespace_{class}` (for eg: [`uuid_namespace_interrupt_controller`]).
-    pub fn new(namespace: Uuid, name: &[u8]) -> Self {
-        let uuid = Uuid::new_v5(&namespace, name);
-        let class = if namespace == Self::uuid_namespace_interrupt_controller() {
-            DeviceClass::InterruptController
-        } else if namespace == Self::uuid_namespace_timer() {
-            DeviceClass::Timer
-        } else {
-            DeviceClass::Unknown
+    pub fn new(class: DeviceClass, name: &[u8]) -> Self {
+        let namespace = match class {
+            DeviceClass::InterruptController => Self::uuid_namespace_interrupt_controller(),
+            DeviceClass::Timer => Self::uuid_namespace_timer(),
+            _ => Uuid::nil(),
         };
+        let uuid = Uuid::new_v5(&namespace, name);
         Self { uuid, class }
     }
 }
@@ -71,7 +71,7 @@ impl DeviceId {
 /// The class of a device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[non_exhaustive]
-enum DeviceClass {
+pub enum DeviceClass {
     /// A timer device(HPET, ACPI PM Timer, etc).
     Timer,
     /// An interrupt controller device (PIC, IOAPIC etc).
@@ -95,7 +95,6 @@ pub enum Resource {
     IoPort { base: u16, size: u16 },
     /// An interrupt.
     Interrupt {
-        controller: InterruptControllerId,
         number: u32,
         trigger: Trigger,
         polarity: Polarity,
@@ -120,16 +119,18 @@ pub enum Resource {
 
 /// The trigger mode of an interrupt.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[repr(u8)]
 pub enum Trigger {
-    Level,
-    Edge,
+    Edge = 0,
+    Level = 1,
 }
 
 /// The polarity of an interrupt.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[repr(u8)]
 pub enum Polarity {
-    ActiveHigh,
-    ActiveLow,
+    ActiveHigh = 0,
+    ActiveLow = 1,
 }
 
 /// A CPU.

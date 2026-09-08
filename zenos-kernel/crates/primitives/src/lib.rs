@@ -2,6 +2,7 @@
 #![no_std]
 #![feature(coerce_unsized)]
 #![feature(unsize)]
+#![feature(ptr_metadata)]
 
 pub mod alloc;
 pub mod mutex;

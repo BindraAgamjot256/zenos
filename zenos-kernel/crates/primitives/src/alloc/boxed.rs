@@ -2,6 +2,7 @@ use crate::alloc::{Allocation, Allocator, CreatableKernelObject};
 use core::{
     alloc::Layout,
     marker::{PhantomData, Unsize},
+    mem::size_of_val_raw,
     ops::{CoerceUnsized, Deref, DerefMut},
     ptr::NonNull,
 };
@@ -79,3 +80,28 @@ where
 
 unsafe impl<T: KernelObject + ?Sized + Send, A: Allocator> Send for KBox<T, A> {}
 unsafe impl<T: KernelObject + ?Sized + Sync, A: Allocator> Sync for KBox<T, A> {}
+
+impl<T: KernelObject + ?Sized, A: Allocator> Clone for KBox<T, A> {
+    fn clone(&self) -> Self {
+        let data = self.data;
+
+        let layout = unsafe { core::alloc::Layout::for_value_raw(data.as_ptr()) };
+
+        let allocation = A::alloc_zeroed(layout).expect("KBox::clone: allocation failed");
+        let new_data = allocation.as_ptr().cast::<u8>().as_ptr();
+
+        let size = layout.size();
+        unsafe {
+            core::ptr::copy_nonoverlapping(data.as_ptr().cast::<u8>(), new_data, size);
+        }
+
+        let metadata = core::ptr::metadata(data.as_ptr());
+        let new = core::ptr::from_raw_parts_mut::<T>(new_data, metadata);
+
+        Self {
+            data: NonNull::new(new).unwrap(),
+            _marker: PhantomData,
+            allocator: PhantomData,
+        }
+    }
+}

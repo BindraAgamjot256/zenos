@@ -1,6 +1,6 @@
 use crate::{
     arch::{timers::Clocksource, x86_64::timers::hpet::HpetTimer},
-    firmware::{self, DeviceId, Resource},
+    firmware::{self, DeviceClass, DeviceId, Resource},
     mm,
 };
 use kprimitives::{alloc::boxed::KBox, rwlock::RwLock};
@@ -39,19 +39,19 @@ fn init_hpet(bootdata: &firmware::RuntimeBootInfo) -> Result<(), ()> {
     let hpet_device = bootdata
         .devices
         .iter()
-        .find(|d| d.device_id() == DeviceId::new(DeviceId::uuid_namespace_timer(), b"HPET"))
+        .find(|d| d.device_id() == DeviceId::new(DeviceClass::Timer, b"HPET"))
         .ok_or_else(|| log::warn!("Failed to find HPET device"))?;
     let hpet_address = hpet_device
         .resources()
         .iter()
         .find(|r| matches!(r, Resource::MmioRegion { .. }))
         .ok_or_else(|| log::warn!("Failed to find HPET address"))?;
-    
+
     let hpet_address = match hpet_address {
         Resource::MmioRegion { address, .. } => address.as_usize(),
         _ => return Err(()),
     };
-    
+
     let mut hpet = HpetTimer::new(hpet_address, cfg!(target_arch = "x86_64"));
     hpet.configure()
         .map_err(|e| log::warn!("failed to configure HPET timer: {:?}", e))?;

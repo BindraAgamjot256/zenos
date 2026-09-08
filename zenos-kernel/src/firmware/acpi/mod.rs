@@ -28,7 +28,7 @@ pub fn populate(pop: &mut RuntimeBootInfo, rsdp_addr: usize) -> Option<()> {
             size: 0x1000,
         };
         let device = AcpiDevice {
-            id: DeviceId::new(DeviceId::uuid_namespace_timer(), b"HPET"),
+            id: DeviceId::new(DeviceClass::Timer, b"HPET"),
             resources: vec![resource],
         };
         pop.devices.push(Box::new(device));
@@ -44,7 +44,7 @@ fn parse_madt(pop: &mut RuntimeBootInfo, madt: &tables::Madt) -> Option<()> {
         match entry {
             MadtEntry::LocalApic {
                 processor_id,
-                apic_id: _,
+                apic_id,
                 flags,
             } => {
                 let status = match flags {
@@ -57,6 +57,9 @@ fn parse_madt(pop: &mut RuntimeBootInfo, madt: &tables::Madt) -> Option<()> {
                     cpu_id: processor_id,
                     status,
                 });
+                if processor_id == 0 {
+                    pop.platform.boot_cpu_id = Some((apic_id as u16) << 8 | processor_id as u16);
+                }
             }
             MadtEntry::IoApic {
                 io_apic_id,
@@ -75,8 +78,7 @@ fn parse_madt(pop: &mut RuntimeBootInfo, madt: &tables::Madt) -> Option<()> {
                     name: Some("IoApic"),
                 });
 
-                let device_id =
-                    DeviceId::new(DeviceId::uuid_namespace_interrupt_controller(), b"IoApic");
+                let device_id = DeviceId::new(DeviceClass::InterruptController, b"IoApic");
 
                 let device = AcpiDevice {
                     id: device_id,
@@ -98,10 +100,7 @@ fn parse_madt(pop: &mut RuntimeBootInfo, madt: &tables::Madt) -> Option<()> {
 
     // push the local apic device
     devices.push(Box::new(AcpiDevice {
-        id: DeviceId::new(
-            DeviceId::uuid_namespace_interrupt_controller(),
-            b"LocalApic",
-        ),
+        id: DeviceId::new(DeviceClass::InterruptController, b"LocalApic"),
         resources: vec![Resource::MmioRegion {
             address: PhysAddr::new(madt.lapic_addr as u64),
             size: 0x1000,

@@ -27,6 +27,7 @@ bitflags! {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MappingError {
     OutOfMem,
     Uninit,
