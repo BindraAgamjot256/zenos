@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::arch::PhysAddr;
 use alloc::string::String;
 use alloc::{boxed::Box, vec::Vec};

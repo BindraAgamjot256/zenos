@@ -78,7 +78,7 @@ impl PageTable {
     }
 
     pub fn get_table(&self, index: usize) -> &PageTable {
-        &self.entries[index].get_table()
+        self.entries[index].get_table()
     }
 
     /// Returns a mutable reference to the page table pointed to by the entry at `index`.

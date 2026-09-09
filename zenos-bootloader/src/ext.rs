@@ -38,7 +38,7 @@ pub fn create_ext2_filesystem(
         needed_size += source.len()?;
     }
     // Add overhead for ext2 metadata and round up to MB
-    let size_mb = ((needed_size + 1024 * 1024 - 1) / (1024 * 1024) + 4).max(8);
+    let size_mb = (needed_size.div_ceil(1024 * 1024) + 4).max(8);
 
     // Reserve extra inodes for OS use (at least 1024 free inodes)
     let file_count = files.len() as u64;

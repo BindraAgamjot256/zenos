@@ -209,7 +209,7 @@ pub(super) fn init(mem_map: impl Iterator<Item = (usize, usize, bool)> + Clone) 
 
     let slice = unsafe { slice.assume_init_mut() };
     MEMMAP_LEN.store(
-        slice.len() * size_of::<s_Page>(),
+        core::mem::size_of_val(slice),
         core::sync::atomic::Ordering::SeqCst,
     );
 

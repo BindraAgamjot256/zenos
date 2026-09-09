@@ -12,6 +12,7 @@ pub struct Address {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+#[allow(clippy::enum_variant_names)]
 pub enum ID {
     SystemMemorySpace = 0x00,
     SystemIoSpace = 0x01,
@@ -20,6 +21,7 @@ pub enum ID {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+#[allow(clippy::enum_variant_names)]
 pub enum Access {
     Undefined = 0x00,
     ByteAccess = 0x01,

@@ -131,8 +131,7 @@ pub fn iounmap(vaddr: VirtAddr, size: usize) -> Result<(), MappingError> {
     IO_VMM_ARENA
         .lock()
         .as_mut()
-        .map(|v| v.free_region(vaddr))
-        .flatten()
+        .and_then(|v| v.free_region(vaddr))
         .ok_or(MappingError::Uninit)
 }
 

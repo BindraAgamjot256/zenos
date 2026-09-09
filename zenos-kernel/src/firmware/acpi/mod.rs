@@ -67,16 +67,17 @@ fn parse_madt(pop: &mut RuntimeBootInfo, madt: &tables::Madt) -> Option<()> {
                 io_apic_addr,
                 gsi_base,
             } => {
-                let mut resources = Vec::new();
-                resources.push(Resource::MmioRegion {
-                    address: PhysAddr::new(io_apic_addr as u64),
-                    size: 0x1000,
-                });
-                resources.push(Resource::InterruptController {
-                    id: InterruptControllerId(io_apic_id as u16),
-                    interrupts: gsi_base as u64,
-                    name: Some("IoApic"),
-                });
+                let resources = vec![
+                    Resource::MmioRegion {
+                        address: PhysAddr::new(io_apic_addr as u64),
+                        size: 0x1000,
+                    },
+                    Resource::InterruptController {
+                        id: InterruptControllerId(io_apic_id as u16),
+                        interrupts: gsi_base as u64,
+                        name: Some("IoApic"),
+                    },
+                ];
 
                 let device_id = DeviceId::new(DeviceClass::InterruptController, b"IoApic");
 
@@ -92,7 +93,7 @@ fn parse_madt(pop: &mut RuntimeBootInfo, madt: &tables::Madt) -> Option<()> {
                 gsi,
                 flags,
             } => {
-                isr_overrides.push((source as u16, gsi as u32, flags));
+                isr_overrides.push((source as u16, gsi, flags));
             }
             _ => return None,
         }

@@ -2,7 +2,6 @@ use crate::alloc::{Allocation, Allocator, CreatableKernelObject};
 use core::{
     alloc::Layout,
     marker::{PhantomData, Unsize},
-    mem::size_of_val_raw,
     ops::{CoerceUnsized, Deref, DerefMut},
     ptr::NonNull,
 };
