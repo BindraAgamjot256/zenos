@@ -19,14 +19,13 @@ use crate::{
 };
 pub use ctx::InterruptContext;
 use kprimitives::{alloc::boxed::KBox, rwlock::RwLock};
-pub use registry::{deregister_interrupt_handler, register_interrupt_handler, with_handler};
+pub use registry::{
+    InterruptGuard, deregister_interrupt_handler, register_interrupt_handler, with_handler,
+};
 use table::init_idt;
 
 pub fn init(bootdata: &RuntimeBootInfo) {
     init_idt();
-    controller::init(bootdata);
+    let controller = controller::init(bootdata).expect("Controller init fails.");
+    crate::irq::init(controller);
 }
-
-pub static INTERRUPT_CONTROLLER: RwLock<
-    Option<KBox<dyn InterruptController + Send + Sync, GlobalAllocator>>,
-> = RwLock::new(None);

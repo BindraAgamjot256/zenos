@@ -83,9 +83,31 @@ impl InterruptController for XapicController {
     fn timer(&self) -> KBox<dyn Clockevent, mm::GlobalAllocator> {
         self.lapic.clone()
     }
+
+    fn mask(&self, number: u32) {
+        let Some(ioapic) = self.ioapics.iter().find(|ioapic| {
+            let (max, min) = ioapic.range();
+            min <= number && number <= max
+        }) else {
+            return;
+        };
+        ioapic.mask_pin(number, true).ok();
+    }
+
+    fn unmask(&self, number: u32) {
+        let Some(ioapic) = self.ioapics.iter().find(|ioapic| {
+            let (max, min) = ioapic.range();
+            min <= number && number <= max
+        }) else {
+            return;
+        };
+        ioapic.mask_pin(number, false).ok();
+    }
 }
 
-pub fn init(bootdata: &RuntimeBootInfo) {
+pub fn init(
+    bootdata: &RuntimeBootInfo,
+) -> Option<KBox<dyn InterruptController + Send + Sync, mm::GlobalAllocator>> {
     // disable legacy pics
     unsafe {
         let pic1_data = WriteOnlyPort::new(0x21);
@@ -107,14 +129,11 @@ pub fn init(bootdata: &RuntimeBootInfo) {
                     None
                 }
             })
-        })
-        .expect("Local Apic not found");
+        })?;
 
     let clocksource = CLOCKSOURCE.read();
     let mut lapic = LocalApic::new();
-    lapic
-        .configure(clocksource.as_ref().unwrap(), lapic_base)
-        .unwrap();
+    lapic.configure(clocksource.as_ref()?, lapic_base)?;
 
     let mut iovec = Vec::new();
     // get a list of all ioapics
@@ -166,9 +185,7 @@ pub fn init(bootdata: &RuntimeBootInfo) {
                     .map(|id| (id >> 8) as u8)
                     .unwrap_or(0);
 
-                ioapic_s
-                    .configure(*mmio, isr_overrides, boot_cpu_apic_id)
-                    .unwrap();
+                ioapic_s.configure(*mmio, isr_overrides, boot_cpu_apic_id)?;
 
                 log::info!(
                     "ioapic_s configured: mmio={:#x}, id={:?}",
@@ -184,6 +201,6 @@ pub fn init(bootdata: &RuntimeBootInfo) {
         }
     }
 
-    let controller = XapicController::new(iovec, KBox::new(lapic).unwrap());
-    *super::super::INTERRUPT_CONTROLLER.write() = Some(KBox::new(controller).unwrap());
+    let controller = XapicController::new(iovec, KBox::new(lapic).ok()?);
+    Some(KBox::new(controller).ok()?)
 }

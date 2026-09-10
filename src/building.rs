@@ -115,8 +115,7 @@ pub(crate) fn host_test() -> Result<()> {
         "--color",
         "always",
     ]);
-
-    run_command(&mut command, "Host tests")?;
+    run_command(&mut command, "Host kmm tests")?;
 
     let mut command = Command::new("make");
     command.arg("test");
@@ -124,6 +123,19 @@ pub(crate) fn host_test() -> Result<()> {
     command.current_dir(root.join("libc"));
 
     run_command(&mut command, "Host libc tests")?;
+
+    let mut command = Command::new("cargo");
+    command.args([
+        "test",
+        "--package",
+        "kprimitives",
+        "--",
+        "--nocapture",
+        "--color",
+        "always",
+    ]);
+    run_command(&mut command, "Host kprimitives tests")?;
+
     println!("[TEST] Host tests completed successfully.");
 
     Ok(())

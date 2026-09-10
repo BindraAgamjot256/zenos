@@ -20,7 +20,7 @@ mod timers;
 use crate::firmware;
 pub use addr::{PhysAddr, VirtAddr};
 use bootloader_api::info::{MemoryRegion as Region, MemoryRegionKind};
-pub use interrupts::{INTERRUPT_CONTROLLER, InterruptContext, register_interrupt_handler};
+pub use interrupts::{InterruptContext, InterruptGuard, register_interrupt_handler};
 pub use timers::CLOCKSOURCE;
 
 pub fn init(boot_info: &'static mut crate::BootInfo) {

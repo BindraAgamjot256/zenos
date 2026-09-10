@@ -9,6 +9,7 @@
 extern crate alloc;
 mod arch;
 mod firmware;
+mod irq;
 mod log;
 mod mm;
 mod vmm;
@@ -16,6 +17,7 @@ mod vmm;
 use crate::arch::common::timers::Instant;
 use crate::arch::{InterruptContext, register_interrupt_handler};
 use bootloader_api::{config::*, *};
+use core::convert::identity;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
@@ -104,53 +106,46 @@ fn test_timer_irq() {
     let clock = clock.as_ref().unwrap();
 
     // Get the interrupt controller and timer
-    let ic = crate::arch::INTERRUPT_CONTROLLER.read();
-    let ic = ic.as_ref().unwrap();
+    let ic = crate::irq::IRQ_CONTROLLER.read();
+    let (timer, mut irq) = ic.timer().unwrap();
 
-    let timer = ic.timer();
+    timer.set_vector(irq.vector());
+    irq.set_handler(timer_handler);
+    timer.toggle();
 
-    const TIMER_VECTOR: u8 = 0x30;
-
-    timer.set_vector(TIMER_VECTOR);
-
-    let then = clock.now();
+    unsafe {
+        core::arch::asm!("sti");
+    }
 
     // Flag to indicate the interrupt has fired
     static IRQ_FIRED: AtomicBool = AtomicBool::new(false);
 
     // Store the start time in a static for the handler to access
-    static mut START_TIME: Option<Instant> = None;
+    static mut END_TIME: Option<Instant> = None;
 
     #[allow(static_mut_refs)]
     fn timer_handler(_ctx: &mut InterruptContext) {
         unsafe {
-            if let Some(start) = START_TIME.take() {
-                let clock = &*core::ptr::addr_of!(arch::CLOCKSOURCE);
-                let clock = clock.read();
-                let clock = clock.as_ref().unwrap();
-                let delta = clock.delta_now(start);
-                log::info!("Timer interrupt fired! delta_now = {:?}", delta);
-            }
-            IRQ_FIRED.store(true, Ordering::SeqCst);
-            let ic = crate::arch::INTERRUPT_CONTROLLER.read();
-            ic.as_ref().unwrap().send_eoi();
+            let clock = arch::CLOCKSOURCE.read();
+            let clock = clock.as_ref().unwrap();
+            END_TIME = Some(clock.now());
+            IRQ_FIRED.store(true, Ordering::Relaxed);
         }
     }
 
-    let _guard = register_interrupt_handler(TIMER_VECTOR, timer_handler);
-
-    unsafe {
-        START_TIME = Some(then);
-        core::arch::asm!("sti");
-    }
-
-    timer.toggle();
-    timer.next_tick(Duration::from_millis(1000));
+    timer.next_tick(Duration::from_millis(1));
+    let then = clock.now();
 
     log::info!("Waiting for timer interrupt...");
-    while !IRQ_FIRED.load(Ordering::SeqCst) {
+    while !IRQ_FIRED.load(Ordering::Relaxed) {
         core::hint::spin_loop();
     }
+
+    #[allow(static_mut_refs)]
+    let end_time = unsafe { END_TIME.take().unwrap() };
+    let delta = clock.delta(then, end_time);
+    log::info!("Timer interrupt fired! delta_now = {:?}", delta);
+    crate::irq::IRQ_CONTROLLER.read().send_eoi();
 
     log::info!("Timer interrupt test complete");
 }
