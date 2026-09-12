@@ -20,7 +20,7 @@ raw-cpuid = "10.2.0"
 rand = { version = "0.8.4", default-features = false }
 rand_hc = "0.3.1"
 uart_16550 = "0.4.0"
-log = "0.4.29"
+log = "0.4"
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(docsrs_dummy_build)'] }

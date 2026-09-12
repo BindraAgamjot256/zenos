@@ -1,0 +1,3 @@
+[submodule "zenos-kernel/crates/vendors/uacpi-sys/uacpi"]
+	path = zenos-kernel/crates/vendors/uacpi-sys/uacpi
+	url = https://github.com/uACPI/uACPI.git

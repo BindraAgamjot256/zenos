@@ -14,10 +14,9 @@ mod log;
 mod mm;
 mod vmm;
 
+use crate::arch::InterruptContext;
 use crate::arch::common::timers::Instant;
-use crate::arch::{InterruptContext, register_interrupt_handler};
 use bootloader_api::{config::*, *};
-use core::convert::identity;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 

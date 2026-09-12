@@ -35,6 +35,10 @@ impl SerialLogger {
 
 impl log::Log for SerialLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
+        if metadata.target().starts_with("kmm") {
+            return false;
+        }
+
         metadata.level() <= log::Level::Trace
     }
 

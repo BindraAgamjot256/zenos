@@ -49,10 +49,18 @@ impl<T> Mutex<T> {
         MutexGuard { mutex: self }
     }
 
+    /// Unlocks the mutex.
+    ///
+    /// DO NOT CALL THIS DIRECTLY; use [`MutexGuard::drop`] instead.
+    /// (only exists for FFI purposes.)
+    pub fn unlock(&self) {
+        self.lock.store(false, Ordering::Release);
+    }
+
     /// Attempts to acquire the mutex without blocking.
     ///
     /// Returns `Some(MutexGuard)` if the lock was acquired, or `None` if it was already held.
-    pub fn _try_lock(&self) -> Option<MutexGuard<'_, T>> {
+    pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
         self.lock
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .ok()
@@ -62,7 +70,7 @@ impl<T> Mutex<T> {
     /// Returns whether the mutex is currently locked.
     ///
     /// This is a best-effort check and may race with other threads.
-    pub fn _is_locked(&self) -> bool {
+    pub fn is_locked(&self) -> bool {
         self.lock.load(Ordering::Relaxed)
     }
 
@@ -77,7 +85,7 @@ impl<T> Mutex<T> {
 impl<T> Drop for MutexGuard<'_, T> {
     fn drop(&mut self) {
         // Release ordering ensures all writes to `T` happen-before unlock
-        self.mutex.lock.store(false, Ordering::Release);
+        self.mutex.unlock();
     }
 }
 

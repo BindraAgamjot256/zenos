@@ -9,6 +9,7 @@ members = [
     "zenos-kernel/crates/mm",
     "zenos-kernel/crates/primitives",
     "zenos-kernel/crates/macros",
+    "zenos-kernel/crates/vendors/uacpi-sys",
     "zenos-bootloader",
     "zenos-bootloader/api",
     "zenos-bootloader/common",
@@ -29,6 +30,7 @@ bootloader-x86_64-common = { version = "0.1.0", path = "zenos-bootloader/common"
 bootloader-boot-config = { version = "0.1.0", path = "zenos-bootloader/common/config" }
 kprimitives = { version = "0.1.0", path = "zenos-kernel/crates/primitives" }
 kmm = { version = "0.1.0", path = "zenos-kernel/crates/mm" }
+uacpi-sys = { version = "0.1.0", path = "zenos-kernel/crates/vendors/uacpi-sys" }
 kernel-macros = { version = "0.1.0", path = "zenos-kernel/crates/macros" }
 zenos-bootloader = { path = "zenos-bootloader" }
 

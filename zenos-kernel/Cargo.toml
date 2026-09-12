@@ -8,10 +8,11 @@ default = []
 __test_timer = []
 
 [dependencies]
-log = { version = "0.4.17", default-features = false }
+log = { version = "0.4", default-features = false }
 bitflags = { version = "2.11.1", default-features = false }
 kprimitives = { workspace = true }
 kmm = {workspace = true}
+uacpi-sys = { workspace = true }
 kernel-macros = { workspace = true }
 bootloader_api = { workspace = true }
 uuid = { version = "1.26.0", default-features = false, features = ["v5"]}

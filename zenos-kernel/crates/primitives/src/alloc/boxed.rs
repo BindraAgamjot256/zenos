@@ -30,8 +30,16 @@ impl<T: CreatableKernelObject + Sized> KBox<T, T::Allocator> {
 }
 
 impl<T: KernelObject + ?Sized, A: Allocator> KBox<T, A> {
-    pub fn raw_ptr(&self) -> *mut T {
+    pub fn raw_ptr(self) -> *mut T {
         self.data.as_ptr()
+    }
+
+    pub unsafe fn from_raw(ptr: *mut T, _: A) -> Self {
+        Self {
+            data: unsafe { NonNull::new_unchecked(ptr) },
+            _marker: PhantomData,
+            allocator: PhantomData,
+        }
     }
 }
 

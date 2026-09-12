@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 const-random = "0.1.18"
-log = { version = "0.4.17", default-features = false }
+log = { version = "0.4", default-features = false }
 
 [dev-dependencies]
 criterion = "0.5.1"
