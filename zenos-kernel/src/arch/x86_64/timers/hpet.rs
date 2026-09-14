@@ -97,15 +97,6 @@ impl Clocksource for HpetTimer {
             return Err(crate::arch::timers::TimerErrors::UnavailableDevice);
         }
 
-        /*
-         * Convert:
-         *
-         *     femtoseconds/tick
-         *
-         * into:
-         *
-         *     ticks/second
-         */
         let frequency = FSEC_PER_SEC / period_fs;
 
         if frequency == 0 {
@@ -175,5 +166,10 @@ impl Clocksource for HpetTimer {
         )
         .map_err(|_| todo!() /* I have no clue what to return here. */)?;
         Ok(())
+    }
+
+    fn get_nanoseconds_since_boot(&self) -> u64 {
+        let counter = self.read_counter();
+        crate::arch::common::timers::cycles_to_time(counter, self.mult, self.shift)
     }
 }

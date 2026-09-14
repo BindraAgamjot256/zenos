@@ -47,7 +47,7 @@ fn main() {
         .flag("-fno-stack-protector")
         .flag("-fpic")
         .flag("-DUACPI_END_OF_LOG_MSG=\"\"")
-        .flag("-DUACPI_DEFAULT_LOG_LEVEL=UACPI_LOG_DEBUG")
+        .flag("-DUACPI_DEFAULT_LOG_LEVEL=UACPI_LOG_TRACE")
         .flag("-DUACPI_SIZED_FREES=1")
         .include(&include);
 

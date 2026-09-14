@@ -1,5 +1,7 @@
-use alloc::alloc::alloc;
-use alloc::alloc::dealloc;
+use crate::mm::{BUDDY_ALLOCATOR, buddy::Mapping};
+use alloc::alloc::{alloc, dealloc};
+use core::mem::MaybeUninit;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::NonNull,
@@ -8,8 +10,7 @@ use kprimitives::{
     alloc::{Allocation, AllocationError},
     mutex::Mutex,
 };
-
-use crate::mm::{BUDDY_ALLOCATOR, buddy::Mapping};
+use linked_list_allocator::LockedHeap;
 
 pub struct SlabBackend;
 
@@ -61,7 +62,11 @@ struct SlabAllocator {
     slab64: Mutex<Slab64>,
     slab128: Mutex<Slab128>,
     slab256: Mutex<Slab256>,
+    fallback: LockedHeap,
+    inited: AtomicBool,
 }
+
+static mut LOCKEDHEAP_HEAP_REGION: &mut [MaybeUninit<u8>] = &mut [MaybeUninit::uninit(); 4096 * 10];
 
 impl SlabAllocator {
     pub const fn new() -> Self {
@@ -71,6 +76,8 @@ impl SlabAllocator {
             slab64: Mutex::new(Slab64::new(SlabBackend)),
             slab128: Mutex::new(Slab128::new(SlabBackend)),
             slab256: Mutex::new(Slab256::new(SlabBackend)),
+            fallback: LockedHeap::empty(),
+            inited: AtomicBool::new(false),
         }
     }
 
@@ -108,7 +115,16 @@ unsafe impl GlobalAlloc for SlabAllocator {
         }
 
         let Some(class) = Self::class(layout) else {
-            return core::ptr::null_mut();
+            if !self.inited.load(Ordering::Relaxed) {
+                self.inited.store(true, Ordering::Relaxed);
+                #[allow(static_mut_refs)]
+                unsafe {
+                    self.fallback
+                        .lock()
+                        .init_from_slice(&mut LOCKEDHEAP_HEAP_REGION)
+                };
+            }
+            return unsafe { self.fallback.alloc(layout) };
         };
 
         match class {
@@ -155,6 +171,7 @@ unsafe impl GlobalAlloc for SlabAllocator {
         }
 
         let Some(class) = Self::class(layout) else {
+            unsafe { self.fallback.dealloc(ptr, layout) };
             return;
         };
 

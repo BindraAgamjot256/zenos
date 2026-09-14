@@ -73,6 +73,37 @@ where
         None
     }
 
+    pub fn fix(&self, index: usize) -> Option<usize> {
+        if index >= N {
+            return None;
+        }
+
+        let word_index = index / 64;
+        let bit = index % 64;
+        let mask = 1u64 << bit;
+
+        loop {
+            let current = self.bitmap[word_index].load(Ordering::Relaxed);
+
+            // Bit is already set.
+            if current & mask != 0 {
+                return None;
+            }
+
+            let new = current | mask;
+
+            match self.bitmap[word_index].compare_exchange_weak(
+                current,
+                new,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Some(index),
+                Err(_) => continue,
+            }
+        }
+    }
+
     pub fn free(&self, index: usize) -> Option<usize> {
         if index >= N {
             return None;

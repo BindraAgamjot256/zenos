@@ -9,12 +9,41 @@ use uuid::Uuid;
 
 pub mod acpi;
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 pub struct RuntimeBootInfo {
     /// The devices found during boot.
     pub devices: Vec<Box<dyn Device>>,
     /// The platform information.
     pub platform: Platform,
+    /// Function that expands the device tree, to add all available devices.
+    expand_device_tree: Option<Box<dyn Fn(Self) -> Self>>,
+}
+
+impl RuntimeBootInfo {
+    pub fn expand(mut self) -> Self {
+        if let Some(expand) = self.expand_device_tree.take() {
+            expand(self)
+        } else {
+            self
+        }
+    }
+}
+
+impl Debug for RuntimeBootInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RuntimeBootInfo")
+            .field("devices", &self.devices)
+            .field("platform", &self.platform)
+            .field(
+                "expand_device_tree",
+                if let Some(_) = self.expand_device_tree {
+                    &"Some(Box<dyn Fn(Self) -> Self>)"
+                } else {
+                    &"None"
+                },
+            )
+            .finish()
+    }
 }
 
 /// Information about the computer itself.
@@ -55,6 +84,14 @@ impl DeviceId {
         Uuid::new_v5(&Uuid::nil(), b"Timer")
     }
 
+    pub fn uuid_namespace_block() -> Uuid {
+        Uuid::new_v5(&Uuid::nil(), b"Block")
+    }
+
+    pub fn uuid_namespace_network() -> Uuid {
+        Uuid::new_v5(&Uuid::nil(), b"Network")
+    }
+
     /// Creates a new device ID from the given namespace and name.
     ///
     /// The class of the device is determined from the namespace.
@@ -63,6 +100,8 @@ impl DeviceId {
         let namespace = match class {
             DeviceClass::InterruptController => Self::uuid_namespace_interrupt_controller(),
             DeviceClass::Timer => Self::uuid_namespace_timer(),
+            DeviceClass::Block => Self::uuid_namespace_block(),
+            DeviceClass::Network => Self::uuid_namespace_network(),
             _ => Uuid::nil(),
         };
         let uuid = Uuid::new_v5(&namespace, name);
@@ -77,15 +116,14 @@ pub enum DeviceClass {
     /// A timer device(HPET, ACPI PM Timer, etc).
     Timer,
     /// An interrupt controller device (PIC, IOAPIC etc).
-    ///
-    /// Note:
-    /// Lapic is not stored here, since it is a part of the cpu itself,
-    /// and thus belongs to the Platform struct.
     InterruptController,
-    #[default]
+    /// A block device (e.g. disk, CD-ROM, etc).
+    Block,
+    /// A network device (e.g. Ethernet, Wi-Fi, etc).
+    Network,
     /// An unknown device class (i.e I was too lazy to add it in.).
+    #[default]
     Unknown,
-    // TODO: More classes as needed.
 }
 
 /// A resource used by a device.

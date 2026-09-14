@@ -1,6 +1,6 @@
 use crate::firmware::*;
 use alloc::vec;
-use core::panic;
+use core::{ffi::CStr, panic};
 use uacpi_sys::acpi_madt_entry_type;
 
 mod helpers;
@@ -57,7 +57,7 @@ pub fn populate(pop: &mut RuntimeBootInfo, rsdp_addr: usize) -> Option<()> {
     Some(())
 }
 
-pub fn populate_hpet(pop: &mut RuntimeBootInfo) -> Option<()> {
+fn populate_hpet(pop: &mut RuntimeBootInfo) -> Option<()> {
     log::debug!("ACPI/HPET: looking up HPET table");
 
     let Ok(hpet_addr) = uacpi_sys::get_table_address(uacpi_sys::ACPI_HPET_SIGNATURE) else {
@@ -96,6 +96,8 @@ pub fn populate_hpet(pop: &mut RuntimeBootInfo) -> Option<()> {
         "ACPI/HPET: device added, total devices = {}",
         pop.devices.len()
     );
+
+    pop.expand_device_tree = Some(Box::new(expand_bootinfo));
 
     Some(())
 }
@@ -262,7 +264,7 @@ unsafe extern "C" fn madt_subtable_cb(
     uacpi_sys::uacpi_status::UACPI_STATUS_OK.0
 }
 
-pub fn populate_madt(pop: &mut RuntimeBootInfo) -> Option<()> {
+fn populate_madt(pop: &mut RuntimeBootInfo) -> Option<()> {
     log::debug!("ACPI/MADT: looking up MADT table");
 
     let Ok(madt_addr) = uacpi_sys::get_table_address(uacpi_sys::ACPI_MADT_SIGNATURE) else {
@@ -514,6 +516,16 @@ fn add_isr_overrides(devices: &mut [Box<AcpiDevice>], isr_overrides: &[(u16, u32
     }
 
     log::debug!("ACPI/IRQ: interrupt source override processing complete");
+}
+
+fn expand_bootinfo(_pop: RuntimeBootInfo) -> RuntimeBootInfo {
+    let status = unsafe { uacpi_sys::uacpi_namespace_load() };
+    if status != uacpi_sys::uacpi_status::UACPI_STATUS_OK {
+        let status_s =
+            unsafe { CStr::from_ptr(uacpi_sys::uacpi_status_to_string(status)) }.to_string_lossy();
+        panic!("ACPI: namespace load failed: {:?}({})", status, status_s);
+    }
+    todo!("")
 }
 
 #[derive(Debug, Clone)]

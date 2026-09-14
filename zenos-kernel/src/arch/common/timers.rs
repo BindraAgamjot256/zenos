@@ -1,49 +1,6 @@
-use core::ops::{Add, Deref, DerefMut, Sub};
 use core::time::Duration;
 use kprimitives::alloc::KernelObject;
-
-/// Represents a point in time.
-///
-/// This is a thin wrapper around a raw timestamp value(timestamps are timer-specific,
-/// and it is a bad idea™ to use timer A's timestamp with timer B's conversion factors).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord, Hash)]
-pub struct Instant(u128);
-
-impl Instant {
-    pub fn new(timestamp: u128) -> Self {
-        Self(timestamp)
-    }
-}
-
-impl Deref for Instant {
-    type Target = u128;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Add for Instant {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 + rhs.0)
-    }
-}
-
-impl Sub for Instant {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0)
-    }
-}
-
-impl DerefMut for Instant {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+pub use kprimitives::time::Instant;
 
 #[allow(unused)]
 /// Represents a clock source that can be used to measure time.
@@ -63,6 +20,10 @@ pub trait Clocksource: KernelObject {
     #[inline(always)]
     fn delta_now(&self, a: Instant) -> Duration {
         self.delta(a, self.now())
+    }
+
+    fn get_nanoseconds_since_boot(&self) -> u64 {
+        0
     }
 }
 

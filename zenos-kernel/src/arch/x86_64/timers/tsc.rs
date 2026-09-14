@@ -77,4 +77,9 @@ impl Clocksource for TscTimer {
     fn delta(&self, a: Instant, b: Instant) -> Duration {
         Duration::from_nanos_u128(b.wrapping_sub(*a))
     }
+
+    fn get_nanoseconds_since_boot(&self) -> u64 {
+        let ticks = unsafe { _rdtsc() };
+        cycles_to_time(ticks, self.mult, self.shift)
+    }
 }

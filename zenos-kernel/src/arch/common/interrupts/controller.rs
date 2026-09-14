@@ -22,9 +22,9 @@ pub trait InterruptController: KernelObject {
     /// Disables the interrupt line and returns the previous IRQ value.
     fn disable(&self, number: u32) -> u32;
     /// Masks the interrupt line, preventing it from triggering. It does not disable the line.
-    fn mask(&self, number: u32);
+    fn mask(&self, number: u32) -> Result<(), IrqError>;
     /// Unmasks the interrupt line, allowing it to trigger.
-    fn unmask(&self, number: u32);
+    fn unmask(&self, number: u32, irq: u32) -> Result<(), IrqError>;
     /// Sends an End of Interrupt signal to the hardware.
     fn send_eoi(&self);
     /// Returns a timer object that can be used to schedule interrupts. (Timer is programmed for 1-shot mode only.)

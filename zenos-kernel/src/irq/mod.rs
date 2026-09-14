@@ -4,7 +4,6 @@ use crate::{
         interrupts::controller::{Clockevent, InterruptController},
         register_interrupt_handler,
     },
-    firmware::{Polarity, Trigger},
     mm::GlobalAllocator,
 };
 use kprimitives::{alloc::boxed::KBox, bitmap_allocator::BitmapAllocator, rwlock::RwLock};
@@ -47,22 +46,20 @@ impl IrqController {
         self.bitmap.free(irq as usize);
     }
 
-    pub fn set_number(
-        &self,
-        number: u32,
-        trigger: Trigger,
-        polarity: Polarity,
-    ) -> Option<IrqGuard<'_>> {
+    pub fn set_number(&self, number: u32) -> Option<IrqGuard<'_>> {
         let Some(controller) = &self.controller else {
+            log::error!("No controller set");
             return None;
         };
         let irq = self.bitmap.alloc()?.try_into().ok()?;
-        controller
-            .enable(number, trigger, polarity, irq as u32)
-            .ok()?;
+        let res = controller.unmask(number, irq);
+        if res.is_err() {
+            log::error!("Failed to unmask IRQ {}", irq);
+            return None;
+        }
         Some(IrqGuard {
             alloc: self,
-            irq,
+            irq: irq as u8,
             guard_inner: None,
             number: Some(number),
         })
@@ -101,19 +98,29 @@ impl IrqGuard<'_> {
     }
 
     pub fn mask(&mut self) {
+        let Some(num) = self.number else {
+            return;
+        };
+
         self.alloc
             .controller
             .as_ref()
             .unwrap()
-            .mask(self.irq as u32);
+            .mask(num)
+            .expect("How the fuck is this failing now?");
     }
 
     pub fn unmask(&mut self) {
+        let Some(num) = self.number else {
+            return;
+        };
+
         self.alloc
             .controller
             .as_ref()
             .unwrap()
-            .unmask(self.irq as u32);
+            .unmask(num, self.irq as u32)
+            .expect("How the fuck is this failing now?");
     }
 }
 

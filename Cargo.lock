@@ -132,7 +132,7 @@ dependencies = [
  "rand",
  "rand_hc",
  "raw-cpuid",
- "spinning_top",
+ "spinning_top 0.3.0",
  "uart_16550",
  "usize_conversions",
  "x86_64",
@@ -603,6 +603,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "linked_list_allocator"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b23ac50abb8261cb38c6e2a7192d3302e0836dac1628f6a93b82b4fad185897"
+dependencies = [
+ "spinning_top 0.2.5",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -990,6 +999,15 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "spinning_top"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b9eb1a2f4c41445a3a0ff9abc5221c5fcd28e1f13cd7c0397706f9ac938ddb0"
+dependencies = [
+ "lock_api",
+]
 
 [[package]]
 name = "spinning_top"
@@ -1503,6 +1521,7 @@ dependencies = [
  "kernel-macros",
  "kmm",
  "kprimitives",
+ "linked_list_allocator",
  "log",
  "uacpi-sys",
  "uuid",

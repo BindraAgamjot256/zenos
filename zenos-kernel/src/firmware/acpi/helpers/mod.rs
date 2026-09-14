@@ -1,12 +1,21 @@
 #![expect(unused)]
-use crate::{firmware::acpi::helpers::mutex::UacpiMutex, mm::GlobalAllocator};
+use crate::{
+    arch::InterruptContext,
+    firmware::acpi::helpers::mutex::UacpiMutex,
+    irq::{IRQ_CONTROLLER, IrqGuard},
+    mm::GlobalAllocator,
+};
+use alloc::{boxed::Box, collections::BTreeMap};
 use core::{
     alloc::Layout,
     arch, mem,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use kprimitives::alloc::{Allocation, Allocator, boxed::KBox};
+use kprimitives::{
+    alloc::{Allocation, Allocator, boxed::KBox},
+    mutex::Mutex,
+};
 
 mod io;
 mod mutex;
@@ -97,16 +106,11 @@ pub extern "C" fn uacpi_kernel_free(ptr: *mut core::ffi::c_void, size: uacpi_sys
     log::trace!("uacpi_kernel_free: ptr={:p}, size={:#x}", ptr, size);
 
     if ptr.is_null() {
-        log::warn!("uacpi_kernel_free: null pointer");
         return;
     }
 
-    let layout = match Layout::from_size_align(size as usize, 1) {
-        Ok(layout) => layout,
-        Err(_) => {
-            log::error!("uacpi_kernel_free: invalid layout, size={:#x}", size);
-            return;
-        }
+    let Ok(layout) = Layout::from_size_align(size as usize, 1) else {
+        return;
     };
 
     unsafe {
@@ -128,12 +132,22 @@ pub extern "C" fn uacpi_kernel_log(
 
     let msg = unsafe { core::ffi::CStr::from_ptr(message) }.to_string_lossy();
     match level {
-        uacpi_sys::uacpi_log_level::UACPI_LOG_DEBUG => log::debug!("{}", msg),
-        uacpi_sys::uacpi_log_level::UACPI_LOG_TRACE => log::trace!("{}", msg),
-        uacpi_sys::uacpi_log_level::UACPI_LOG_INFO => log::info!("{}", msg),
-        uacpi_sys::uacpi_log_level::UACPI_LOG_WARN => log::warn!("{}", msg),
-        uacpi_sys::uacpi_log_level::UACPI_LOG_ERROR => log::error!("{}", msg),
-        _ => log::debug!("(unknown level) {}", msg),
+        uacpi_sys::uacpi_log_level::UACPI_LOG_DEBUG => {
+            log::trace!(target: "uacpi", "{}", msg)
+        }
+        uacpi_sys::uacpi_log_level::UACPI_LOG_TRACE => {
+            log::debug!(target: "uacpi", "{}", msg)
+        }
+        uacpi_sys::uacpi_log_level::UACPI_LOG_INFO => {
+            log::info!(target: "uacpi", "{}", msg)
+        }
+        uacpi_sys::uacpi_log_level::UACPI_LOG_WARN => {
+            log::warn!(target: "uacpi", "{}", msg)
+        }
+        uacpi_sys::uacpi_log_level::UACPI_LOG_ERROR => {
+            log::error!(target: "uacpi", "{}", msg)
+        }
+        _ => {}
     }
 }
 
@@ -442,15 +456,90 @@ pub extern "C" fn uacpi_kernel_release_mutex(handle: uacpi_sys::uacpi_handle) {
     uacpi_kernel_unlock_spinlock(handle, 0);
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn uacpi_kernel_get_nanoseconds_since_boot() -> uacpi_sys::uacpi_u64 {
+    let clocksource = crate::arch::CLOCKSOURCE.read();
+    if let Some(clock) = clocksource.as_ref() {
+        clock.get_nanoseconds_since_boot()
+    } else {
+        0
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn uacpi_kernel_stall(usec: uacpi_sys::uacpi_u8) {
+    let clocksource = crate::arch::CLOCKSOURCE.read();
+    let Some(clock) = clocksource.as_ref() else {
+        return;
+    };
+    let duration = core::time::Duration::from_micros(usec as u64);
+    let start = clock.now();
+    while clock.delta_now(start) < duration {
+        core::hint::spin_loop();
+    }
+}
+
+struct UacpiInterrupt(uacpi_sys::uacpi_interrupt_handler, uacpi_sys::uacpi_handle);
+
+// safe since the uacpi_handle that causes !send et all is gonna exist for longer than the static will stay in the btree map
+unsafe impl Send for UacpiInterrupt {}
+unsafe impl Sync for UacpiInterrupt {}
+
+static IRQ_HANDLERS: Mutex<BTreeMap<u8, UacpiInterrupt>> = Mutex::new(BTreeMap::new());
+
+fn generic_uacpi_handler(ctx: &mut InterruptContext) {
+    let handlers = IRQ_HANDLERS.lock();
+    let Some(handler) = handlers.get(&(ctx.vector() as u8)) else {
+        return;
+    };
+    let Some(handlerfn) = handler.0 else {
+        return;
+    };
+    unsafe { handlerfn(handler.1) };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn uacpi_kernel_install_interrupt_handler(
+    irq: uacpi_sys::uacpi_u32,
+    handler: uacpi_sys::uacpi_interrupt_handler,
+    ctx: uacpi_sys::uacpi_handle,
+    out_handle: *mut uacpi_sys::uacpi_handle,
+) -> uacpi_sys::uacpi_status {
+    log::info!("uacpi_kernel_install_interrupt_handler");
+    let cont = IRQ_CONTROLLER.read();
+    let Some(mut handle) = cont.set_number(irq) else {
+        log::error!("Failed to set number for IRQ {}", irq);
+        return uacpi_sys::uacpi_status::UACPI_STATUS_INTERNAL_ERROR;
+    };
+
+    handle.set_handler(generic_uacpi_handler);
+    handle.unmask();
+
+    let handle = Box::into_raw(Box::new(handle));
+    let mut irq_handlers = IRQ_HANDLERS.lock();
+
+    irq_handlers.insert(irq as u8, UacpiInterrupt(handler, ctx));
+
+    unsafe { *out_handle = handle.cast() };
+    uacpi_sys::uacpi_status::UACPI_STATUS_OK
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn uacpi_kernel_uninstall_interrupt_handler(
+    _: uacpi_sys::uacpi_interrupt_handler,
+    irq_handle: uacpi_sys::uacpi_handle,
+) -> uacpi_sys::uacpi_status {
+    let mut handle = unsafe { Box::from_raw(irq_handle.cast::<IrqGuard>()) };
+    let irq = handle.vector();
+    handle.mask();
+    let _ = IRQ_HANDLERS.lock().remove(&irq);
+    drop(handle);
+    uacpi_sys::uacpi_status::UACPI_STATUS_OK
+}
+
 // ===================================
 // TODOS:
 // ===================================
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_get_nanoseconds_since_boot() -> uacpi_sys::uacpi_u64 {
-    log::error!("uacpi_kernel_get_nanoseconds_since_boot: NOT IMPLEMENTED");
-    todo!()
-}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_pci_device_open(
@@ -528,12 +617,6 @@ pub extern "C" fn uacpi_kernel_pci_write32(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_stall(usec: uacpi_sys::uacpi_u8) {
-    log::error!("uacpi_kernel_stall: NOT IMPLEMENTED");
-    todo!()
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_sleep(msec: uacpi_sys::uacpi_u64) {
     log::error!("uacpi_kernel_sleep: NOT IMPLEMENTED");
     todo!()
@@ -589,26 +672,6 @@ pub extern "C" fn uacpi_kernel_handle_firmware_request(
     request: *mut uacpi_sys::uacpi_firmware_request,
 ) -> uacpi_sys::uacpi_status {
     log::error!("uacpi_kernel_handle_firmware_request: NOT IMPLEMENTED");
-    todo!()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_install_interrupt_handler(
-    irq: uacpi_sys::uacpi_u32,
-    handler: uacpi_sys::uacpi_interrupt_handler,
-    ctx: uacpi_sys::uacpi_handle,
-    out_handle: *mut uacpi_sys::uacpi_handle,
-) -> uacpi_sys::uacpi_status {
-    log::error!("uacpi_kernel_install_interrupt_handler: NOT IMPLEMENTED");
-    todo!()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_uninstall_interrupt_handler(
-    handler: uacpi_sys::uacpi_interrupt_handler,
-    irq_handle: uacpi_sys::uacpi_handle,
-) -> uacpi_sys::uacpi_status {
-    log::error!("uacpi_kernel_uninstall_interrupt_handler: NOT IMPLEMENTED");
     todo!()
 }
 

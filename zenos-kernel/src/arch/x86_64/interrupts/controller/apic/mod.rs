@@ -46,7 +46,7 @@ impl InterruptController for XapicController {
         irq: u32,
     ) -> Result<(), IrqError> {
         let ioapic = self.ioapics.iter().find(|ioapic| {
-            let (max, min) = ioapic.range();
+            let (min, max) = ioapic.range();
             min <= number && number <= max
         });
         if let Some(ioapic) = ioapic {
@@ -60,7 +60,7 @@ impl InterruptController for XapicController {
 
     fn disable(&self, number: u32) -> u32 {
         let ioapic = self.ioapics.iter().find(|ioapic| {
-            let (max, min) = ioapic.range();
+            let (min, max) = ioapic.range();
             min <= number && number <= max
         });
         if let Some(ioapic) = ioapic {
@@ -84,24 +84,26 @@ impl InterruptController for XapicController {
         self.lapic.clone()
     }
 
-    fn mask(&self, number: u32) {
+    fn mask(&self, number: u32) -> Result<(), IrqError> {
         let Some(ioapic) = self.ioapics.iter().find(|ioapic| {
-            let (max, min) = ioapic.range();
+            let (min, max) = ioapic.range();
             min <= number && number <= max
         }) else {
-            return;
+            return Err(IrqError::OutOfRange);
         };
-        ioapic.mask_pin(number, true).ok();
+        ioapic.mask_gsi(number, None, true).ok();
+        Ok(())
     }
 
-    fn unmask(&self, number: u32) {
+    fn unmask(&self, number: u32, irq: u32) -> Result<(), IrqError> {
         let Some(ioapic) = self.ioapics.iter().find(|ioapic| {
-            let (max, min) = ioapic.range();
+            let (min, max) = ioapic.range();
             min <= number && number <= max
         }) else {
-            return;
+            return Err(IrqError::OutOfRange);
         };
-        ioapic.mask_pin(number, false).ok();
+        ioapic.mask_gsi(number, Some(irq as u8), false).ok();
+        Ok(())
     }
 }
 

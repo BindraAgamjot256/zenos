@@ -9,3 +9,4 @@ pub mod alloc;
 pub mod bitmap_allocator;
 pub mod mutex;
 pub mod rwlock;
+pub mod time;

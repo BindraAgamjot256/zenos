@@ -54,15 +54,9 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
     gdt::init_gdt();
     interrupts::init(&bootdata);
 
-    self::interrupts::with_handler(
-        0x3,
-        |ctx| {
-            log::info!("breakpoint exception, context: {:?}", ctx);
-        },
-        || {
-            unsafe { core::arch::asm!("int3") };
-        },
-    );
+    let expanded = bootdata.expand();
+    log::info!("{:#?}", expanded);
+    todo!("device manager");
 }
 
 fn merge_contiguous_regions(regions: &mut [Region]) -> usize {
