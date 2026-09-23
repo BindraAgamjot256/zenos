@@ -11,7 +11,7 @@ use crate::{
 use core::{hint::spin_loop, time::Duration};
 use kprimitives::alloc::{CreatableKernelObject, KernelObject, boxed::KBox};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct LocalApic {
     base_addr: usize,
     ticks_per_ms: u64,

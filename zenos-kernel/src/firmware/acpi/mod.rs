@@ -525,6 +525,17 @@ fn expand_bootinfo(_pop: RuntimeBootInfo) -> RuntimeBootInfo {
             unsafe { CStr::from_ptr(uacpi_sys::uacpi_status_to_string(status)) }.to_string_lossy();
         panic!("ACPI: namespace load failed: {:?}({})", status, status_s);
     }
+
+    let status = unsafe { uacpi_sys::uacpi_namespace_initialize() };
+    if status != uacpi_sys::uacpi_status::UACPI_STATUS_OK {
+        let status_s =
+            unsafe { CStr::from_ptr(uacpi_sys::uacpi_status_to_string(status)) }.to_string_lossy();
+        panic!(
+            "ACPI: namespace initialize failed: {:?}({})",
+            status, status_s
+        );
+    }
+
     todo!("")
 }
 

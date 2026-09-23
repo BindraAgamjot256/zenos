@@ -157,7 +157,7 @@ pub(crate) fn clean_staging() -> Result<()> {
 fn cargo_build(package: &str, target: &str) -> Command {
     let mut command = Command::new("cargo");
 
-    command.args(["+nightly", "build", "-p", package, "-Z", "json-target-spec"]);
+    command.args(["build", "-p", package, "-Z", "json-target-spec"]);
 
     command.arg(format!("--target={target}"));
 

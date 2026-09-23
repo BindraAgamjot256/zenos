@@ -5,6 +5,7 @@
 #![no_std]
 #![no_main]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![allow(macro_expanded_macro_exports_accessed_by_absolute_paths)]
 
 extern crate alloc;
 mod arch;
@@ -14,7 +15,7 @@ mod log;
 mod mm;
 mod vmm;
 
-use crate::arch::InterruptContext;
+use crate::arch::CpuContext as InterruptContext;
 use crate::arch::common::timers::Instant;
 use bootloader_api::{config::*, *};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -42,6 +43,7 @@ static CONFIG: BootloaderConfig = {
 /// This function never returns (marked by `!` return type)
 #[cfg_attr(target_os = "none", panic_handler)]
 fn _panic(info: &core::panic::PanicInfo) -> ! {
+    crate::disable_interrupts!();
     log::error!("FUCK");
     log::error!("PANIC");
     log::error!("PANIC INFO: {}", info);

@@ -6,7 +6,7 @@
 //! offers a small RAII guard for temporary overrides during debugging or
 //! bring-up work.
 
-use crate::arch::x86_64::interrupts::ctx::InterruptContext;
+use crate::arch::x86_64::interrupts::ctx::CpuContext as InterruptContext;
 use core::sync::atomic::Ordering;
 
 pub(super) static IDT_REGISTRY: InterruptRegistry = InterruptRegistry::new();
@@ -53,11 +53,10 @@ impl InterruptRegistry {
     pub fn register_handler(&self, interrupt_number: u8, handler: fn(&mut InterruptContext)) {
         let index = interrupt_number as usize;
         let previous = self.handlers[index].load(Ordering::Acquire);
-        if previous.is_null() {
-            log::info!("Registered interrupt handler for vector {interrupt_number:#x}");
-        } else {
-            log::warn!("Replaced interrupt handler for vector {interrupt_number:#x}");
-        }
+        log::warn!(
+            "Replaced interrupt handler for vector {interrupt_number:#x}, new: {:#x}",
+            handler as usize
+        );
 
         self.handlers[index].store(handler as *mut fn(&mut InterruptContext), Ordering::Release);
     }
@@ -116,7 +115,7 @@ impl Drop for InterruptGuard {
 ///
 /// The handler is installed before the closure runs and restored immediately
 /// afterward, even if the closure panics.
-pub fn with_handler(interrupt_number: u8, f: fn(&mut InterruptContext), g: impl FnOnce()) {
+pub fn _with_handler(interrupt_number: u8, f: fn(&mut InterruptContext), g: impl FnOnce()) {
     let _guard = register_interrupt_handler(interrupt_number, f);
     g();
 }

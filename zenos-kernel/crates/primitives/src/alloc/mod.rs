@@ -1,6 +1,7 @@
 use core::{alloc::Layout, cmp::min, ptr::NonNull};
 
 pub mod boxed;
+pub mod sync;
 
 /// A trait implemented by objects that can be allocated as kernel objects.
 ///
@@ -27,6 +28,23 @@ pub trait KernelObject {
 
 pub trait CreatableKernelObject: KernelObject + Sized {
     type Allocator: Allocator;
+}
+
+/// A trait implemented by objects that can be reference counted.
+///
+/// This trait is implemented by objects that can be reference counted,
+/// allowing them to be stored as a [`KArc`].
+///
+/// Refrence counting must be atomic, and unable to panic.
+/// (unless the refcount is usize::MAX, in which case you deserve the panic you idiot.)
+pub unsafe trait RefCounted: KernelObject {
+    /// Get the current reference count of this object.
+    fn ref_count(&self) -> usize;
+
+    /// Increment the reference count of this object.
+    fn inc_refcount(&self, ordering: core::sync::atomic::Ordering) -> usize;
+    /// Decrement the reference count of this object.
+    fn dec_refcount(&self, ordering: core::sync::atomic::Ordering) -> usize;
 }
 
 /// Errors that can occur while allocating memory.

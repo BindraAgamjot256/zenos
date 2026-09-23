@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![expect(dead_code)]
 
 use crate::arch::PhysAddr;
 use alloc::string::String;

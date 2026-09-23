@@ -214,6 +214,7 @@ unsafe impl GlobalAlloc for SlabAllocator {
 #[global_allocator]
 static ALLOCATOR: SlabAllocator = SlabAllocator::new();
 
+#[derive(Debug)]
 pub struct GlobalAllocator;
 unsafe impl kprimitives::alloc::Allocator for GlobalAllocator {
     fn allocate(layout: Layout) -> Result<Allocation, AllocationError> {

@@ -1,4 +1,6 @@
+use crate::alloc::{CreatableKernelObject, KernelObject, RefCounted};
 use core::cell::UnsafeCell;
+use core::fmt::Debug;
 use core::hint::spin_loop;
 use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -7,7 +9,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 ///
 /// This mutex uses an atomic boolean flag and busy-waits until the lock is acquired.
 /// It is suitable for low-level kernel contexts where blocking is not available.s
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Mutex<T> {
     data: UnsafeCell<T>,
     lock: AtomicBool,
@@ -100,5 +102,43 @@ impl<T> Deref for MutexGuard<'_, T> {
 impl<T> DerefMut for MutexGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.mutex.data.get() }
+    }
+}
+
+impl<T: KernelObject> KernelObject for Mutex<T> {}
+
+unsafe impl<T: RefCounted> RefCounted for Mutex<T> {
+    fn ref_count(&self) -> usize {
+        self.lock().ref_count()
+    }
+
+    fn inc_refcount(&self, ordering: core::sync::atomic::Ordering) -> usize {
+        self.lock().inc_refcount(ordering)
+    }
+
+    fn dec_refcount(&self, ordering: core::sync::atomic::Ordering) -> usize {
+        self.lock().dec_refcount(ordering)
+    }
+}
+
+// Note: Using Mutex<T> in Kbox requires that T::Allocator support allocations > sizeof(T)
+impl<T: CreatableKernelObject> CreatableKernelObject for Mutex<T> {
+    type Allocator = T::Allocator;
+}
+
+impl<T: Debug> Debug for MutexGuard<'_, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MutexGuard")
+            .field("data", self.deref())
+            .finish()
+    }
+}
+
+impl<T: Debug> Debug for Mutex<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Mutex")
+            .field("data", unsafe { &*self.data.get() }) // Safe because it's read only.
+            .field("lock", &self.lock)
+            .finish()
     }
 }

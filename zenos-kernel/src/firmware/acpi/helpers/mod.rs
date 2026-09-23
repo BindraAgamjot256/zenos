@@ -1,6 +1,6 @@
 #![expect(unused)]
 use crate::{
-    arch::InterruptContext,
+    arch::CpuContext,
     firmware::acpi::helpers::mutex::UacpiMutex,
     irq::{IRQ_CONTROLLER, IrqGuard},
     mm::GlobalAllocator,
@@ -11,12 +11,14 @@ use core::{
     arch, mem,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
 };
 use kprimitives::{
     alloc::{Allocation, Allocator, boxed::KBox},
     mutex::Mutex,
 };
 
+mod events;
 mod io;
 mod mutex;
 
@@ -481,13 +483,14 @@ pub extern "C" fn uacpi_kernel_stall(usec: uacpi_sys::uacpi_u8) {
 
 struct UacpiInterrupt(uacpi_sys::uacpi_interrupt_handler, uacpi_sys::uacpi_handle);
 
-// safe since the uacpi_handle that causes !send et all is gonna exist for longer than the static will stay in the btree map
+// safe since the uacpi_handle that causes !send et all is gonna exist for longer than the static will stay
+// in the btree map(guaranteed by the uacpi implementation)
 unsafe impl Send for UacpiInterrupt {}
 unsafe impl Sync for UacpiInterrupt {}
 
 static IRQ_HANDLERS: Mutex<BTreeMap<u8, UacpiInterrupt>> = Mutex::new(BTreeMap::new());
 
-fn generic_uacpi_handler(ctx: &mut InterruptContext) {
+fn generic_uacpi_handler(ctx: &mut CpuContext) {
     let handlers = IRQ_HANDLERS.lock();
     let Some(handler) = handlers.get(&(ctx.vector() as u8)) else {
         return;
@@ -520,6 +523,12 @@ pub extern "C" fn uacpi_kernel_install_interrupt_handler(
 
     irq_handlers.insert(irq as u8, UacpiInterrupt(handler, ctx));
 
+    log::info!(
+        "Registered IRQ handler for IRQ(GSI) {}, handler: {:#x}",
+        irq,
+        handler.map(|h| h as usize).unwrap_or(0)
+    );
+
     unsafe { *out_handle = handle.cast() };
     uacpi_sys::uacpi_status::UACPI_STATUS_OK
 }
@@ -535,6 +544,34 @@ pub extern "C" fn uacpi_kernel_uninstall_interrupt_handler(
     let _ = IRQ_HANDLERS.lock().remove(&irq);
     drop(handle);
     uacpi_sys::uacpi_status::UACPI_STATUS_OK
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn uacpi_kernel_disable_interrupts() -> uacpi_sys::uacpi_interrupt_state {
+    crate::disable_interrupts!();
+    1
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn uacpi_kernel_restore_interrupts(state: uacpi_sys::uacpi_interrupt_state) {
+    if state == 1 {
+        crate::enable_interrupts!();
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn uacpi_kernel_create_event() -> uacpi_sys::uacpi_handle {
+    let Ok(event) = KBox::new(events::UacpiEvent::new()) else {
+        return core::ptr::null_mut();
+    };
+    let handle = KBox::raw_ptr(event);
+    handle.cast()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn uacpi_kernel_free_event(handle: uacpi_sys::uacpi_handle) {
+    let tbox = unsafe { KBox::from_raw(handle.cast::<events::UacpiEvent>(), GlobalAllocator) };
+    drop(tbox);
 }
 
 // ===================================
@@ -619,30 +656,6 @@ pub extern "C" fn uacpi_kernel_pci_write32(
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_sleep(msec: uacpi_sys::uacpi_u64) {
     log::error!("uacpi_kernel_sleep: NOT IMPLEMENTED");
-    todo!()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_create_event() -> uacpi_sys::uacpi_handle {
-    log::error!("uacpi_kernel_create_event: NOT IMPLEMENTED");
-    todo!()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_free_event(handle: uacpi_sys::uacpi_handle) {
-    log::error!("uacpi_kernel_free_event: NOT IMPLEMENTED");
-    todo!()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_disable_interrupts() -> uacpi_sys::uacpi_interrupt_state {
-    log::error!("uacpi_kernel_disable_interrupts: NOT IMPLEMENTED");
-    todo!()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_restore_interrupts(state: uacpi_sys::uacpi_interrupt_state) {
-    log::error!("uacpi_kernel_restore_interrupts: NOT IMPLEMENTED");
     todo!()
 }
 

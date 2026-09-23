@@ -3,15 +3,13 @@
 //! The interrupt entry stubs push the register state onto the stack so Rust
 //! handlers can inspect the faulting vector and instruction pointer.
 
-pub use self::CpuContext as InterruptContext;
-
 use core::arch::global_asm;
 
 /// The register state captured when an interrupt or exception enters the kernel.
 ///
 /// The layout mirrors the assembly stub that saves the CPU registers before the
 /// Rust dispatcher hands control to a handler.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct CpuContext {
     r15: u64,
@@ -56,6 +54,14 @@ impl CpuContext {
     /// Returns the instruction pointer that triggered the exception.
     pub fn instruction_pointer(&self) -> u64 {
         self.rip
+    }
+
+    pub fn new_from_fn(func: fn()) -> Self {
+        let mut me = Self::default();
+        me.rip = func as u64;
+        me.cs = 0x08;
+        me.ss = 0x10;
+        me
     }
 }
 
