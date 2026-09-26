@@ -1,7 +1,7 @@
 #![expect(unused)]
 use crate::{
-    arch::CpuContext,
-    firmware::acpi::helpers::mutex::UacpiMutex,
+    arch::{CpuContext, disable_interrupts_and_save, restore_interrupts},
+    firmware::acpi::helpers::mutex::{UacpiMutex, UacpiSpinlock},
     irq::{IRQ_CONTROLLER, IrqGuard},
     mm::GlobalAllocator,
 };
@@ -15,7 +15,7 @@ use core::{
 };
 use kprimitives::{
     alloc::{Allocation, Allocator, boxed::KBox},
-    mutex::Mutex,
+    spinlock::SpinLock,
 };
 
 mod events;
@@ -177,17 +177,27 @@ pub extern "C" fn uacpi_kernel_free_mutex(handle: uacpi_sys::uacpi_handle) {
         log::warn!("uacpi_kernel_free_mutex: null handle");
         return;
     }
-    unsafe { KBox::from_raw(handle.cast::<UacpiMutex>(), mutex::Allocator) };
+
+    drop(unsafe { KBox::from_raw(handle.cast::<UacpiMutex>(), GlobalAllocator) });
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_create_spinlock() -> uacpi_sys::uacpi_handle {
-    uacpi_kernel_create_mutex()
+    KBox::new(UacpiSpinlock::new())
+        .map(|spinlock| spinlock.raw_ptr().cast())
+        .unwrap_or(core::ptr::null_mut())
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_free_spinlock(handle: uacpi_sys::uacpi_handle) {
-    uacpi_kernel_free_mutex(handle)
+    log::trace!("uacpi_kernel_free_spinlock: handle={:p}", handle);
+
+    if handle.is_null() {
+        log::warn!("uacpi_kernel_free_spinlock: null handle");
+        return;
+    }
+
+    drop(unsafe { KBox::from_raw(handle.cast::<UacpiSpinlock>(), GlobalAllocator) });
 }
 
 #[unsafe(no_mangle)]
@@ -195,11 +205,16 @@ pub extern "C" fn uacpi_kernel_lock_spinlock(
     handle: uacpi_sys::uacpi_handle,
 ) -> uacpi_sys::uacpi_cpu_flags {
     log::trace!("uacpi_kernel_lock_spinlock: handle={:p}", handle);
-    let kbox = unsafe { KBox::from_raw(handle.cast::<UacpiMutex>(), mutex::Allocator) };
-    kbox.lock();
-    core::mem::forget(kbox);
+
+    let flags = disable_interrupts_and_save();
+    if handle.is_null() {
+        log::error!("uacpi_kernel_lock_spinlock: null handle");
+        return flags;
+    }
+
+    unsafe { &*handle.cast::<UacpiSpinlock>() }.lock();
     log::trace!("uacpi_kernel_lock_spinlock: acquired handle={:p}", handle);
-    0
+    flags
 }
 
 #[unsafe(no_mangle)]
@@ -212,9 +227,11 @@ pub extern "C" fn uacpi_kernel_unlock_spinlock(
         handle,
         flags
     );
-    let kbox = unsafe { KBox::from_raw(handle.cast::<UacpiMutex>(), mutex::Allocator) };
-    kbox.unlock();
-    core::mem::forget(kbox);
+
+    if !handle.is_null() {
+        unsafe { &*handle.cast::<UacpiSpinlock>() }.unlock();
+    }
+    restore_interrupts(flags);
     log::trace!("uacpi_kernel_unlock_spinlock: released handle={:p}", handle);
 }
 
@@ -428,34 +445,42 @@ pub extern "C" fn uacpi_kernel_acquire_mutex(
         timeout
     );
 
-    let kbox = unsafe { KBox::from_raw(handle.cast::<UacpiMutex>(), mutex::Allocator) };
+    if handle.is_null() {
+        return uacpi_sys::uacpi_status::UACPI_STATUS_INVALID_ARGUMENT;
+    }
 
-    let mut time = 0;
+    let mutex = unsafe { &*handle.cast::<UacpiMutex>() };
+    let mut attempts = 0;
 
     loop {
-        if kbox.try_lock() {
-            break;
+        // TODO: sleep until a monotonic deadline instead of polling.
+        if mutex.try_lock() {
+            log::trace!("uacpi_kernel_acquire_mutex: acquired handle={:p}", handle);
+            return uacpi_sys::uacpi_status::UACPI_STATUS_OK;
         }
-        if time >= timeout {
+        if timeout != u16::MAX && attempts >= timeout {
             log::warn!(
-                "uacpi_kernel_acquire_mutex: timeout handle={:p}, waited={}",
+                "uacpi_kernel_acquire_mutex: timeout handle={:p}, attempts={}",
                 handle,
-                time
+                attempts
             );
             return uacpi_sys::uacpi_status::UACPI_STATUS_TIMEOUT;
         }
-        time += 1;
+        attempts = attempts.saturating_add(1);
+        core::hint::spin_loop();
     }
-
-    mem::forget(kbox);
-    log::trace!("uacpi_kernel_acquire_mutex: acquired handle={:p}", handle);
-    uacpi_sys::uacpi_status::UACPI_STATUS_OK
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_release_mutex(handle: uacpi_sys::uacpi_handle) {
     log::trace!("uacpi_kernel_release_mutex: handle={:p}", handle);
-    uacpi_kernel_unlock_spinlock(handle, 0);
+
+    if handle.is_null() {
+        log::warn!("uacpi_kernel_release_mutex: null handle");
+        return;
+    }
+
+    unsafe { &*handle.cast::<UacpiMutex>() }.unlock();
 }
 
 #[unsafe(no_mangle)]
@@ -488,7 +513,7 @@ struct UacpiInterrupt(uacpi_sys::uacpi_interrupt_handler, uacpi_sys::uacpi_handl
 unsafe impl Send for UacpiInterrupt {}
 unsafe impl Sync for UacpiInterrupt {}
 
-static IRQ_HANDLERS: Mutex<BTreeMap<u8, UacpiInterrupt>> = Mutex::new(BTreeMap::new());
+static IRQ_HANDLERS: SpinLock<BTreeMap<u8, UacpiInterrupt>> = SpinLock::new(BTreeMap::new());
 
 fn generic_uacpi_handler(ctx: &mut CpuContext) {
     let handlers = IRQ_HANDLERS.lock();
@@ -548,15 +573,12 @@ pub extern "C" fn uacpi_kernel_uninstall_interrupt_handler(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_disable_interrupts() -> uacpi_sys::uacpi_interrupt_state {
-    crate::disable_interrupts!();
-    1
+    disable_interrupts_and_save() as uacpi_sys::uacpi_interrupt_state
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_restore_interrupts(state: uacpi_sys::uacpi_interrupt_state) {
-    if state == 1 {
-        crate::enable_interrupts!();
-    }
+    restore_interrupts(state as uacpi_sys::uacpi_cpu_flags);
 }
 
 #[unsafe(no_mangle)]

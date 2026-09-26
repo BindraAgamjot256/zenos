@@ -2,7 +2,7 @@ use crate::arch::mem::PAGE_SIZE;
 use crate::mm::{Page, PageFlags};
 use core::ptr::NonNull;
 use kmm::buddy::{AllocError, BuddyBackend, FreeError, PageFrameNum, RawBuddyAllocator};
-use kprimitives::mutex::Mutex;
+use kprimitives::spinlock::SpinLock;
 
 /// Buddy allocator managing free physical memory.
 ///
@@ -18,7 +18,7 @@ use kprimitives::mutex::Mutex;
 /// Freeing performs the reverse operation, repeatedly merging buddies
 /// whenever both halves are free.
 pub struct BuddyAllocator {
-    raw: Mutex<RawBuddyAllocator<Backend>>,
+    raw: SpinLock<RawBuddyAllocator<Backend>>,
 }
 
 struct Backend;
@@ -70,7 +70,7 @@ impl BuddyAllocator {
     /// buddy blocks with [`Self::insert_block`].
     pub const fn new() -> Self {
         Self {
-            raw: Mutex::new(RawBuddyAllocator::new(Backend)),
+            raw: SpinLock::new(RawBuddyAllocator::new(Backend)),
         }
     }
 

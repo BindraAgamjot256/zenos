@@ -10,6 +10,7 @@ members = [
     "zenos-kernel/crates/primitives",
     "zenos-kernel/crates/macros",
     "zenos-kernel/crates/vendors/uacpi-sys",
+    "zenos-kernel/crates/scheduler",
     "zenos-bootloader",
     "zenos-bootloader/api",
     "zenos-bootloader/common",

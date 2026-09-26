@@ -5,6 +5,8 @@
 
 use core::arch::global_asm;
 
+use crate::arch;
+
 /// The register state captured when an interrupt or exception enters the kernel.
 ///
 /// The layout mirrors the assembly stub that saves the CPU registers before the
@@ -56,11 +58,11 @@ impl CpuContext {
         self.rip
     }
 
-    pub fn new_from_fn(func: fn()) -> Self {
+    pub fn new_from_fn_kernel(func: fn()) -> Self {
         let mut me = Self::default();
         me.rip = func as u64;
-        me.cs = 0x08;
-        me.ss = 0x10;
+        me.cs = arch::x86_64::gdt::kernel_code_seg();
+        me.ss = arch::x86_64::gdt::kernel_data_seg();
         me
     }
 }

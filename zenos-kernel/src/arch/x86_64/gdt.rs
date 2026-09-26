@@ -7,7 +7,6 @@
 //! state segment (TSS) descriptor that the interrupt stack table relies on.
 
 use core::mem::size_of;
-
 use log::info;
 
 //
@@ -100,6 +99,15 @@ impl SegmentDescriptor {
     /// Returns a zeroed descriptor that acts as a null segment entry.
     pub const fn null() -> Self {
         Self::new(0, 0, 0, 0)
+    }
+
+    pub fn as_raw(&self) -> u64 {
+        u64::from(self.limit_low)
+            | (u64::from(self.base_low) << 16)
+            | (u64::from(self.base_mid) << 32)
+            | (u64::from(self.access) << 40)
+            | (u64::from(self.granularity) << 48)
+            | (u64::from(self.base_high) << 56)
     }
 }
 
@@ -236,26 +244,34 @@ impl Gdt {
 
 static mut DOUBLE_FAULT_IST: [u8; 4096] = [0; 4096];
 
-/// Initializes the kernel GDT and installs the boot-time TSS descriptor.
+pub(super) static mut GDT: Gdt = Gdt::new();
+static TSS: TaskStateSegment = unsafe {
+    TaskStateSegment::new(
+        0,
+        [
+            DOUBLE_FAULT_IST.as_ptr().add(DOUBLE_FAULT_IST.len()),
+            core::ptr::null(),
+            core::ptr::null(),
+            core::ptr::null(),
+            core::ptr::null(),
+            core::ptr::null(),
+            core::ptr::null(),
+        ],
+    )
+};
+
 pub fn init_gdt() {
-    static TSS: TaskStateSegment = unsafe {
-        TaskStateSegment::new(
-            0,
-            [
-                DOUBLE_FAULT_IST.as_ptr(),
-                core::ptr::null(),
-                core::ptr::null(),
-                core::ptr::null(),
-                core::ptr::null(),
-                core::ptr::null(),
-                core::ptr::null(),
-            ],
-        )
-    };
-    static mut GDT: Gdt = Gdt::new();
     unsafe {
         GDT.set_tss(&TSS);
         GDT.load();
     }
     info!("GDT initialized with TSS at {:p}", &TSS);
+}
+
+pub fn kernel_code_seg() -> u64 {
+    unsafe { GDT.kernel_code.as_raw() }
+}
+
+pub fn kernel_data_seg() -> u64 {
+    unsafe { GDT.kernel_data.as_raw() }
 }

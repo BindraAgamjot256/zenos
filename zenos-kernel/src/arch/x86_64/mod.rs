@@ -20,7 +20,10 @@ mod timers;
 use crate::firmware;
 pub use addr::{PhysAddr, VirtAddr};
 use bootloader_api::info::{MemoryRegion as Region, MemoryRegionKind};
-pub use interrupts::{CpuContext, InterruptGuard, register_interrupt_handler};
+pub use interrupts::{
+    CpuContext, InterruptGuard, disable_interrupts_and_save, register_interrupt_handler,
+    restore_interrupts,
+};
 pub use timers::CLOCKSOURCE;
 
 pub fn init(boot_info: &'static mut crate::BootInfo) {
@@ -53,6 +56,8 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
     timers::init(&bootdata);
     gdt::init_gdt();
     interrupts::init(&bootdata);
+
+    crate::scheduler::init();
 
     let expanded = bootdata.expand();
     log::info!("{:#?}", expanded);

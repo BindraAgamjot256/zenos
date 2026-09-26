@@ -8,7 +8,7 @@ use core::{
 };
 use kprimitives::{
     alloc::{Allocation, AllocationError},
-    mutex::Mutex,
+    spinlock::SpinLock,
 };
 use linked_list_allocator::LockedHeap;
 
@@ -57,11 +57,11 @@ type Slab128 = kmm::slab::SlabCache<128, SlabBackend>;
 type Slab256 = kmm::slab::SlabCache<256, SlabBackend>;
 
 struct SlabAllocator {
-    slab16: Mutex<Slab16>,
-    slab32: Mutex<Slab32>,
-    slab64: Mutex<Slab64>,
-    slab128: Mutex<Slab128>,
-    slab256: Mutex<Slab256>,
+    slab16: SpinLock<Slab16>,
+    slab32: SpinLock<Slab32>,
+    slab64: SpinLock<Slab64>,
+    slab128: SpinLock<Slab128>,
+    slab256: SpinLock<Slab256>,
     fallback: LockedHeap,
     inited: AtomicBool,
 }
@@ -71,11 +71,11 @@ static mut LOCKEDHEAP_HEAP_REGION: &mut [MaybeUninit<u8>] = &mut [MaybeUninit::u
 impl SlabAllocator {
     pub const fn new() -> Self {
         Self {
-            slab16: Mutex::new(Slab16::new(SlabBackend)),
-            slab32: Mutex::new(Slab32::new(SlabBackend)),
-            slab64: Mutex::new(Slab64::new(SlabBackend)),
-            slab128: Mutex::new(Slab128::new(SlabBackend)),
-            slab256: Mutex::new(Slab256::new(SlabBackend)),
+            slab16: SpinLock::new(Slab16::new(SlabBackend)),
+            slab32: SpinLock::new(Slab32::new(SlabBackend)),
+            slab64: SpinLock::new(Slab64::new(SlabBackend)),
+            slab128: SpinLock::new(Slab128::new(SlabBackend)),
+            slab256: SpinLock::new(Slab256::new(SlabBackend)),
             fallback: LockedHeap::empty(),
             inited: AtomicBool::new(false),
         }

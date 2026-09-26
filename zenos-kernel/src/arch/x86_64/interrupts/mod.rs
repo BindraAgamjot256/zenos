@@ -30,22 +30,30 @@ pub fn init(bootdata: &RuntimeBootInfo) {
     crate::irq::init(controller);
 }
 
-#[macro_export]
-macro_rules! enable_interrupts {
-    () => {
+#[inline]
+pub fn disable_interrupts_and_save() -> uacpi_sys::uacpi_cpu_flags {
+    let flags: usize;
+    unsafe {
+        core::arch::asm!(
+            "pushfq",
+            "pop {flags}",
+            "cli",
+            flags = out(reg) flags,
+            options(nomem),
+        );
+    }
+    flags as uacpi_sys::uacpi_cpu_flags
+}
+
+#[inline]
+pub fn restore_interrupts(flags: uacpi_sys::uacpi_cpu_flags) {
+    const INTERRUPT_FLAG: uacpi_sys::uacpi_cpu_flags = 1 << 9;
+
+    if flags & INTERRUPT_FLAG != 0 {
         unsafe {
             core::arch::asm!("sti");
         }
-    };
-}
-
-#[macro_export]
-macro_rules! disable_interrupts {
-    () => {
-        unsafe {
-            core::arch::asm!("cli");
-        }
-    };
+    }
 }
 
 #[macro_export]

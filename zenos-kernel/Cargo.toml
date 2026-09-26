@@ -11,6 +11,7 @@ __test_timer = []
 log = { version = "0.4", default-features = false }
 bitflags = { version = "2.11.1", default-features = false }
 kprimitives = { workspace = true }
+scheduler = { path = "crates/scheduler" }
 kmm = {workspace = true}
 uacpi-sys = { workspace = true }
 kernel-macros = { workspace = true }

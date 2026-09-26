@@ -29,14 +29,6 @@ impl Add for Instant {
     }
 }
 
-impl Sub for Instant {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0)
-    }
-}
-
 impl Add<Duration> for Instant {
     type Output = Self;
 
@@ -50,6 +42,14 @@ impl Sub<Duration> for Instant {
 
     fn sub(self, rhs: Duration) -> Self::Output {
         Self(self.0 - rhs.as_nanos())
+    }
+}
+
+impl Sub for Instant {
+    type Output = Duration;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Duration::from_nanos_u128(self.0 - rhs.0)
     }
 }
 

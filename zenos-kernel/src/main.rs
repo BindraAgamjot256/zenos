@@ -13,6 +13,8 @@ mod firmware;
 mod irq;
 mod log;
 mod mm;
+mod scheduler;
+mod thread;
 mod vmm;
 
 use crate::arch::CpuContext as InterruptContext;
@@ -43,7 +45,7 @@ static CONFIG: BootloaderConfig = {
 /// This function never returns (marked by `!` return type)
 #[cfg_attr(target_os = "none", panic_handler)]
 fn _panic(info: &core::panic::PanicInfo) -> ! {
-    crate::disable_interrupts!();
+    crate::arch::disable_interrupts_and_save();
     log::error!("FUCK");
     log::error!("PANIC");
     log::error!("PANIC INFO: {}", info);

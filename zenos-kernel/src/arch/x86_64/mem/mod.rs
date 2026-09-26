@@ -20,11 +20,11 @@ use crate::{
     mm::BUDDY_ALLOCATOR,
 };
 use core::sync::atomic::AtomicUsize;
-use kprimitives::mutex::Mutex;
+use kprimitives::spinlock::SpinLock;
 
 pub const PAGE_SIZE: usize = 4096;
 static PHYS_OFFSET: AtomicUsize = AtomicUsize::new(0);
-static IO_VMM_ARENA: Mutex<Option<VmmArena>> = Mutex::new(None);
+static IO_VMM_ARENA: SpinLock<Option<VmmArena>> = SpinLock::new(None);
 
 impl MemoryType {
     #[inline]

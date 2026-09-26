@@ -8,9 +8,9 @@ use core::sync::atomic::{AtomicBool, Ordering};
 /// A simple spinlock mutex for protecting shared data.
 ///
 /// This mutex uses an atomic boolean flag and busy-waits until the lock is acquired.
-/// It is suitable for low-level kernel contexts where blocking is not available.s
+/// It is suitable for low-level kernel contexts where blocking is not available.
 #[derive(Default)]
-pub struct Mutex<T> {
+pub struct SpinLock<T> {
     data: UnsafeCell<T>,
     lock: AtomicBool,
 }
@@ -18,16 +18,16 @@ pub struct Mutex<T> {
 // Safety:
 // - We only give out &T / &mut T when the lock is held.
 // - T must be Send to safely move the mutex across threads.
-unsafe impl<T: Send> Sync for Mutex<T> {}
+unsafe impl<T: Send> Sync for SpinLock<T> {}
 
 /// A guard that grants temporary access to the protected data.
 ///
 /// The lock is released when this guard is dropped.
 pub struct MutexGuard<'a, T> {
-    mutex: &'a Mutex<T>,
+    mutex: &'a SpinLock<T>,
 }
 
-impl<T> Mutex<T> {
+impl<T> SpinLock<T> {
     /// Creates a new mutex containing the provided value.
     pub const fn new(data: T) -> Self {
         Self {
@@ -105,9 +105,9 @@ impl<T> DerefMut for MutexGuard<'_, T> {
     }
 }
 
-impl<T: KernelObject> KernelObject for Mutex<T> {}
+impl<T: KernelObject> KernelObject for SpinLock<T> {}
 
-unsafe impl<T: RefCounted> RefCounted for Mutex<T> {
+unsafe impl<T: RefCounted> RefCounted for SpinLock<T> {
     fn ref_count(&self) -> usize {
         self.lock().ref_count()
     }
@@ -122,7 +122,7 @@ unsafe impl<T: RefCounted> RefCounted for Mutex<T> {
 }
 
 // Note: Using Mutex<T> in Kbox requires that T::Allocator support allocations > sizeof(T)
-impl<T: CreatableKernelObject> CreatableKernelObject for Mutex<T> {
+impl<T: CreatableKernelObject> CreatableKernelObject for SpinLock<T> {
     type Allocator = T::Allocator;
 }
 
@@ -134,7 +134,7 @@ impl<T: Debug> Debug for MutexGuard<'_, T> {
     }
 }
 
-impl<T: Debug> Debug for Mutex<T> {
+impl<T: Debug> Debug for SpinLock<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Mutex")
             .field("data", unsafe { &*self.data.get() }) // Safe because it's read only.
