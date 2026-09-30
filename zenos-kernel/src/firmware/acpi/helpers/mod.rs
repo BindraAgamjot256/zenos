@@ -4,6 +4,7 @@ use crate::{
     firmware::acpi::helpers::mutex::{UacpiMutex, UacpiSpinlock},
     irq::{IRQ_CONTROLLER, IrqGuard},
     mm::GlobalAllocator,
+    scheduler::SCHEDULER,
 };
 use alloc::{boxed::Box, collections::BTreeMap};
 use core::{
@@ -430,8 +431,15 @@ pub extern "C" fn uacpi_kernel_io_write32(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_get_thread_id() -> uacpi_sys::uacpi_thread_id {
-    log::debug!("uacpi_kernel_get_thread_id: not implemented, returning null");
-    core::ptr::null_mut() // still todo.
+    SCHEDULER
+        .lock()
+        .as_ref()
+        .map(|s| s.current_tid())
+        .flatten()
+        .map(|t| &raw const *t)
+        .unwrap_or_default()
+        .cast_mut()
+        .cast()
 }
 
 #[unsafe(no_mangle)]

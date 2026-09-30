@@ -84,15 +84,17 @@ impl IrqController {
 
         let mut irq = TIMER_IRQ.load(Ordering::Acquire);
         if irq == 0 {
-            let new_irq = self.alloc_irq()?.vector();
+            let allocation = self.alloc_irq()?;
+            let new_irq = allocation.vector();
             match TIMER_IRQ.compare_exchange(0, new_irq, Ordering::AcqRel, Ordering::Acquire) {
                 Ok(_) => {
-                    // We won the race: set vector on timer
+                    // Keep the vector allocated for the lifetime of the timer.
+                    mem::forget(allocation);
                     timer.set_vector(new_irq);
                     irq = new_irq;
                 }
                 Err(actual_irq) => {
-                    // Another core initialized it first: keep actual_irq, release new_irq if needed
+                    drop(allocation);
                     irq = actual_irq;
                 }
             }
@@ -172,7 +174,9 @@ pub struct TimerIrq<'a> {
 
 impl<'a> TimerIrq<'a> {
     pub fn set_handler(&mut self, handler: fn(&mut InterruptContext)) {
-        let None = self.guard_inner else { return };
+        let None = self.guard_inner else {
+            panic!("re-setting handler for timer irq")
+        };
         let guard_inner = register_interrupt_handler(self.irq, handler);
         self.guard_inner = Some(guard_inner);
     }

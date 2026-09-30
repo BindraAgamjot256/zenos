@@ -24,6 +24,7 @@ pub use interrupts::{
     CpuContext, InterruptGuard, disable_interrupts_and_save, register_interrupt_handler,
     restore_interrupts,
 };
+use scheduler::Tid;
 pub use timers::CLOCKSOURCE;
 
 pub fn init(boot_info: &'static mut crate::BootInfo) {
@@ -61,6 +62,7 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
 
     let expanded = bootdata.expand();
     log::info!("{:#?}", expanded);
+    crate::scheduler::init_finished(Tid::new(0));
     todo!("device manager");
 }
 

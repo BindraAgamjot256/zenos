@@ -100,15 +100,6 @@ impl SegmentDescriptor {
     pub const fn null() -> Self {
         Self::new(0, 0, 0, 0)
     }
-
-    pub fn as_raw(&self) -> u64 {
-        u64::from(self.limit_low)
-            | (u64::from(self.base_low) << 16)
-            | (u64::from(self.base_mid) << 32)
-            | (u64::from(self.access) << 40)
-            | (u64::from(self.granularity) << 48)
-            | (u64::from(self.base_high) << 56)
-    }
 }
 
 //
@@ -269,9 +260,9 @@ pub fn init_gdt() {
 }
 
 pub fn kernel_code_seg() -> u64 {
-    unsafe { GDT.kernel_code.as_raw() }
+    1 << 3
 }
 
 pub fn kernel_data_seg() -> u64 {
-    unsafe { GDT.kernel_data.as_raw() }
+    2 << 3
 }

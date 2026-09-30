@@ -58,10 +58,14 @@ impl CpuContext {
         self.rip
     }
 
-    pub fn new_from_fn_kernel(func: fn()) -> Self {
+    pub fn new_from_fn_kernel(func: fn(), stack_ptr: *mut u8) -> Self {
         let mut me = Self::default();
         me.rip = func as u64;
+        // IRETQ requires the reserved bit set, and IF enabled so this thread
+        // can be preempted by timer interrupts.
+        me.rflags = 1 << 9 | 1 << 1;
         me.cs = arch::x86_64::gdt::kernel_code_seg();
+        me.rsp = stack_ptr.addr().try_into().unwrap();
         me.ss = arch::x86_64::gdt::kernel_data_seg();
         me
     }
@@ -123,7 +127,7 @@ global_asm!(
 # The common entry point preserves the interrupted register state and passes a
 # pointer to the layout expected by the Rust dispatcher.
 common_interrupt_entry:
-    # Save the general-purpose registers so they can be inspected later.
+    # Save all general-purpose registers.
     push rax
     push rbx
     push rcx
@@ -140,16 +144,26 @@ common_interrupt_entry:
     push r14
     push r15
 
-    # Pass the saved frame pointer to the Rust-side dispatcher.
-    mov rdi, rsp
+    # Save the CpuContext pointer in r12.
+    # r12 is already saved above, so its interrupted value is safe.
+    mov r12, rsp
+
+    # Save the context pointer on the stack.
+    push r12
+
+    # Align the call stack.
+    and rsp, -16
+
+    # First argument to rust_dispatch.
+    mov rdi, r12
+
     cld
-
-    # Reserve a slot for the Rust call so the stack layout is stable.
-    sub rsp, 8
     call rust_dispatch
-    add rsp, 8
 
-    # Restore the saved state in reverse order.
+    # Recover the exact CpuContext address.
+    mov rsp, r12
+
+    # Restore the saved registers.
     pop r15
     pop r14
     pop r13
@@ -166,8 +180,9 @@ common_interrupt_entry:
     pop rbx
     pop rax
 
-    # Drop the synthetic vector/error-slot pair and return to the interrupted code.
+    # Remove vector number and error code.
     add rsp, 16
+
     iretq
 
 # Expand the macro into the full 256-entry ISR set.

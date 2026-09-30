@@ -31,3 +31,7 @@ pub fn pf_handler(context: &mut super::ctx::CpuContext) {
 pub fn df_handler(context: &mut super::ctx::CpuContext) {
     panic!("DOUBLE FAULT, CTX: {context:#?}")
 }
+
+pub fn gpf_handler(context: &mut super::ctx::CpuContext) {
+    panic!("GENERAL PROTECTION FAULT, CTX: {context:#?}")
+}

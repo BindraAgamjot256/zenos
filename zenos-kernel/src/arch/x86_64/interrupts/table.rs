@@ -11,6 +11,7 @@ const KERNEL_CS: u16 = 0x08;
 const INTERRUPT_GATE: u8 = 0x8E;
 const PAGE_FAULT_VECTOR: u8 = 0xe;
 const DOUBLE_FAULT_VECTOR: u8 = 0x8;
+const GENERAL_PROTECTION_FAULT_VECTOR: u8 = 0xd;
 
 /// A single entry in the x86_64 Interrupt Descriptor Table.
 #[repr(C, packed)]
@@ -128,4 +129,5 @@ pub fn init_idt() {
 
     super::registry::register_guardless(PAGE_FAULT_VECTOR, pf_handler);
     super::registry::register_guardless(DOUBLE_FAULT_VECTOR, df_handler);
+    super::registry::register_guardless(GENERAL_PROTECTION_FAULT_VECTOR, gpf_handler);
 }

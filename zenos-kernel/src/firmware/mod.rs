@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 pub mod acpi;
 
+//todo: make the expansion fn return a ExpandedBootInfo bus structure.
 #[derive(Default)]
 pub struct RuntimeBootInfo {
     /// The devices found during boot.

@@ -5,6 +5,8 @@ use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use kprimitives::alloc::{CreatableKernelObject, KernelObject, boxed::KBox, sync::KArc};
 use scheduler::{Thread as SchedulerThread, ThreadState, Tid};
 
+pub type ThreadRef = KArc<Thread, GlobalAllocator>;
+
 #[derive(Debug)]
 pub struct Thread {
     tid: Tid,
@@ -33,10 +35,11 @@ impl Thread {
     pub fn new_kernel(
         tid: Tid,
         entry: fn(),
+        stack_ptr: *mut u8,
     ) -> Result<KArc<Self, GlobalAllocator>, kprimitives::alloc::AllocationError> {
         Ok(KBox::new(Self {
             tid,
-            context: core::cell::UnsafeCell::new(CpuContext::new_from_fn_kernel(entry)),
+            context: core::cell::UnsafeCell::new(CpuContext::new_from_fn_kernel(entry, stack_ptr)),
             state: AtomicU8::new(ThreadState::Ready as u8),
             refs: AtomicUsize::new(1),
             #[cfg(debug_assertions)]
@@ -60,15 +63,21 @@ impl Thread {
         .into_arc())
     }
 
+    /// # Safety
+    ///
+    /// Only called by the scheduler, in interrupt context.
     pub(crate) unsafe fn update_context(&self, context: &CpuContext) {
         unsafe {
             *self.context.get() = context.clone();
         }
     }
+
+    pub fn context(&self) -> &CpuContext {
+        unsafe { &*self.context.get() }
+    }
 }
 
 // The context is only accessed while scheduler/interrupt access is serialized.
-// This is currently a single-CPU kernel; SMP context access must preserve that invariant.
 unsafe impl Sync for Thread {}
 
 #[cfg(debug_assertions)]

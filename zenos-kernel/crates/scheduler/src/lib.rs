@@ -170,6 +170,15 @@ impl<T: Thread, U: timing::Timer> Scheduler<T, U> {
             .cloned()
             .expect("current thread must exist in thread registry")
     }
+
+    pub fn curr_tid(&self) -> Option<&Tid> {
+        self.current.as_ref()
+    }
+
+    pub fn current(&self) -> Option<ThreadKArc<T>> {
+        let tid = self.current?;
+        self.threads.get(&tid).cloned()
+    }
 }
 
 #[cfg(test)]
