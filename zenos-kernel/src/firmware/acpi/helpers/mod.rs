@@ -1,4 +1,5 @@
 #![expect(unused)]
+use crate::arch::common::SpinLock;
 use crate::{
     arch::{CpuContext, disable_interrupts_and_save, restore_interrupts},
     firmware::acpi::helpers::mutex::{UacpiMutex, UacpiSpinlock},
@@ -14,10 +15,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
-use kprimitives::{
-    alloc::{Allocation, Allocator, CreatableKernelObject, KernelObject, boxed::KBox},
-    spinlock::SpinLock,
-};
+use kprimitives::alloc::{Allocation, Allocator, CreatableKernelObject, KernelObject, boxed::KBox};
 
 mod events;
 mod io;
@@ -207,15 +205,10 @@ pub extern "C" fn uacpi_kernel_lock_spinlock(
 ) -> uacpi_sys::uacpi_cpu_flags {
     log::trace!("uacpi_kernel_lock_spinlock: handle={:p}", handle);
 
-    let flags = disable_interrupts_and_save();
-    if handle.is_null() {
-        log::error!("uacpi_kernel_lock_spinlock: null handle");
-        return flags;
-    }
-
-    unsafe { &*handle.cast::<UacpiSpinlock>() }.lock();
+    let flags = unsafe { &*handle.cast::<UacpiSpinlock>() }.lock();
     log::trace!("uacpi_kernel_lock_spinlock: acquired handle={:p}", handle);
-    flags
+
+    flags as u64
 }
 
 #[unsafe(no_mangle)]
@@ -230,9 +223,8 @@ pub extern "C" fn uacpi_kernel_unlock_spinlock(
     );
 
     if !handle.is_null() {
-        unsafe { &*handle.cast::<UacpiSpinlock>() }.unlock();
+        unsafe { &*handle.cast::<UacpiSpinlock>() }.unlock(flags as usize);
     }
-    restore_interrupts(flags);
     log::trace!("uacpi_kernel_unlock_spinlock: released handle={:p}", handle);
 }
 
@@ -462,7 +454,7 @@ pub extern "C" fn uacpi_kernel_acquire_mutex(
 
     loop {
         // TODO: sleep until a monotonic deadline instead of polling.
-        if mutex.try_lock() {
+        if mutex.try_lock().is_some() {
             log::trace!("uacpi_kernel_acquire_mutex: acquired handle={:p}", handle);
             return uacpi_sys::uacpi_status::UACPI_STATUS_OK;
         }
@@ -586,7 +578,7 @@ pub extern "C" fn uacpi_kernel_disable_interrupts() -> uacpi_sys::uacpi_interrup
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_restore_interrupts(state: uacpi_sys::uacpi_interrupt_state) {
-    restore_interrupts(state as uacpi_sys::uacpi_cpu_flags);
+    restore_interrupts(state as usize);
 }
 
 #[unsafe(no_mangle)]

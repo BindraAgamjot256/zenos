@@ -1,4 +1,7 @@
-use crate::mm::{BUDDY_ALLOCATOR, buddy::Mapping};
+use crate::{
+    arch::common::SpinLock,
+    mm::{BUDDY_ALLOCATOR, buddy::Mapping},
+};
 use alloc::alloc::{alloc, dealloc};
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -6,10 +9,7 @@ use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::NonNull,
 };
-use kprimitives::{
-    alloc::{Allocation, AllocationError},
-    spinlock::SpinLock,
-};
+use kprimitives::alloc::{Allocation, AllocationError};
 use linked_list_allocator::LockedHeap;
 
 pub struct SlabBackend;

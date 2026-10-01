@@ -36,7 +36,7 @@ pub fn expand(
         #[doc(hidden)]
         mod #module_name {
             pub(super) struct #cache_struct_name {
-                pub(super) cache: kprimitives::spinlock::SpinLock<
+                pub(super) cache: crate::arch::common::SpinLock<
                     kmm::slab::SlabCache<
                         {
                             let size = core::alloc::Layout::new::<super::#object_type>().size();
@@ -56,7 +56,7 @@ pub fn expand(
             unsafe impl Sync for #cache_struct_name {}
 
             pub(super) static #cache_static_name: #cache_struct_name = #cache_struct_name {
-                cache: kprimitives::spinlock::SpinLock::new(
+                cache: crate::arch::common::SpinLock::new(
                     kmm::slab::SlabCache::new(crate::mm::SlabBackend)
                 ),
             };

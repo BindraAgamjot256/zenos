@@ -22,7 +22,7 @@ const COREUTILS: &[&str] = &[
     "ls", "cat", "grep", "echo", "true", "false", "yes", "wc", "head", "tail", "od",
 ];
 
-pub(crate) fn build_kernel(test_timer: bool) -> Result<PathBuf> {
+pub(crate) fn build_kernel(test_timer: bool, disable_int_on_lock: bool) -> Result<PathBuf> {
     println!("[BUILD] Compiling kernel...");
 
     let mut command = cargo_build(KERNEL_PACKAGE, KERNEL_TARGET);
@@ -37,6 +37,10 @@ pub(crate) fn build_kernel(test_timer: bool) -> Result<PathBuf> {
 
     if test_timer {
         command.arg("--features=__test_timer");
+    }
+
+    if disable_int_on_lock {
+        command.arg("--features=disable_int_on_lock");
     }
 
     apply_debug_rustflags(&mut command);

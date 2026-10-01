@@ -1,8 +1,8 @@
+use crate::arch::common::SpinLock;
 use crate::arch::mem::PAGE_SIZE;
 use crate::mm::{Page, PageFlags};
 use core::ptr::NonNull;
 use kmm::buddy::{AllocError, BuddyBackend, FreeError, PageFrameNum, RawBuddyAllocator};
-use kprimitives::spinlock::SpinLock;
 
 /// Buddy allocator managing free physical memory.
 ///

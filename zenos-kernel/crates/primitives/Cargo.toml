@@ -6,3 +6,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+
+[features]
+default = []
+disable_int_on_lock = []

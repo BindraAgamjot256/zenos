@@ -31,7 +31,7 @@ pub fn init(bootdata: &RuntimeBootInfo) {
 }
 
 #[inline]
-pub fn disable_interrupts_and_save() -> uacpi_sys::uacpi_cpu_flags {
+pub fn disable_interrupts_and_save() -> usize {
     let flags: usize;
     unsafe {
         core::arch::asm!(
@@ -42,12 +42,12 @@ pub fn disable_interrupts_and_save() -> uacpi_sys::uacpi_cpu_flags {
             options(nomem),
         );
     }
-    flags as uacpi_sys::uacpi_cpu_flags
+    flags
 }
 
 #[inline]
-pub fn restore_interrupts(flags: uacpi_sys::uacpi_cpu_flags) {
-    const INTERRUPT_FLAG: uacpi_sys::uacpi_cpu_flags = 1 << 9;
+pub fn restore_interrupts(flags: usize) {
+    const INTERRUPT_FLAG: usize = 1 << 9;
 
     if flags & INTERRUPT_FLAG != 0 {
         unsafe {

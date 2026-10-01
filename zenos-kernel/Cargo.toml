@@ -6,16 +6,17 @@ edition = "2024"
 [features]
 default = []
 __test_timer = []
+disable_int_on_lock = ["kprimitives/disable_int_on_lock"]
 
 [dependencies]
-log = { version = "0.4", default-features = false }
-bitflags = { version = "2.11.1", default-features = false }
 kprimitives = { workspace = true }
 scheduler = { path = "crates/scheduler" }
 kmm = {workspace = true}
 uacpi-sys = { workspace = true }
 kernel-macros = { workspace = true }
 bootloader_api = { workspace = true }
+log = { version = "0.4", default-features = false }
+bitflags = { version = "2.11.1", default-features = false }
 uuid = { version = "1.26.0", default-features = false, features = ["v5"]}
 linked_list_allocator = { version = "0.10.0" } # TODO: vmalloc implementation instead of this.
 

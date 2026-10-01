@@ -31,6 +31,10 @@ struct Cli {
     #[arg(long, global = true, conflicts_with = "bochs")]
     test_timer: bool,
 
+    /// Disable interrupts on lock in the kernel(default: enabled)
+    #[arg(long, global = true, default_value = "true")]
+    disable_int_on_lock: bool,
+
     /// Initial ramdisk
     #[arg(long)]
     initrd: Option<PathBuf>,
@@ -64,18 +68,18 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command.unwrap_or_default() {
-        CliCommand::Check => check(cli.test_timer),
+        CliCommand::Check => check(cli.test_timer, cli.disable_int_on_lock),
         CliCommand::Rerun => rerun(&cli),
         CliCommand::Test => building::host_test(),
         CliCommand::Run | CliCommand::Debug => build_and_run(&cli, cli.command.unwrap_or_default()),
     }
 }
 
-fn check(test_timer: bool) -> Result<()> {
+fn check(test_timer: bool, disable_int_on_lock: bool) -> Result<()> {
     println!("[CHECK] Verification mode: building components...");
 
     building::build_init()?;
-    building::build_kernel(test_timer)?;
+    building::build_kernel(test_timer, disable_int_on_lock)?;
 
     println!("[CHECK] All components compiled successfully.");
 
@@ -103,7 +107,7 @@ fn build_and_run(cli: &Cli, command: CliCommand) -> Result<()> {
     building::build_coreutils()?;
     building::build_shell()?;
 
-    let kernel = building::build_kernel(cli.test_timer)?;
+    let kernel = building::build_kernel(cli.test_timer, cli.disable_int_on_lock)?;
     let image = disk_image::build(&kernel, cli.initrd.as_deref(), cli.fat)?;
 
     println!("[INFO] Kernel binary: {}", kernel.display());

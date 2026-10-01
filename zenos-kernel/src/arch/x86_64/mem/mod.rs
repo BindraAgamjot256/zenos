@@ -8,6 +8,7 @@
 pub(super) mod frame_allocator;
 pub(super) mod paging;
 
+use crate::arch::common::SpinLock;
 pub use crate::arch::x86_64::mem::frame_allocator::{memmap_addr, memmap_len};
 use crate::vmm::VmmArena;
 use crate::{
@@ -20,7 +21,6 @@ use crate::{
     mm::BUDDY_ALLOCATOR,
 };
 use core::sync::atomic::AtomicUsize;
-use kprimitives::spinlock::SpinLock;
 
 pub const PAGE_SIZE: usize = 4096;
 static PHYS_OFFSET: AtomicUsize = AtomicUsize::new(0);

@@ -10,3 +10,6 @@ pub mod bitmap_allocator;
 pub mod rwlock;
 pub mod spinlock;
 pub mod time;
+
+#[cfg(feature = "disable_int_on_lock")]
+pub use spinlock::Disabler;

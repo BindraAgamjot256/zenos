@@ -1,3 +1,4 @@
+use crate::arch::common::SpinLock;
 use crate::{
     arch::{CpuContext, common::timers::Instant},
     irq::IRQ_CONTROLLER,
@@ -10,7 +11,6 @@ use core::{
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
-use kprimitives::spinlock::SpinLock;
 
 #[derive(Debug, Clone, Copy)]
 struct Timer;
