@@ -54,7 +54,8 @@ impl<T: Thread, U: timing::Timer> Scheduler<T, U> {
             .unwrap_or(Instant::new(u128::MAX));
 
         let deadline = min(
-            self.quantum.unwrap_or(Instant::new(u128::MAX)),
+            self.quantum
+                .unwrap_or(now + Instant::new(5_000_000) /* 5 ms */),
             sleep_deadline,
         );
 

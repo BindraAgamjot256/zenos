@@ -41,7 +41,6 @@ impl CoreTimer for Timer {
 }
 
 fn timer_handler(cx: &mut CpuContext) {
-    log::info!("TIMER.");
     let mut guard = SCHEDULER.lock();
     let guard = guard.as_mut().expect("The Scheduler is initialised.");
     guard.on_timer(cx);

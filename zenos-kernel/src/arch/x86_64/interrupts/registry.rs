@@ -52,7 +52,6 @@ impl InterruptRegistry {
     /// so debugging is easier when vectors are reassigned.
     pub fn register_handler(&self, interrupt_number: u8, handler: fn(&mut InterruptContext)) {
         let index = interrupt_number as usize;
-        let previous = self.handlers[index].load(Ordering::Acquire);
         log::warn!(
             "Replaced interrupt handler for vector {interrupt_number:#x}, new: {:#x}",
             handler as usize

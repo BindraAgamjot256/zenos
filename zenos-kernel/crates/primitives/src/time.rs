@@ -49,7 +49,7 @@ impl Sub for Instant {
     type Output = Duration;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Duration::from_nanos_u128(self.0 - rhs.0)
+        Duration::from_nanos((self.0 - rhs.0).try_into().unwrap())
     }
 }
 
