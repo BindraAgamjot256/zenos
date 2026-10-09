@@ -1,3 +1,25 @@
+//! Thread scheduler for the Zenos kernel.
+//!
+//! This crate provides a preemptive, priority-aware thread scheduler with support for
+//! time-slice round-robin scheduling, thread sleeping/waking, and timer-driven preemption.
+//!
+//! # Architecture
+//!
+//! The scheduler is built around three main components:
+//!
+//! - **Run Queue** (`[queue::RunQueue]`): A FIFO queue of ready-to-run threads.
+//! - **Sleep Queue** (`[queue::SleepQueue]`): A priority queue of sleeping threads ordered by deadline.
+//! - **Timer** (`[timing::Timer]`): An abstraction over hardware timers for preemption and wakeups.
+//!
+//! The `Scheduler` struct coordinates these components and provides the main scheduling API.
+//!
+//! # Scheduling Policy
+//!
+//! - Threads run for a fixed `QUANTUM` (5ms) before being preempted.
+//! - Threads can voluntarily yield by sleeping (`sleep_current`).
+//! - Interrupt handlers can wake threads with priority using `push_front` on the run queue.
+//! - Timer interrupts invoke `on_timer()` which handles both quantum expiry and sleeper wakeups.
+
 #![cfg_attr(not(test), no_std)]
 #![expect(unused)]
 
@@ -12,7 +34,7 @@ use core::{
 };
 use kprimitives::{alloc::sync::KArc, time::Instant};
 
-mod queue;
+pub mod queue;
 pub mod threads;
 pub mod timing;
 
@@ -24,17 +46,39 @@ pub type ThreadKArc<T: Thread> = KArc<T, T::Allocator>;
 
 const QUANTUM: Duration = Duration::from_millis(5);
 
+/// Main scheduler coordinating run queue, sleep queue, and timer.
+///
+/// Generic over the thread type `T` (must implement `Thread`) and the timer type `U`
+/// (must implement `Timer`). This allows the scheduler to work with any kernel
+/// thread implementation and any timer hardware.
 #[derive(Debug)]
-pub struct Scheduler<T: Thread, U: timing::Timer> {
+pub struct Scheduler<T: Thread, U: Timer> {
+    /// Currently running thread, if any.
     current: Option<Tid>,
-    sleep_queue: queue::SleepQueue<T>,
-    threads: BTreeMap<threads::Tid, ThreadKArc<T>>,
-    run_queue: queue::RunQueue<T>,
+    /// Threads sleeping on timer deadlines.
+    sleep_queue: crate::queue::SleepQueue<T>,
+    /// All registered threads, indexed by TID.
+    threads: BTreeMap<Tid, ThreadKArc<T>>,
+    /// Threads ready to run.
+    run_queue: crate::queue::RunQueue<T>,
+    /// Hardware timer abstraction.
     timer: U,
+    /// Remaining time in the current quantum.
     quantum: Option<Instant>,
 }
 
+// NOTE:
+//
+// the scheduler has the following invariants.
+// - Threads are either in the run queue or the sleep queue, but not both.
+// - Threads are either running, ready, sleeping, or blocked.
+// - There is always a current thread, or else, a thread ready to be runnable.
+// - The timer is valid, and not high on coke.
+// - All existing threads are in the thread map, even if they are not in run queue or sleep queue(eg for blocked threads, and for why-must-you-hurt-me-in-this-way threads.).
 impl<T: Thread, U: timing::Timer> Scheduler<T, U> {
+    /// Creates a new scheduler with the given timer.
+    ///
+    /// The scheduler starts with no current thread and empty queues.
     pub const fn new(timer: U) -> Self {
         Self {
             current: None,
@@ -53,15 +97,14 @@ impl<T: Thread, U: timing::Timer> Scheduler<T, U> {
             .map(|entry| entry.deadline)
             .unwrap_or(Instant::new(u128::MAX));
 
-        let deadline = min(
-            self.quantum
-                .unwrap_or(now + Instant::new(5_000_000) /* 5 ms */),
-            sleep_deadline,
-        );
+        let deadline = min(self.quantum.unwrap_or(now + QUANTUM), sleep_deadline);
 
         self.timer.program_next(deadline - now);
     }
 
+    /// Registers a thread in the global thread table.
+    ///
+    /// Returns an error if a thread with the same TID is already registered.
     pub fn insert(&mut self, thread: ThreadKArc<T>) -> Result<(), ThreadKArc<T>> {
         let tid = thread.tid();
         let entry = self.threads.entry(tid);
@@ -74,6 +117,10 @@ impl<T: Thread, U: timing::Timer> Scheduler<T, U> {
         }
     }
 
+    /// Registers a thread as the currently running thread.
+    ///
+    /// Returns an error if a thread is already set as current. Used during early boot
+    /// to register the initial thread.
     pub fn insert_current(&mut self, thread: ThreadKArc<T>) -> Result<(), ThreadKArc<T>> {
         let None = self.current else {
             let thread = self.threads.get(self.current.as_ref().unwrap()).unwrap();
@@ -82,20 +129,31 @@ impl<T: Thread, U: timing::Timer> Scheduler<T, U> {
 
         self.insert(ThreadKArc::clone(&thread))?;
         self.current = Some(thread.tid());
+        self.quantum = Some(self.timer.now() + QUANTUM); // I am stupid. I am Stoobid.
         Ok(())
     }
 
+    /// Inserts a new thread into the run queue.
+    ///
+    /// Returns an error if a thread with the same TID is already registered.
     pub fn new_thread(&mut self, thread: ThreadKArc<T>) -> Result<(), ThreadKArc<T>> {
         self.insert(ThreadKArc::clone(&thread))?;
         self.run_queue.insert(thread);
         Ok(())
     }
 
+    /// Performs a context switch to the next ready thread.
+    ///
+    /// If there is a current thread, it is requeued at the back of
+    /// the run queue. (NOTE: most callers set `current` to `None` before calling this)
+    /// The next thread is popped from the front and becomes current.
+    /// A fresh quantum is started for the new current thread.
+    ///
+    /// Returns the new current thread, panics if no threads are ready.
     pub fn schedule_next(&mut self) -> ThreadKArc<T> {
-        if let Some(current) = self.current {
-            let thread = self.threads.get(&current).unwrap();
-            thread.set_state(ThreadState::Ready);
-            self.run_queue.insert(thread.clone());
+        if let Some(current) = self.current() {
+            current.set_state(ThreadState::Ready);
+            self.run_queue.insert(current.clone());
             self.current = None;
         }
 
@@ -116,18 +174,17 @@ impl<T: Thread, U: timing::Timer> Scheduler<T, U> {
         thread
     }
 
+    /// Puts the current thread to sleep until `deadline`.
+    ///
+    /// The current thread is moved to the sleep queue with the given deadline.
+    /// The timer is reprogrammed if this deadline is earlier than the current
+    /// timer programming. `schedule_next()` is then called to switch to another thread.
+    ///
+    /// Returns the next thread to run after the sleep. See [`Scheduler::schedule_next`] for more details.
     pub fn sleep_current(&mut self, duration: Duration) -> ThreadKArc<T> {
         static SEQ: AtomicU64 = AtomicU64::new(0);
 
-        let Some(tid) = self.current else {
-            panic!("why must you hurt me in this way???")
-        };
-
-        let thread = self
-            .threads
-            .get(&tid)
-            .cloned()
-            .expect("Thread should be in the threads map, since it's calling sleep()");
+        let thread = self.current().expect("why must you hurt me in this way???");
 
         thread.set_state(ThreadState::Sleeping);
         self.current = None;
@@ -147,6 +204,23 @@ impl<T: Thread, U: timing::Timer> Scheduler<T, U> {
         next
     }
 
+    pub fn block_current(&mut self) -> ThreadKArc<T> {
+        let current = self.current().expect("fuck you.");
+        current.set_state(ThreadState::Blocked);
+        self.current = None;
+
+        self.schedule_next()
+    }
+
+    /// Handles a timer interrupt.
+    ///
+    /// This should be called from the timer interrupt handler. It:
+    /// 1. Wakes all expired sleepers (moves them to the run queue)
+    /// 2. Decrements the current quantum
+    /// 3. If quantum expired, preempts the current thread via `schedule_next()`
+    /// 4. Reprograms the timer for the next earliest deadline or quantum expiry
+    ///
+    /// Returns the next thread to run after the timer interrupt. See [`Scheduler::schedule_next`] for more details.
     pub fn on_timer(&mut self) -> ThreadKArc<T> {
         let now = self.timer.now();
 
@@ -170,6 +244,20 @@ impl<T: Thread, U: timing::Timer> Scheduler<T, U> {
             .get(&tid)
             .cloned()
             .expect("current thread must exist in thread registry")
+    }
+
+    pub fn wake(&mut self, thread: ThreadKArc<T>) {
+        let tid = thread.tid();
+        if self
+            .threads
+            .get(&tid)
+            .is_none_or(|t| t.state() != ThreadState::Blocked)
+        {
+            panic!("where did you get this thread?? WHERE???")
+        }
+
+        thread.set_state(ThreadState::Ready);
+        self.run_queue.insert(thread);
     }
 
     pub fn curr_tid(&self) -> Option<&Tid> {

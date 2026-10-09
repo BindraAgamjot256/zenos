@@ -27,6 +27,7 @@ fn build_uefi_bootloader() -> PathBuf {
 
     // 1. Create an isolated target directory for the inner cargo process
     let inner_target_dir = manifest_dir.join("bootloader_build");
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
 
     let mut cmd = Command::new(cargo);
     cmd.arg("build");
@@ -35,6 +36,7 @@ fn build_uefi_bootloader() -> PathBuf {
     cmd.arg("-Zbuild-std=core,alloc,compiler_builtins")
         .arg("-Zbuild-std-features=compiler-builtins-mem");
     cmd.arg("--locked");
+    cmd.arg(format!("--profile={}", profile));
 
     // 2. Break the deadlock by directing the build to your isolated directory
     cmd.env("CARGO_TARGET_DIR", &inner_target_dir);
@@ -56,7 +58,6 @@ fn build_uefi_bootloader() -> PathBuf {
     if status.success() {
         // 4. Calculate the real path where Cargo puts custom target cross-compilations
         // Adjust "debug" to "release" if your outer script forces profile changes
-        let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
         let path = inner_target_dir
             .join("x86_64-unknown-uefi")
             .join(profile)

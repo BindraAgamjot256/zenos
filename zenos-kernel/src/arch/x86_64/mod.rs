@@ -9,6 +9,7 @@
 //! The module initializes architecture-specific components during kernel boot.
 
 mod addr;
+pub mod context_switch;
 mod gdt;
 mod interrupts;
 pub mod mem;

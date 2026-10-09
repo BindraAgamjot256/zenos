@@ -15,11 +15,13 @@ pub fn populate(pop: &mut RuntimeBootInfo, rsdp_addr: usize) -> Option<()> {
     helpers::init(rsdp_addr);
 
     log::debug!("ACPI: calling uacpi_initialize()");
-    let t = unsafe { uacpi_sys::uacpi_initialize(0) };
+    let status = unsafe { uacpi_sys::uacpi_initialize(0) };
 
-    if t != uacpi_sys::uacpi_status::UACPI_STATUS_OK {
-        log::error!("ACPI: uacpi_initialize() failed: {t:?}");
-        panic!("uacpi_initialize failed: {t:?}");
+    if status != uacpi_sys::uacpi_status::UACPI_STATUS_OK {
+        let status_s =
+            unsafe { CStr::from_ptr(uacpi_sys::uacpi_status_to_string(status)) }.to_string_lossy();
+        log::error!("ACPI: uacpi_initialize() failed: {}", status_s);
+        panic!("uacpi_initialize failed: {status:?}");
     }
 
     log::info!("ACPI: uACPI initialized successfully");

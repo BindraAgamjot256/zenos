@@ -72,8 +72,12 @@ impl Thread {
         }
     }
 
-    pub fn context(&self) -> &CpuContext {
-        unsafe { &*self.context.get() }
+    pub fn context(&self) -> &mut CpuContext {
+        unsafe { &mut *self.context.get() }
+    }
+
+    pub fn tidptr(&self) -> *const Tid {
+        &raw const self.tid
     }
 }
 
@@ -115,7 +119,8 @@ impl SchedulerThread for Thread {
             value if value == ThreadState::Running as u8 => ThreadState::Running,
             value if value == ThreadState::Ready as u8 => ThreadState::Ready,
             value if value == ThreadState::Sleeping as u8 => ThreadState::Sleeping,
-            _ => unreachable!("invalid thread state"),
+            value if value == ThreadState::Blocked as u8 => ThreadState::Blocked,
+            value => unreachable!("invalid thread state, {}", value),
         }
     }
 

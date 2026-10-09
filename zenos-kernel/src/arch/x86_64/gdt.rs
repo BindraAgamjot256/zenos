@@ -6,7 +6,7 @@
 //! for privilege checks and memory access. This module also builds the task
 //! state segment (TSS) descriptor that the interrupt stack table relies on.
 
-use core::mem::size_of;
+use core::mem::{offset_of, size_of};
 use log::info;
 
 //
@@ -260,9 +260,9 @@ pub fn init_gdt() {
 }
 
 pub fn kernel_code_seg() -> u64 {
-    1 << 3
+    offset_of!(Gdt, kernel_code) as u64
 }
 
 pub fn kernel_data_seg() -> u64 {
-    2 << 3
+    offset_of!(Gdt, kernel_data) as u64
 }

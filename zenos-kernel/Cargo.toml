@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 default = []
 __test_timer = []
+__test_mutex = []
 disable_int_on_lock = ["kprimitives/disable_int_on_lock"]
 
 [dependencies]

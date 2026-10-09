@@ -1,43 +1,53 @@
 use crate::mm::GlobalAllocator;
+use crate::scheduler::sync::Mutex;
+use core::fmt;
 use core::sync::atomic::AtomicUsize;
 use kprimitives::alloc::{CreatableKernelObject, KernelObject};
 
-#[derive(Debug)]
 pub struct UacpiMutex {
-    inner: crate::arch::common::SpinLock<()>,
-    flags: AtomicUsize,
+    inner: Mutex<()>,
 }
 
-// todo: actual mutex impl.
 impl UacpiMutex {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            inner: crate::arch::common::SpinLock::new(()),
-            flags: AtomicUsize::new(0),
+            inner: Mutex::new(()),
         }
     }
 
-    pub fn try_lock(&self) -> Option<usize> {
-        let Some(guard) = self.inner.try_lock() else {
-            return None;
-        };
-
-        let flags = guard.flags();
-        self.flags
-            .store(flags, core::sync::atomic::Ordering::Relaxed);
-
-        core::mem::forget(guard);
-
-        Some(flags)
+    /// Attempt to acquire the mutex without blocking.
+    ///
+    /// Returns true on success, false if already locked.
+    pub fn try_lock(&self) -> bool {
+        // SAFETY:
+        // The uACPI integration is responsible for
+        // balanced acquisition/release operations.
+        unsafe { self.inner.try_lock_manual() }
     }
 
+    /// Release the mutex.
+    ///
+    /// Must be called exactly once after a successful
+    /// acquisition, by the owning thread.
     pub fn unlock(&self) {
-        #[cfg(feature = "disable_int_on_lock")]
-        self.inner
-            .unlock(self.flags.load(core::sync::atomic::Ordering::Relaxed));
+        // SAFETY:
+        // Requires the uACPI caller to follow the
+        // mutex ownership contract.
+        unsafe {
+            self.inner.unlock_manual();
+        }
+    }
+}
 
-        #[cfg(not(feature = "disable_int_on_lock"))]
-        self.inner.unlock();
+impl Default for UacpiMutex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl fmt::Debug for UacpiMutex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("UacpiMutex").finish_non_exhaustive()
     }
 }
 

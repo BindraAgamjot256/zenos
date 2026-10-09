@@ -1,7 +1,6 @@
 #![expect(unused)]
-use crate::arch::common::SpinLock;
 use crate::{
-    arch::{CpuContext, disable_interrupts_and_save, restore_interrupts},
+    arch::{CpuContext, common::SpinLock, disable_interrupts_and_save, restore_interrupts},
     firmware::acpi::helpers::mutex::{UacpiMutex, UacpiSpinlock},
     irq::{IRQ_CONTROLLER, IrqGuard},
     mm::GlobalAllocator,
@@ -16,6 +15,7 @@ use core::{
     time::Duration,
 };
 use kprimitives::alloc::{Allocation, Allocator, CreatableKernelObject, KernelObject, boxed::KBox};
+use scheduler::Thread;
 
 mod events;
 mod io;
@@ -87,7 +87,7 @@ pub extern "C" fn uacpi_kernel_unmap(ptr: *mut core::ffi::c_void, len: uacpi_sys
 pub extern "C" fn uacpi_kernel_alloc(size: uacpi_sys::uacpi_size) -> *mut core::ffi::c_void {
     log::trace!("uacpi_kernel_alloc: size={:#x}", size);
 
-    let ptr: *mut () = Layout::from_size_align(size as usize, 1)
+    let ptr: *mut () = Layout::from_size_align(size as usize, size.next_power_of_two() as usize)
         .ok()
         .and_then(|layout| crate::mm::GlobalAllocator::alloc_zeroed(layout).ok())
         .map(|ptr| ptr.as_ptr().cast().as_ptr())
@@ -110,7 +110,8 @@ pub extern "C" fn uacpi_kernel_free(ptr: *mut core::ffi::c_void, size: uacpi_sys
         return;
     }
 
-    let Ok(layout) = Layout::from_size_align(size as usize, 1) else {
+    let Ok(layout) = Layout::from_size_align(size as usize, size.next_power_of_two() as usize)
+    else {
         return;
     };
 
@@ -150,34 +151,6 @@ pub extern "C" fn uacpi_kernel_log(
         }
         _ => {}
     }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_create_mutex() -> uacpi_sys::uacpi_handle {
-    let handle: uacpi_sys::uacpi_handle = KBox::new(mutex::UacpiMutex::new())
-        .ok()
-        .and_then(|mutex| Some(mutex.raw_ptr().cast()))
-        .unwrap_or(core::ptr::null_mut());
-
-    if handle.is_null() {
-        log::error!("uacpi_kernel_create_mutex: FAILED");
-    } else {
-        log::trace!("uacpi_kernel_create_mutex: handle={:p}", handle);
-    }
-
-    handle
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_free_mutex(handle: uacpi_sys::uacpi_handle) {
-    log::trace!("uacpi_kernel_free_mutex: handle={:p}", handle);
-
-    if handle.is_null() {
-        log::warn!("uacpi_kernel_free_mutex: null handle");
-        return;
-    }
-
-    drop(unsafe { KBox::from_raw(handle.cast::<UacpiMutex>(), GlobalAllocator) });
 }
 
 #[unsafe(no_mangle)]
@@ -423,15 +396,39 @@ pub extern "C" fn uacpi_kernel_io_write32(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_get_thread_id() -> uacpi_sys::uacpi_thread_id {
-    SCHEDULER
-        .lock()
-        .as_ref()
-        .map(|s| s.current_tid())
-        .flatten()
-        .map(|t| &raw const *t)
+    crate::scheduler::current_thread()
+        .map(|c| c.tidptr())
         .unwrap_or_default()
         .cast_mut()
         .cast()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn uacpi_kernel_create_mutex() -> uacpi_sys::uacpi_handle {
+    let handle: uacpi_sys::uacpi_handle = KBox::new(mutex::UacpiMutex::new())
+        .ok()
+        .and_then(|mutex| Some(mutex.raw_ptr().cast()))
+        .unwrap_or(core::ptr::null_mut());
+
+    if handle.is_null() {
+        log::error!("uacpi_kernel_create_mutex: FAILED");
+    } else {
+        log::trace!("uacpi_kernel_create_mutex: handle={:p}", handle);
+    }
+
+    handle
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn uacpi_kernel_free_mutex(handle: uacpi_sys::uacpi_handle) {
+    log::trace!("uacpi_kernel_free_mutex: handle={:p}", handle);
+
+    if handle.is_null() {
+        log::warn!("uacpi_kernel_free_mutex: null handle");
+        return;
+    }
+
+    drop(unsafe { KBox::from_raw(handle.cast::<UacpiMutex>(), GlobalAllocator) });
 }
 
 #[unsafe(no_mangle)]
@@ -454,7 +451,7 @@ pub extern "C" fn uacpi_kernel_acquire_mutex(
 
     loop {
         // TODO: sleep until a monotonic deadline instead of polling.
-        if mutex.try_lock().is_some() {
+        if mutex.try_lock() {
             log::trace!("uacpi_kernel_acquire_mutex: acquired handle={:p}", handle);
             return uacpi_sys::uacpi_status::UACPI_STATUS_OK;
         }
@@ -600,11 +597,7 @@ pub extern "C" fn uacpi_kernel_free_event(handle: uacpi_sys::uacpi_handle) {
 pub extern "C" fn uacpi_kernel_sleep(msec: uacpi_sys::uacpi_u64) {
     let duration = Duration::from_millis(msec as u64);
     log::info!("Sleeping for {msec}ms");
-    SCHEDULER
-        .lock()
-        .as_mut()
-        .and_then(|s| Some(s.sleep_current(duration)))
-        .unwrap();
+    SCHEDULER.sleep_current(duration);
 }
 
 /// The internal tracking object allocated on your kernel heap via KBox.
