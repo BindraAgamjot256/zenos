@@ -35,7 +35,7 @@ impl Default for BootConfig<'_> {
 }
 
 impl BootConfig<'_> {
-    pub fn from_str<'a>(s: &'a str) -> BootConfig<'a> {
+    pub fn from_raw<'a>(s: &'a str) -> BootConfig<'a> {
         let mut config: BootConfig<'a> = Default::default();
 
         for line in s.lines() {

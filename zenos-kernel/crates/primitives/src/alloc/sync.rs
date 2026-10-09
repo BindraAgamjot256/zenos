@@ -15,13 +15,13 @@ pub struct KArc<T: RefCounted + ?Sized, A: Allocator> {
 }
 
 impl<T: RefCounted + ?Sized, A: Allocator> KArc<T, A> {
-    pub fn as_ref(&self) -> &T {
+    pub fn into_ref(&self) -> &T {
         // safe cuz KArc is guaranteed to live as long as T.
         unsafe { self.data.as_ref() }
     }
 
     pub fn clone_inner(&self) -> Self {
-        self.as_ref().inc_refcount(Ordering::Relaxed);
+        self.into_ref().inc_refcount(Ordering::Relaxed);
 
         Self {
             data: self.data,
@@ -42,14 +42,14 @@ impl<T: RefCounted + ?Sized, A: Allocator> Deref for KArc<T, A> {
     type Target = T;
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.as_ref()
+        self.into_ref()
     }
 }
 
 impl<T: RefCounted + ?Sized, A: Allocator> AsRef<T> for KArc<T, A> {
     #[inline]
     fn as_ref(&self) -> &T {
-        self.as_ref()
+        self.into_ref()
     }
 }
 

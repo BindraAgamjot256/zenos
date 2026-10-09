@@ -72,7 +72,11 @@ impl Thread {
         }
     }
 
-    pub fn context(&self) -> &mut CpuContext {
+    #[expect(
+        clippy::mut_from_ref,
+        reason = "This is absolutely not safe. Just shut up. I know what I'm doing here. "
+    )]
+    pub unsafe fn context(&self) -> &mut CpuContext {
         unsafe { &mut *self.context.get() }
     }
 

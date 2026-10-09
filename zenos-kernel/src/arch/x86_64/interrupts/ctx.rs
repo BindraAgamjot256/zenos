@@ -59,15 +59,15 @@ impl CpuContext {
     }
 
     pub fn new_from_fn_kernel(func: fn(), stack_ptr: *mut u8) -> Self {
-        let mut me = Self::default();
-        me.rip = func as u64;
-        // IRETQ requires the reserved bit set, and IF enabled so this thread
-        // can be preempted by timer interrupts.
-        me.rflags = 1 << 9 | 1 << 1;
-        me.cs = arch::x86_64::gdt::kernel_code_seg();
-        me.rsp = stack_ptr.addr().try_into().unwrap();
-        me.ss = arch::x86_64::gdt::kernel_data_seg();
-        me
+        Self {
+            #[expect(clippy::fn_to_numeric_cast)]
+            rip: func as u64,
+            rflags: 1 << 9 | 1 << 1,
+            cs: arch::x86_64::gdt::kernel_code_seg(),
+            rsp: stack_ptr.addr().try_into().unwrap(),
+            ss: arch::x86_64::gdt::kernel_data_seg(),
+            ..Default::default()
+        }
     }
 }
 

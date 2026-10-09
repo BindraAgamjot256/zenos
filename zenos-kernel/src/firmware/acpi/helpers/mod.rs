@@ -87,7 +87,7 @@ pub extern "C" fn uacpi_kernel_unmap(ptr: *mut core::ffi::c_void, len: uacpi_sys
 pub extern "C" fn uacpi_kernel_alloc(size: uacpi_sys::uacpi_size) -> *mut core::ffi::c_void {
     log::trace!("uacpi_kernel_alloc: size={:#x}", size);
 
-    let ptr: *mut () = Layout::from_size_align(size as usize, size.next_power_of_two() as usize)
+    let ptr: *mut () = Layout::from_size_align(size, size.next_power_of_two())
         .ok()
         .and_then(|layout| crate::mm::GlobalAllocator::alloc_zeroed(layout).ok())
         .map(|ptr| ptr.as_ptr().cast().as_ptr())
@@ -110,8 +110,7 @@ pub extern "C" fn uacpi_kernel_free(ptr: *mut core::ffi::c_void, size: uacpi_sys
         return;
     }
 
-    let Ok(layout) = Layout::from_size_align(size as usize, size.next_power_of_two() as usize)
-    else {
+    let Ok(layout) = Layout::from_size_align(size, size.next_power_of_two()) else {
         return;
     };
 
@@ -215,8 +214,7 @@ pub extern "C" fn uacpi_kernel_io_map(
     );
 
     unsafe {
-        let kbox =
-            KBox::new(self::io::IoPort::new(base, len as u64)).and_then(|b| Ok(b.raw_ptr().cast()));
+        let kbox = KBox::new(self::io::IoPort::new(base, len as u64)).map(|b| b.raw_ptr().cast());
 
         if kbox.is_err() {
             log::error!(
@@ -224,7 +222,7 @@ pub extern "C" fn uacpi_kernel_io_map(
                 base,
                 len
             );
-            return todo!();
+            return uacpi_sys::uacpi_status::UACPI_STATUS_OUT_OF_MEMORY;
         }
         *out_handle = kbox.unwrap();
         log::trace!("uacpi_kernel_io_map: handle={:p}", *out_handle);
@@ -407,8 +405,8 @@ pub extern "C" fn uacpi_kernel_get_thread_id() -> uacpi_sys::uacpi_thread_id {
 pub extern "C" fn uacpi_kernel_create_mutex() -> uacpi_sys::uacpi_handle {
     let handle: uacpi_sys::uacpi_handle = KBox::new(mutex::UacpiMutex::new())
         .ok()
-        .and_then(|mutex| Some(mutex.raw_ptr().cast()))
-        .unwrap_or(core::ptr::null_mut());
+        .map(|mutex| mutex.raw_ptr().cast())
+        .unwrap_or_default();
 
     if handle.is_null() {
         log::error!("uacpi_kernel_create_mutex: FAILED");
@@ -595,7 +593,7 @@ pub extern "C" fn uacpi_kernel_free_event(handle: uacpi_sys::uacpi_handle) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_sleep(msec: uacpi_sys::uacpi_u64) {
-    let duration = Duration::from_millis(msec as u64);
+    let duration = Duration::from_millis(msec);
     log::info!("Sleeping for {msec}ms");
     SCHEDULER.sleep_current(duration);
 }
@@ -666,7 +664,7 @@ pub extern "C" fn uacpi_kernel_pci_device_open(
     }
 
     // Allocate tracking context using your safe kernel heap framework
-    let kbox = KBox::new(OpaquePciDevice { address }).and_then(|b| Ok(b.raw_ptr().cast()));
+    let kbox = KBox::new(OpaquePciDevice { address }).map(|b| b.raw_ptr().cast());
 
     if kbox.is_err() {
         log::error!("uacpi_kernel_pci_device_open: failed to allocate PCI device tracking state");

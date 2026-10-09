@@ -49,7 +49,7 @@ impl CoreTimer for Timer {
 fn timer_handler(cx: &mut CpuContext) {
     let next = SCHEDULER.on_timer(cx);
     IRQ_CONTROLLER.read().send_eoi();
-    *cx = next.context().clone();
+    *cx = unsafe { next.context().clone() };
 }
 
 #[derive(Debug)]
@@ -108,7 +108,7 @@ impl Scheduler {
 
         drop(lock);
 
-        context_switch(&raw mut *(curr.context()), &raw mut *(next.context()));
+        unsafe { context_switch(&raw mut *(curr.context()), &raw mut *(next.context())) };
     }
 
     pub fn wake(&self, thread: ThreadRef) {
@@ -119,7 +119,7 @@ impl Scheduler {
         self.save_current(cx);
         let next = self.core.lock().on_timer();
 
-        *cx = next.context().clone();
+        unsafe { *cx = next.context().clone() };
         next
     }
 
@@ -131,7 +131,7 @@ impl Scheduler {
 
         drop(lock);
 
-        context_switch(&raw mut *(curr.context()), &raw mut *(next.context()));
+        unsafe { context_switch(&raw mut *(curr.context()), &raw mut *(next.context())) };
     }
 
     fn program_first_timer(&self) {

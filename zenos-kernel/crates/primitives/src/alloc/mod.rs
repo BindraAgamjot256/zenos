@@ -35,6 +35,7 @@ pub trait CreatableKernelObject: KernelObject + Sized {
 /// This trait is implemented by objects that can be reference counted,
 /// allowing them to be stored as a [`KArc`].
 ///
+/// # Safety
 /// Refrence counting must be atomic, and unable to panic.
 /// (unless the refcount is usize::MAX, in which case you deserve the panic you idiot.)
 pub unsafe trait RefCounted: KernelObject {

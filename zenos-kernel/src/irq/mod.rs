@@ -13,10 +13,12 @@ use core::{
 };
 use kprimitives::{alloc::boxed::KBox, bitmap_allocator::BitmapAllocator, rwlock::RwLock};
 
+type LockedIrqMap = RwLock<BTreeMap<u8, fn(&mut InterruptContext)>>;
+
 pub struct IrqController {
     bitmap: BitmapAllocator<256>,
     controller: Option<KBox<dyn InterruptController + Send + Sync, GlobalAllocator>>,
-    locked_irqs: RwLock<BTreeMap<u8, fn(&mut InterruptContext)>>,
+    locked_irqs: LockedIrqMap,
 }
 
 impl IrqController {

@@ -2,6 +2,7 @@ use core::ops::Range;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::Ordering;
 
+#[derive(Debug)]
 pub struct BitmapAllocator<const N: usize>
 where
     [(); N.div_ceil(64)]: Sized,
@@ -120,6 +121,15 @@ where
         }
 
         Some(index)
+    }
+}
+
+impl<const N: usize> Default for BitmapAllocator<N>
+where
+    [(); N.div_ceil(64)]: Sized,
+{
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -490,14 +490,14 @@ where
         let memory_map_regions_addr = boot_info_addr + memory_regions_offset as u64;
         let memory_map_regions_end = boot_info_addr + boot_and_mem.size() as u64;
         let command_line_addr = boot_info_addr + cmd_offset as u64;
-        let command_line_end = if let Some(_) = boot_config.command_line {
+        let command_line_end = if boot_config.command_line.is_some() {
             boot_info_addr + combined.size() as u64
         } else {
             VirtAddr::zero()
         };
 
         let start_addr = boot_info_addr;
-        let end_addr = if let Some(_) = boot_config.command_line {
+        let end_addr = if boot_config.command_line.is_some() {
             command_line_end
         } else {
             memory_map_regions_end
@@ -534,8 +534,7 @@ where
             unsafe { &mut *boot_info_addr.as_mut_ptr() };
         let memory_regions: &'static mut [MaybeUninit<MemoryRegion>] =
             unsafe { slice::from_raw_parts_mut(memory_map_regions_addr.as_mut_ptr(), regions) };
-        let command_line: Option<MaybeUninit<&'static str>> = if let Some(_) =
-            boot_config.command_line
+        let command_line: Option<MaybeUninit<&'static str>> = if boot_config.command_line.is_some()
         {
             unsafe {
                 log::info!(

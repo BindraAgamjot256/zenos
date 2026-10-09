@@ -26,7 +26,7 @@ pub(crate) struct RunQueue<T: Thread> {
     queue: VecDeque<KArc<T, T::Allocator>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct BlockedQueue<T: Thread> {
     queue: VecDeque<KArc<T, T::Allocator>>,
 }

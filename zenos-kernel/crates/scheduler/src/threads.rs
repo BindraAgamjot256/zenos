@@ -85,15 +85,16 @@ impl<T: Thread> PartialEq for SleepEntry<T> {
 
 impl<T: Thread> PartialOrd for SleepEntry<T> {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.deadline
-            .partial_cmp(&other.deadline)
-            .and_then(|c| Some(c.reverse().then(self.seq.cmp(&other.seq).reverse())))
+        Some(self.cmp(other))
     }
 }
 
 impl<T: Thread> Ord for SleepEntry<T> {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
+        self.deadline
+            .cmp(&other.deadline)
+            .reverse()
+            .then(self.seq.cmp(&other.seq).reverse())
     }
 }
 

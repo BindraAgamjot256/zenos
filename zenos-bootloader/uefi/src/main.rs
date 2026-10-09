@@ -153,7 +153,7 @@ fn load_kernel() -> Option<Kernel<'static>> {
 fn load_config() -> Option<BootConfig<'static>> {
     let config_slice = load_file_from_boot_method("boot_config\0")?;
     let config_str = core::str::from_utf8(config_slice).ok()?;
-    Some(BootConfig::from_str(config_str))
+    Some(BootConfig::from_raw(config_str))
 }
 
 fn load_file_from_boot_method(filename: &str) -> Option<&'static mut [u8]> {
@@ -262,7 +262,7 @@ fn create_page_tables(
     let (kernel_page_table, kernel_level_4_frame) = {
         // get an unused frame for new level 4 page table
         let frame: PhysFrame = frame_allocator.allocate_frame().expect("no unused frames");
-        log::info!("New page table at: {:#?}", &frame);
+        log::info!("New page table at: {:#?}", frame);
         // get the corresponding virtual address
         let addr = phys_offset + frame.start_address().as_u64();
         // initialize a new page table

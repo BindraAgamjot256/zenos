@@ -109,6 +109,7 @@ struct MadtContext {
     cpus: Vec<Cpu>,
     boot_cpu_id: Option<u16>,
     isr_overrides: Vec<(u16, u32, u16)>,
+    #[allow(clippy::vec_box)]
     devices: Vec<Box<AcpiDevice>>,
     failed: bool,
     addr_override: Option<PhysAddr>,

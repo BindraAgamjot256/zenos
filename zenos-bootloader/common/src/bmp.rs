@@ -150,7 +150,7 @@ fn parse_bmp_headers(bmp_slice: &[u8]) -> Result<BmpMetadata, BmpError> {
         u32::from_le_bytes([bmp_slice[46], bmp_slice[47], bmp_slice[48], bmp_slice[49]]);
 
     let is_bottom_up = height > 0;
-    let height_abs = height.abs() as usize;
+    let height_abs = height.unsigned_abs() as usize;
     let width_abs = width as usize;
 
     // Calculate palette offset and size.
@@ -193,7 +193,7 @@ fn read_palette_entry(bmp_slice: &[u8], palette_offset: usize, index: usize) -> 
     };
     if offset
         .checked_add(4)
-        .map_or(true, |end| end > bmp_slice.len())
+        .is_none_or(|end| end > bmp_slice.len())
     {
         return (0, 0, 0); // Out of bounds, return black.
     }
@@ -338,10 +338,7 @@ pub unsafe fn draw_bmp(bmp_slice: &[u8], fb_info: &RawFrameBufferInfo) {
 
     // Calculate BMP row stride (padded to 4-byte boundary).
     let bmp_bytes_per_pixel = metadata.bits_per_pixel / 8;
-    let bmp_row_bytes = metadata
-        .width
-        .checked_mul(bmp_bytes_per_pixel as usize)
-        .unwrap_or(usize::MAX);
+    let bmp_row_bytes = metadata.width.saturating_mul(bmp_bytes_per_pixel as usize);
     let bmp_row_stride = (bmp_row_bytes + 3) & !3; // Pad to 4-byte boundary.
     if bmp_row_stride == usize::MAX {
         clear_framebuffer_black(fb_info);
@@ -417,7 +414,7 @@ pub unsafe fn draw_bmp(bmp_slice: &[u8], fb_info: &RawFrameBufferInfo) {
                         };
                     if pixel_offset
                         .checked_add(3)
-                        .map_or(true, |end| end > bmp_slice.len())
+                        .is_none_or(|end| end > bmp_slice.len())
                     {
                         (0, 0, 0)
                     } else {
@@ -436,7 +433,7 @@ pub unsafe fn draw_bmp(bmp_slice: &[u8], fb_info: &RawFrameBufferInfo) {
                         };
                     if pixel_offset
                         .checked_add(4)
-                        .map_or(true, |end| end > bmp_slice.len())
+                        .is_none_or(|end| end > bmp_slice.len())
                     {
                         (0, 0, 0)
                     } else {

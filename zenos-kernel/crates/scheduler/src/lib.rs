@@ -193,15 +193,13 @@ impl<T: Thread, U: timing::Timer> Scheduler<T, U> {
         let deadline = now + duration;
         let se = SleepEntry::<T> {
             deadline,
-            thread: thread,
+            thread,
             seq: SEQ.fetch_add(1, Ordering::Relaxed),
         };
 
         self.sleep_queue.push(se);
 
-        let next = self.schedule_next();
-
-        next
+        self.schedule_next()
     }
 
     pub fn block_current(&mut self) -> ThreadKArc<T> {

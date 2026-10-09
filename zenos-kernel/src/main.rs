@@ -44,7 +44,9 @@ fn _panic(info: &core::panic::PanicInfo) -> ! {
     log::error!("FUCK");
     log::error!("PANIC");
     log::error!("PANIC INFO: {}", info);
-    loop {}
+    loop {
+        crate::halt_and_catch_fire!();
+    }
 }
 
 // Defines the kernel main function as the entry point and adds metadata for the bootloader.
@@ -74,7 +76,9 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         now
     );
 
-    loop {}
+    loop {
+        crate::halt_and_catch_fire!();
+    }
 }
 
 #[cfg(feature = "__test_timer")]

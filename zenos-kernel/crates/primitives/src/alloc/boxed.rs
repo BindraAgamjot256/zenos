@@ -36,6 +36,8 @@ impl<T: KernelObject + ?Sized, A: Allocator> KBox<T, A> {
         ptr
     }
 
+    /// # Safety
+    /// The pointer passed must be a valid pointer to a `[T]` allocated by the allocator `[A]`.
     pub unsafe fn from_raw(ptr: *mut T, _: A) -> Self {
         Self {
             data: unsafe { NonNull::new_unchecked(ptr) },
@@ -116,7 +118,7 @@ where
 unsafe impl<T: KernelObject + ?Sized + Send, A: Allocator> Send for KBox<T, A> {}
 unsafe impl<T: KernelObject + ?Sized + Sync, A: Allocator> Sync for KBox<T, A> {}
 
-impl<T: KernelObject + ?Sized + Copy, A: Allocator> Clone for KBox<T, A> {
+impl<T: KernelObject + Copy, A: Allocator> Clone for KBox<T, A> {
     fn clone(&self) -> Self {
         let data = self.data;
 
@@ -130,8 +132,7 @@ impl<T: KernelObject + ?Sized + Copy, A: Allocator> Clone for KBox<T, A> {
             core::ptr::copy_nonoverlapping(data.as_ptr().cast::<u8>(), new_data, size);
         }
 
-        let metadata = core::ptr::metadata(data.as_ptr());
-        let new = core::ptr::from_raw_parts_mut::<T>(new_data, metadata);
+        let new = core::ptr::from_raw_parts_mut::<T>(new_data, ());
 
         Self {
             data: NonNull::new(new).unwrap(),

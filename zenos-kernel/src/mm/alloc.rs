@@ -119,9 +119,7 @@ unsafe impl GlobalAlloc for SlabAllocator {
                 self.inited.store(true, Ordering::Relaxed);
                 #[allow(static_mut_refs)]
                 unsafe {
-                    self.fallback
-                        .lock()
-                        .init_from_slice(&mut LOCKEDHEAP_HEAP_REGION)
+                    self.fallback.lock().init_from_slice(LOCKEDHEAP_HEAP_REGION)
                 };
             }
             return unsafe { self.fallback.alloc(layout) };

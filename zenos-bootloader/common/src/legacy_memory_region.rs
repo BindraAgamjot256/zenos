@@ -64,7 +64,7 @@ where
     ///
     /// Skips the frame at physical address zero to avoid potential problems. For example
     /// identity-mapping the frame at address zero is not valid in Rust, because Rust's `core`
-    /// library assumes that references can never point to virtual address `0`.  
+    /// library assumes that references can never point to virtual address `0`.
     /// Also skips the lower 1MB of frames, there are use cases that require lower conventional memory access (Such as SMP SIPI).
     pub fn new(memory_map: I) -> Self {
         // skip frame 0 because the rust core library does not see 0 as a valid address
@@ -215,7 +215,7 @@ where
         }
     }
 
-    fn split_and_add_region<'a, U>(
+    fn split_and_add_region<U>(
         mut region: MemoryRegion,
         regions: &mut [MaybeUninit<MemoryRegion>],
         next_index: &mut usize,

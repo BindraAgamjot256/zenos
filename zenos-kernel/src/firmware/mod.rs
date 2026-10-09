@@ -37,7 +37,7 @@ impl Debug for RuntimeBootInfo {
             .field("platform", &self.platform)
             .field(
                 "expand_device_tree",
-                if let Some(_) = self.expand_device_tree {
+                if self.expand_device_tree.is_some() {
                     &"Some(Box<dyn Fn(Self) -> Self>)"
                 } else {
                     &"None"
