@@ -63,6 +63,9 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
 
     let expanded = bootdata.expand();
     log::info!("{:#?}", expanded);
+
+    crate::bus::init();
+
     crate::scheduler::init_finished(Tid::new(0));
     todo!("device manager");
 }

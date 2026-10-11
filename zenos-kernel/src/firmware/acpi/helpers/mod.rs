@@ -1,4 +1,3 @@
-#![expect(unused)]
 use crate::{
     arch::{CpuContext, common::SpinLock, disable_interrupts_and_save, restore_interrupts},
     firmware::acpi::helpers::mutex::{UacpiMutex, UacpiSpinlock},
@@ -9,13 +8,12 @@ use crate::{
 use alloc::{boxed::Box, collections::BTreeMap};
 use core::{
     alloc::Layout,
-    arch, mem,
+    mem,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 use kprimitives::alloc::{Allocation, Allocator, CreatableKernelObject, KernelObject, boxed::KBox};
-use scheduler::Thread;
 
 mod events;
 mod io;
@@ -253,6 +251,10 @@ pub extern "C" fn uacpi_kernel_io_read8(
     );
     let io_port = unsafe { KBox::from_raw(handle as *mut self::io::IoPort, GlobalAllocator) };
     let port_base = (io_port.base + offset as u64) as u16;
+    if port_base as u64 > io_port.size + io_port.base {
+        log::warn!("out of bounds port access: base={:#x}, size={:#x}, offset={:#x}", io_port.base, io_port.size, offset);
+        return uacpi_sys::uacpi_status::UACPI_STATUS_INVALID_ARGUMENT;
+    }
     let port = unsafe { crate::arch::ports::ReadOnlyPort::new(port_base) };
     let value = unsafe { port.read() };
     unsafe { *out_value = value };
@@ -279,6 +281,10 @@ pub extern "C" fn uacpi_kernel_io_read16(
     );
     let io_port = unsafe { KBox::from_raw(handle as *mut self::io::IoPort, GlobalAllocator) };
     let port_base = (io_port.base + offset as u64) as u16;
+    if port_base as u64 > io_port.size + io_port.base {
+        log::warn!("out of bounds port access: base={:#x}, size={:#x}, offset={:#x}", io_port.base, io_port.size, offset);
+        return uacpi_sys::uacpi_status::UACPI_STATUS_INVALID_ARGUMENT;
+    }
     let port = unsafe { crate::arch::ports::ReadOnlyPort::new(port_base) };
     let value = unsafe { port.read() };
     unsafe { *out_value = value };
@@ -305,6 +311,10 @@ pub extern "C" fn uacpi_kernel_io_read32(
     );
     let io_port = unsafe { KBox::from_raw(handle as *mut self::io::IoPort, GlobalAllocator) };
     let port_base = (io_port.base + offset as u64) as u16;
+    if port_base as u64 > io_port.size + io_port.base {
+        log::warn!("out of bounds port access: base={:#x}, size={:#x}, offset={:#x}", io_port.base, io_port.size, offset);
+        return uacpi_sys::uacpi_status::UACPI_STATUS_INVALID_ARGUMENT;
+    }
     let port = unsafe { crate::arch::ports::ReadOnlyPort::new(port_base) };
     let value = unsafe { port.read() };
     unsafe { *out_value = value };
@@ -331,6 +341,10 @@ pub extern "C" fn uacpi_kernel_io_write8(
     );
     let io_port = unsafe { KBox::from_raw(handle as *mut self::io::IoPort, GlobalAllocator) };
     let port_base = (io_port.base + offset as u64) as u16;
+    if port_base as u64 > io_port.size + io_port.base {
+        log::warn!("out of bounds port access: base={:#x}, size={:#x}, offset={:#x}", io_port.base, io_port.size, offset);
+        return uacpi_sys::uacpi_status::UACPI_STATUS_INVALID_ARGUMENT;
+    }
     let port = unsafe { crate::arch::ports::WriteOnlyPort::new(port_base) };
     unsafe { port.write(value) };
     mem::forget(io_port);
@@ -356,6 +370,10 @@ pub extern "C" fn uacpi_kernel_io_write16(
     );
     let io_port = unsafe { KBox::from_raw(handle as *mut self::io::IoPort, GlobalAllocator) };
     let port_base = (io_port.base + offset as u64) as u16;
+    if port_base as u64 > io_port.size + io_port.base {
+        log::warn!("out of bounds port access: base={:#x}, size={:#x}, offset={:#x}", io_port.base, io_port.size, offset);
+        return uacpi_sys::uacpi_status::UACPI_STATUS_INVALID_ARGUMENT;
+    }
     let port = unsafe { crate::arch::ports::WriteOnlyPort::new(port_base) };
     unsafe { port.write(value) };
     mem::forget(io_port);
@@ -381,6 +399,10 @@ pub extern "C" fn uacpi_kernel_io_write32(
     );
     let io_port = unsafe { KBox::from_raw(handle as *mut self::io::IoPort, GlobalAllocator) };
     let port_base = (io_port.base + offset as u64) as u16;
+    if port_base as u64 > io_port.size + io_port.base {
+        log::warn!("out of bounds port access: base={:#x}, size={:#x}, offset={:#x}", io_port.base, io_port.size, offset);
+        return uacpi_sys::uacpi_status::UACPI_STATUS_INVALID_ARGUMENT;
+    }
     let port = unsafe { crate::arch::ports::WriteOnlyPort::new(port_base) };
     unsafe { port.write(value) };
     mem::forget(io_port);
@@ -874,28 +896,28 @@ pub extern "C" fn uacpi_kernel_pci_write32(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_wait_for_event(
-    handle: uacpi_sys::uacpi_handle,
-    timeout: uacpi_sys::uacpi_u16,
+    _handle: uacpi_sys::uacpi_handle,
+    _timeout: uacpi_sys::uacpi_u16,
 ) -> uacpi_sys::uacpi_bool {
     log::error!("uacpi_kernel_wait_for_event: NOT IMPLEMENTED");
     todo!()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_signal_event(handle: uacpi_sys::uacpi_handle) {
+pub extern "C" fn uacpi_kernel_signal_event(_handle: uacpi_sys::uacpi_handle) {
     log::error!("uacpi_kernel_signal_event: NOT IMPLEMENTED");
     todo!()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn uacpi_kernel_reset_event(handle: uacpi_sys::uacpi_handle) {
+pub extern "C" fn uacpi_kernel_reset_event(_handle: uacpi_sys::uacpi_handle) {
     log::error!("uacpi_kernel_reset_event: NOT IMPLEMENTED");
     todo!()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_handle_firmware_request(
-    request: *mut uacpi_sys::uacpi_firmware_request,
+    _request: *mut uacpi_sys::uacpi_firmware_request,
 ) -> uacpi_sys::uacpi_status {
     log::error!("uacpi_kernel_handle_firmware_request: NOT IMPLEMENTED");
     todo!()
@@ -903,9 +925,9 @@ pub extern "C" fn uacpi_kernel_handle_firmware_request(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn uacpi_kernel_schedule_work(
-    work_type: uacpi_sys::uacpi_work_type,
-    handler: uacpi_sys::uacpi_work_handler,
-    ctx: uacpi_sys::uacpi_handle,
+    _work_type: uacpi_sys::uacpi_work_type,
+    _handler: uacpi_sys::uacpi_work_handler,
+    _ctx: uacpi_sys::uacpi_handle,
 ) -> uacpi_sys::uacpi_status {
     log::error!("uacpi_kernel_schedule_work: NOT IMPLEMENTED");
     todo!()

@@ -521,7 +521,7 @@ fn add_isr_overrides(devices: &mut [Box<AcpiDevice>], isr_overrides: &[(u16, u32
     log::debug!("ACPI/IRQ: interrupt source override processing complete");
 }
 
-fn expand_bootinfo(_pop: RuntimeBootInfo) -> RuntimeBootInfo {
+fn expand_bootinfo(pop: RuntimeBootInfo) -> RuntimeBootInfo {
     let status = unsafe { uacpi_sys::uacpi_namespace_load() };
     if status != uacpi_sys::uacpi_status::UACPI_STATUS_OK {
         let status_s =
@@ -539,7 +539,7 @@ fn expand_bootinfo(_pop: RuntimeBootInfo) -> RuntimeBootInfo {
         );
     }
 
-    todo!("")
+    pop
 }
 
 #[derive(Debug, Clone)]

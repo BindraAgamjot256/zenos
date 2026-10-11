@@ -199,3 +199,20 @@ pub unsafe trait Allocator {
         Ok(new_allocation)
     }
 }
+
+#[derive(Debug)]
+pub struct GlobalAllocator;
+unsafe impl Allocator for GlobalAllocator {
+    fn allocate(layout: Layout) -> Result<Allocation, AllocationError> {
+        let alloc = unsafe { std_alloc::alloc::alloc(layout) };
+        if alloc.is_null() {
+            return Err(AllocationError::OutOfMemory);
+        }
+        Ok(Allocation::from_ptr(NonNull::new(alloc).unwrap()))
+    }
+
+    fn deallocate(ptr: Allocation, layout: Layout) {
+        unsafe { std_alloc::alloc::dealloc(ptr.as_ptr().as_ptr(), layout) };
+    }
+}
+

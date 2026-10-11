@@ -9,6 +9,7 @@
 
 extern crate alloc;
 mod arch;
+mod bus;
 mod firmware;
 mod irq;
 mod log;

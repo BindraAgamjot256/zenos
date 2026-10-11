@@ -1,5 +1,3 @@
-#![expect(dead_code)]
-
 use crate::arch::PhysAddr;
 use alloc::string::String;
 use alloc::{boxed::Box, vec::Vec};
@@ -85,14 +83,6 @@ impl DeviceId {
         Uuid::new_v5(&Uuid::nil(), b"Timer")
     }
 
-    pub fn uuid_namespace_block() -> Uuid {
-        Uuid::new_v5(&Uuid::nil(), b"Block")
-    }
-
-    pub fn uuid_namespace_network() -> Uuid {
-        Uuid::new_v5(&Uuid::nil(), b"Network")
-    }
-
     /// Creates a new device ID from the given namespace and name.
     ///
     /// The class of the device is determined from the namespace.
@@ -101,8 +91,6 @@ impl DeviceId {
         let namespace = match class {
             DeviceClass::InterruptController => Self::uuid_namespace_interrupt_controller(),
             DeviceClass::Timer => Self::uuid_namespace_timer(),
-            DeviceClass::Block => Self::uuid_namespace_block(),
-            DeviceClass::Network => Self::uuid_namespace_network(),
             _ => Uuid::nil(),
         };
         let uuid = Uuid::new_v5(&namespace, name);
@@ -118,10 +106,6 @@ pub enum DeviceClass {
     Timer,
     /// An interrupt controller device (PIC, IOAPIC etc).
     InterruptController,
-    /// A block device (e.g. disk, CD-ROM, etc).
-    Block,
-    /// A network device (e.g. Ethernet, Wi-Fi, etc).
-    Network,
     /// An unknown device class (i.e I was too lazy to add it in.).
     #[default]
     Unknown,
@@ -132,14 +116,6 @@ pub enum DeviceClass {
 pub enum Resource {
     /// A memory-mapped I/O region.
     MmioRegion { address: PhysAddr, size: usize },
-    /// An I/O port.
-    IoPort { base: u16, size: u16 },
-    /// An interrupt.
-    Interrupt {
-        number: u32,
-        trigger: Trigger,
-        polarity: Polarity,
-    },
     /// A Interrupt controller, that can manage interrupts.
     InterruptController {
         id: InterruptControllerId,
@@ -187,7 +163,6 @@ pub enum Status {
     Online,
     Offline,
     Unplugged,
-    Unknown,
 }
 
 /// Opaque identifier for an interrupt controller.

@@ -1,7 +1,6 @@
 use crate::mm::GlobalAllocator;
 use crate::scheduler::sync::Mutex;
 use core::fmt;
-use core::sync::atomic::AtomicUsize;
 use kprimitives::alloc::{CreatableKernelObject, KernelObject};
 
 pub struct UacpiMutex {
@@ -70,9 +69,9 @@ impl UacpiSpinlock {
         flags
     }
 
-    pub fn unlock(&self, flags: usize) {
+    pub fn unlock(&self, _flags: usize) {
         #[cfg(feature = "disable_int_on_lock")]
-        self.inner.unlock(flags);
+        self.inner.unlock(_flags);
 
         #[cfg(not(feature = "disable_int_on_lock"))]
         self.inner.unlock();

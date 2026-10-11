@@ -5,6 +5,8 @@
 #![feature(ptr_metadata)]
 #![feature(generic_const_exprs)]
 
+extern crate alloc as std_alloc;
+
 pub mod alloc;
 pub mod bitmap_allocator;
 pub mod rwlock;

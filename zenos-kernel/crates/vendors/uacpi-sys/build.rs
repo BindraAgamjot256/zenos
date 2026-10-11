@@ -62,6 +62,8 @@ fn main() {
         .header(include.join("uacpi/uacpi.h").to_string_lossy())
         .header(include.join("uacpi/tables.h").to_string_lossy())
         .header(include.join("uacpi/acpi.h").to_string_lossy())
+        .header(include.join("uacpi/utilities.h").to_string_lossy())
+        .header(include.join("uacpi/resources.h").to_string_lossy())
         .clang_arg("--target=x86_64-unknown-none-elf")
         .clang_arg("-ffreestanding")
         .clang_arg("-I")
@@ -71,6 +73,8 @@ fn main() {
         .newtype_enum("uacpi_log_level")
         .newtype_enum("uacpi_status")
         .newtype_enum("acpi_madt_entry_type")
+        .bitfield_enum("uacpi_object_type_bits")
+        .derive_default(true)
         .generate()
         .expect("failed to generate uACPI bindings");
 

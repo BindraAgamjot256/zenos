@@ -36,3 +36,25 @@ pub fn get_table_address(signature: &[u8; 5]) -> Result<usize, uacpi_status> {
     let table = find_table(signature)?;
     Ok(unsafe { table.__bindgen_anon_1.virt_addr })
 }
+
+impl ::core::fmt::Debug for uacpi_namespace_node_info {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        let name_cstr = unsafe { ::core::ffi::CStr::from_ptr(&raw const self.name.text[0]) };
+        let name_str = name_cstr.to_str().unwrap_or("<invalid UTF-8>");
+
+        f.debug_struct("uacpi_namespace_node_info")
+            .field("size", &self.size)
+            .field("name", &name_str)
+            .field("type", &self.type_)
+            .field("num_params", &self.num_params)
+            .field("flags", &self.flags)
+            .field("sxd", &self.sxd)
+            .field("sxw", &self.sxw)
+            .field("adr", &self.adr)
+            .field("hid", &self.hid)
+            .field("uid", &self.uid)
+            .field("cls", &self.cls)
+            .field("cid", &self.cid)
+            .finish()
+    }
+}

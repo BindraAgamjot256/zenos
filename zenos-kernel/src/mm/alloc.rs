@@ -2,14 +2,13 @@ use crate::{
     arch::common::SpinLock,
     mm::{BUDDY_ALLOCATOR, buddy::Mapping},
 };
-use alloc::alloc::{alloc, dealloc};
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::NonNull,
 };
-use kprimitives::alloc::{Allocation, AllocationError};
+pub use kprimitives::alloc::GlobalAllocator;
 use linked_list_allocator::LockedHeap;
 
 pub struct SlabBackend;
@@ -211,19 +210,3 @@ unsafe impl GlobalAlloc for SlabAllocator {
 
 #[global_allocator]
 static ALLOCATOR: SlabAllocator = SlabAllocator::new();
-
-#[derive(Debug)]
-pub struct GlobalAllocator;
-unsafe impl kprimitives::alloc::Allocator for GlobalAllocator {
-    fn allocate(layout: Layout) -> Result<Allocation, AllocationError> {
-        let alloc = unsafe { alloc(layout) };
-        if alloc.is_null() {
-            return Err(AllocationError::OutOfMemory);
-        }
-        Ok(Allocation::from_ptr(NonNull::new(alloc).unwrap()))
-    }
-
-    fn deallocate(ptr: Allocation, layout: Layout) {
-        unsafe { dealloc(ptr.as_ptr().as_ptr(), layout) };
-    }
-}

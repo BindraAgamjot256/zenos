@@ -1,0 +1,9 @@
+[package]
+name = "device-prelude"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kprimitives = { workspace = true }
+log = {version = "0.4", default-features = false}
+uuid = { version = "1.26.0", default-features = false, features = ["v5"]}

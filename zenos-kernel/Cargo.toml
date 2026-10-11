@@ -12,6 +12,7 @@ disable_int_on_lock = ["kprimitives/disable_int_on_lock"]
 [dependencies]
 kprimitives = { workspace = true }
 scheduler = { path = "crates/scheduler" }
+device-prelude = { path = "crates/drivers" }
 kmm = {workspace = true}
 uacpi-sys = { workspace = true }
 kernel-macros = { workspace = true }
