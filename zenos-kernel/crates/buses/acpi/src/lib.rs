@@ -1,3 +1,8 @@
+#![no_std]
+#![deny(unsafe_op_in_unsafe_fn)]
+
+extern crate alloc;
+
 use alloc::{string::String, vec::Vec};
 use core::{
     ffi::{CStr, c_void},
@@ -5,10 +10,13 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use device_prelude::bus::{Bus, BusError, Device, DeviceId};
+use kcore::device_core::bus::{Bus, BusError, Device, DeviceId};
 use kprimitives::alloc::{CreatableKernelObject, GlobalAllocator, KernelObject, boxed::KBox};
 
-use uacpi_sys::{self, uacpi_id_string, uacpi_namespace_node, uacpi_namespace_node_info};
+use uacpi_sys::{
+    self, uacpi_id_string, uacpi_iteration_decision_UACPI_ITERATION_DECISION_CONTINUE,
+    uacpi_namespace_node, uacpi_namespace_node_info, uacpi_resource,
+};
 
 // ============================================================
 // ACPI bus
@@ -31,12 +39,6 @@ impl CreatableKernelObject for AcpiBus {
 pub struct AcpiDevice {
     refcount: AtomicUsize,
 
-    // Stored as an integer to avoid exposing an unguarded
-    // raw pointer as a Send/Sync field.
-    //
-    // This does NOT independently guarantee thread safety.
-    node: usize,
-
     // Owned hardware and compatible IDs.
     ids: Vec<DeviceId>,
 
@@ -45,21 +47,12 @@ pub struct AcpiDevice {
 }
 
 impl AcpiDevice {
-    fn new(node: *mut uacpi_namespace_node, acpi_name: [u8; 4], ids: Vec<DeviceId>) -> Self {
+    fn new(acpi_name: [u8; 4], ids: Vec<DeviceId>) -> Self {
         Self {
             refcount: AtomicUsize::new(1),
-            node: node as usize,
             ids,
             acpi_name,
         }
-    }
-
-    pub fn namespace_node(&self) -> *mut uacpi_namespace_node {
-        self.node as *mut uacpi_namespace_node
-    }
-
-    pub fn acpi_name(&self) -> &[u8; 4] {
-        &self.acpi_name
     }
 }
 
@@ -163,13 +156,19 @@ unsafe fn collect_device_ids(info: &uacpi_namespace_node_info) -> Vec<DeviceId> 
     ids
 }
 
-// ============================================================
-// Enumeration context
-// ============================================================
+struct ResourceContext<'a> {
+    vec: &'a mut Vec<*mut uacpi_resource>,
+}
 
 struct EnumerationContext<'a> {
     callback: &'a mut dyn FnMut(KBox<dyn Device, GlobalAllocator>),
     failed: bool,
+}
+
+unsafe extern "C" fn resource(opaque: *mut c_void, res: *mut uacpi_resource) -> u32 {
+    let ctx = unsafe { &mut ((*opaque.cast::<ResourceContext<'_>>()).vec) };
+    ctx.push(res);
+    uacpi_iteration_decision_UACPI_ITERATION_DECISION_CONTINUE
 }
 
 // ============================================================
@@ -230,6 +229,18 @@ unsafe extern "C" fn descending_callback(
     // Copy IDs before releasing namespace info.
     let ids = unsafe { collect_device_ids(&*info) };
 
+    let mut vec = Vec::new();
+    let mut ctx = ResourceContext { vec: &mut vec };
+
+    unsafe {
+        uacpi_sys::uacpi_for_each_device_resource(
+            node,
+            "_CRS".as_ptr().cast(),
+            Some(resource),
+            (&raw mut ctx).cast(),
+        );
+    }
+
     // The information allocation is no longer needed.
     unsafe {
         uacpi_sys::uacpi_free_namespace_node_info(info);
@@ -239,11 +250,14 @@ unsafe extern "C" fn descending_callback(
     // (e.g. PCI devices identified through _ADR).
     // They aren't useful for ACPI ID driver matching.
     if ids.is_empty() {
-        log::trace!("Skipping ACPI node {:?}: no HID/CID", acpi_name);
+        log::info!(
+            "Skipping ACPI node {:?}: no HID/CID",
+            core::str::from_utf8(&acpi_name)
+        );
         return CONTINUE;
     }
 
-    let device = AcpiDevice::new(node, acpi_name, ids);
+    let device = AcpiDevice::new(acpi_name, ids);
     log::debug!("ACPI device: {}: {:?}", device.name(), device.ids());
 
     let device: KBox<dyn Device, GlobalAllocator> = match KBox::new(device) {

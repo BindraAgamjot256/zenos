@@ -5,6 +5,7 @@ use bootloader_api::BootInfo;
 use core::fmt::Debug;
 use uuid::Uuid;
 
+#[cfg(feature = "acpi")]
 pub mod acpi;
 
 //todo: make the expansion fn return a ExpandedBootInfo bus structure.
@@ -173,6 +174,8 @@ pub struct InterruptControllerId(u16);
 
 pub fn init(boot_info: &'static BootInfo) -> RuntimeBootInfo {
     let mut populate = RuntimeBootInfo::default();
+
+    #[cfg(feature = "acpi")]
     if let Some(rsdp) = boot_info.rsdp_addr.into_option().map(|a| a as usize) {
         let res = acpi::populate(&mut populate, rsdp);
         if res.is_some() {

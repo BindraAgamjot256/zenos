@@ -409,12 +409,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
-name = "device-prelude"
+name = "device-core"
 version = "0.1.0"
 dependencies = [
  "kprimitives",
  "log",
  "uuid",
+]
+
+[[package]]
+name = "driver-acpi"
+version = "0.1.0"
+dependencies = [
+ "kcore",
+ "kprimitives",
+ "log",
+ "uacpi-sys",
 ]
 
 [[package]]
@@ -571,6 +581,23 @@ checksum = "1cfaf33c695fc6e08064efbc1f72ec937429614f25eef83af942d0e227c3a28f"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kcore"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.11.1",
+ "bootloader_api",
+ "device-core",
+ "kernel-macros",
+ "kmm",
+ "kprimitives",
+ "linked_list_allocator",
+ "log",
+ "scheduler",
+ "uacpi-sys",
+ "uuid",
 ]
 
 [[package]]
@@ -1532,17 +1559,9 @@ version = "0.1.0"
 name = "zenos-kernel"
 version = "0.1.0"
 dependencies = [
- "bitflags 2.11.1",
  "bootloader_api",
- "device-prelude",
- "kernel-macros",
- "kmm",
- "kprimitives",
- "linked_list_allocator",
- "log",
- "scheduler",
- "uacpi-sys",
- "uuid",
+ "driver-acpi",
+ "kcore",
 ]
 
 [[package]]

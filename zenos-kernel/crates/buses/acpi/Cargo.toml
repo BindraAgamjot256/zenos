@@ -1,0 +1,10 @@
+[package]
+name = "driver-acpi"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kcore = { workspace = true }
+kprimitives = { workspace = true }
+uacpi-sys = { workspace = true }
+log = { version = "0.4", default-features = false }

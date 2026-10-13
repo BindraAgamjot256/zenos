@@ -6,12 +6,14 @@ use crate::{
 use core::sync::atomic::AtomicUsize;
 use core::{
     cell::UnsafeCell,
+    fmt::Debug,
     ops::{Deref, DerefMut},
     sync::atomic::{AtomicBool, Ordering},
 };
 
 use scheduler::queue::BlockedQueue;
 
+#[derive(Debug)]
 pub struct Mutex<T> {
     wait_queue: SpinLock<BlockedQueue<Thread>>,
     lock: AtomicBool,
@@ -149,6 +151,14 @@ unsafe impl<T: Send> Send for Mutex<T> {}
 
 pub struct MutexGuard<'a, T> {
     lock: &'a Mutex<T>,
+}
+
+impl<T: Debug> Debug for MutexGuard<'_, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MutexGuard")
+            .field("data", self.deref())
+            .finish()
+    }
 }
 
 impl<T> Deref for MutexGuard<'_, T> {

@@ -25,10 +25,10 @@ pub use interrupts::{
     CpuContext, InterruptGuard, disable_interrupts_and_save, register_interrupt_handler,
     restore_interrupts,
 };
-use scheduler::Tid;
+
 pub use timers::CLOCKSOURCE;
 
-pub fn init(boot_info: &'static mut crate::BootInfo) {
+pub fn init(boot_info: &'static mut crate::BootInfo) -> firmware::RuntimeBootInfo {
     log::info!("Initializing architecture-specific components...");
 
     let regions = &mut *boot_info.memory_regions;
@@ -59,15 +59,7 @@ pub fn init(boot_info: &'static mut crate::BootInfo) {
     gdt::init_gdt();
     interrupts::init(&bootdata);
 
-    crate::scheduler::init();
-
-    let expanded = bootdata.expand();
-    log::info!("{:#?}", expanded);
-
-    crate::bus::init();
-
-    crate::scheduler::init_finished(Tid::new(0));
-    todo!("device manager");
+    bootdata
 }
 
 fn merge_contiguous_regions(regions: &mut [Region]) -> usize {

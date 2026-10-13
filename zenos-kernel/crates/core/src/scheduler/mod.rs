@@ -7,7 +7,8 @@ use crate::{
     },
     irq::IRQ_CONTROLLER,
 };
-use ::scheduler::{Scheduler as CoreScheduler, Tid, Timer as CoreTimer};
+pub use ::scheduler::Tid;
+use ::scheduler::{Scheduler as CoreScheduler, Timer as CoreTimer};
 use alloc::vec;
 use core::{
     mem::ManuallyDrop,
@@ -139,6 +140,12 @@ impl Scheduler {
     }
 }
 
+impl Default for Scheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub static SCHEDULER: Scheduler = Scheduler::new();
 
 pub fn init() {
@@ -177,7 +184,7 @@ fn idle_thread() {
 #[cfg(feature = "__test_mutex")]
 fn run_mutex_tests() {
     use self::sync::Mutex;
-    use crate::arch::halt_and_catch_fire;
+
     use core::{
         hint::spin_loop,
         mem::ManuallyDrop,
@@ -202,7 +209,7 @@ fn run_mutex_tests() {
 
     fn park_forever() -> ! {
         loop {
-            halt_and_catch_fire!();
+            crate::halt_and_catch_fire!();
         }
     }
 

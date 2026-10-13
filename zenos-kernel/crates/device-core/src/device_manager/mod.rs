@@ -81,9 +81,7 @@ impl DeviceManager {
                 })
                 .map_err(|_| "Failed to enumerate devices")?;
 
-            for bus in new_buses {
-                self.buses.push(bus);
-            }
+            self.buses.extend(new_buses);
 
             for device in new_devices {
                 self.register_device(device);

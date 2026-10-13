@@ -7,15 +7,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![allow(macro_expanded_macro_exports_accessed_by_absolute_paths)]
 
-extern crate alloc;
-mod arch;
-mod bus;
-mod firmware;
-mod irq;
-mod log;
-mod mm;
-mod scheduler;
-mod vmm;
+use kcore::{arch, bus, log, scheduler};
 
 use bootloader_api::{config::*, *};
 
@@ -46,7 +38,7 @@ fn _panic(info: &core::panic::PanicInfo) -> ! {
     log::error!("PANIC");
     log::error!("PANIC INFO: {}", info);
     loop {
-        crate::halt_and_catch_fire!();
+        kcore::halt_and_catch_fire!();
     }
 }
 
@@ -78,7 +70,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
     );
 
     loop {
-        crate::halt_and_catch_fire!();
+        kcore::halt_and_catch_fire!();
     }
 }
 
@@ -104,5 +96,19 @@ fn test_timer() {
 fn kinit(boot_info: &'static mut BootInfo) {
     log::init();
     log::info!("Hello, zenos!");
-    arch::init(boot_info);
+
+    let bootdata = arch::init(boot_info);
+    scheduler::init();
+
+    let expanded = bootdata.expand();
+    log::info!("{:#?}", expanded);
+
+    #[cfg(feature = "acpi")]
+    if let Ok(acpi) = driver_acpi::init() {
+        bus::DEVICE_MANAGER.lock().register_bus(acpi);
+    }
+
+    bus::init();
+    scheduler::init_finished(scheduler::Tid::new(0));
+    todo!("device manager");
 }

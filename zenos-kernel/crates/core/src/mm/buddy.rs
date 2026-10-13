@@ -124,6 +124,12 @@ impl BuddyAllocator {
     }
 }
 
+impl Default for BuddyAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Describes one contiguous physical allocation returned by the buddy
 /// allocator.
 ///

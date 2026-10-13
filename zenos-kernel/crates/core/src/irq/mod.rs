@@ -116,6 +116,12 @@ impl IrqController {
     }
 }
 
+impl Default for IrqController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct IrqGuard<'a> {
     alloc: &'a IrqController,
     irq: u8,

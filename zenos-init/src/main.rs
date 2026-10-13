@@ -1,9 +1,15 @@
 #![no_std]
 #![no_main]
 
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
+use core::hint::spin_loop;
+
+
+/* THIS function is a pain in ze ass */
+#[cfg_attr(not(test), panic_handler)]
+fn _panic(_info: &core::panic::PanicInfo) -> ! {
+    loop {
+        spin_loop(); 
+    }
 }
 
 #[cfg(feature = "stress")]

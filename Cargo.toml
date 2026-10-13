@@ -11,7 +11,9 @@ members = [
     "zenos-kernel/crates/macros",
     "zenos-kernel/crates/vendors/uacpi-sys",
     "zenos-kernel/crates/scheduler",
-    "zenos-kernel/crates/drivers",
+    "zenos-kernel/crates/device-core",
+    "zenos-kernel/crates/core",
+    "zenos-kernel/crates/buses/*",
     "zenos-bootloader",
     "zenos-bootloader/api",
     "zenos-bootloader/common",
@@ -27,6 +29,9 @@ repository = "https://github.com/BindraAgamjot256/zenos"
 license = "MIT"
 
 [workspace.dependencies]
+kcore = { version = "0.1.0", path = "zenos-kernel/crates/core" }
+device-core = { version = "0.1.0", path = "zenos-kernel/crates/device-core" }
+scheduler = { version = "0.1.0", path = "zenos-kernel/crates/scheduler" }
 bootloader_api = { version = "0.1.0", path = "zenos-bootloader/api" }
 bootloader-x86_64-common = { version = "0.1.0", path = "zenos-bootloader/common" }
 bootloader-boot-config = { version = "0.1.0", path = "zenos-bootloader/common/config" }
