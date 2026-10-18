@@ -68,6 +68,7 @@ fn kmain(boot_info: &'static mut BootInfo) -> ! {
         "good day everyone, it is {:?} (according to the clock)",
         now
     );
+    scheduler::init_finished(scheduler::Tid::new(0));
 
     loop {
         kcore::halt_and_catch_fire!();
@@ -109,6 +110,4 @@ fn kinit(boot_info: &'static mut BootInfo) {
     }
 
     bus::init();
-    scheduler::init_finished(scheduler::Tid::new(0));
-    todo!("device manager");
 }

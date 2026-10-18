@@ -5,7 +5,7 @@
 
 use core::arch::global_asm;
 
-use crate::arch;
+use crate::arch::{self, interrupts::InterruptHandlerRet};
 
 /// The register state captured when an interrupt or exception enters the kernel.
 ///
@@ -207,9 +207,12 @@ generate_16_isrs 240
 
 /// Dispatches a captured interrupt context to the currently registered Rust handler.
 #[unsafe(no_mangle)]
-unsafe extern "C" fn rust_dispatch(_context: *mut CpuContext) {
-    let registry = &crate::arch::x86_64::interrupts::registry::IDT_REGISTRY;
-    let context = unsafe { &mut *_context };
-    let handler = registry.get_handler(context.vector_number as u8);
-    handler(context);
+unsafe extern "C" fn rust_dispatch(context: *mut CpuContext) {
+    let ctx = unsafe { &mut *context };
+    let ret = super::registry::INTERRUPT_REGISTRY
+        .with_handler(ctx.vector_number as u8, |handler| handler.handle(ctx));
+
+    let Some(InterruptHandlerRet::Handled) = ret else {
+        panic!("Interrupt failed");
+    };
 }

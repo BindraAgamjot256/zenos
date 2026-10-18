@@ -20,7 +20,7 @@ use crate::{
 pub use ctx::CpuContext;
 use kprimitives::{alloc::boxed::KBox, rwlock::RwLock};
 pub use registry::{
-    _with_handler, InterruptGuard, deregister_interrupt_handler, register_interrupt_handler,
+    InterruptGuard, deregister_interrupt_handler, register_guardless, register_interrupt_handler,
 };
 use table::init_idt;
 

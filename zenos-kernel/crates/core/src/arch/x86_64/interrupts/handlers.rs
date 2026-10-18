@@ -7,12 +7,14 @@
 
 // todo: custom error code types, more handlers...
 
+use crate::arch::interrupts::InterruptHandlerRet;
+
 /// Handles page faults by reporting the faulting address and panicking.
 ///
 /// The handler reads the faulting address from CR2, records the interrupt
 /// vector, error code, and instruction pointer, and then aborts so the kernel
 /// does not continue from an invalid memory access.
-pub fn pf_handler(context: &mut super::ctx::CpuContext) {
+pub fn pf_handler(context: &mut super::ctx::CpuContext) -> InterruptHandlerRet {
     let cr2 = crate::arch::x86_64::registers::control::CR2::read()
         .map(|v| v.as_usize())
         .unwrap_or(0xdeadbeef);
@@ -28,10 +30,10 @@ pub fn pf_handler(context: &mut super::ctx::CpuContext) {
     panic!("Page fault occurred. Address: {:#x}", cr2);
 }
 
-pub fn df_handler(context: &mut super::ctx::CpuContext) {
+pub fn df_handler(context: &mut super::ctx::CpuContext) -> InterruptHandlerRet {
     panic!("DOUBLE FAULT, CTX: {context:#?}")
 }
 
-pub fn gpf_handler(context: &mut super::ctx::CpuContext) {
+pub fn gpf_handler(context: &mut super::ctx::CpuContext) -> InterruptHandlerRet {
     panic!("GENERAL PROTECTION FAULT, CTX: {context:#?}")
 }

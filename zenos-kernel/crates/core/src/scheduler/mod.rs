@@ -4,6 +4,7 @@ use crate::{
         CpuContext,
         common::{SpinLock, timers::Instant},
         context_switch::context_switch,
+        interrupts::InterruptHandlerRet,
     },
     irq::IRQ_CONTROLLER,
 };
@@ -33,37 +34,29 @@ impl CoreTimer for Timer {
 
     fn program_next(&self, duration: Duration) {
         let cont = crate::irq::IRQ_CONTROLLER.read();
-        let (timer, mut guard) = cont.timer().expect("We don't have a fucking timer yet");
+        let (timer, _) = cont.timer().expect("We don't have a fucking timer yet");
 
-        let res = guard.set_handler_locked(timer_handler);
-        #[expect(
-            unpredictable_function_pointer_comparisons,
-            reason = "timer_handler is a static function pointer"
-        )]
-        if res.is_err_and(|f| f != timer_handler) {
-            panic!("I OWN THE TIMER. WHO DARES TO STEAL MY TIMER.")
-        }
         timer.next_tick(duration)
     }
 }
 
-fn timer_handler(cx: &mut CpuContext) {
+fn timer_handler(cx: &mut CpuContext) -> InterruptHandlerRet {
     let next = SCHEDULER.on_timer(cx);
     IRQ_CONTROLLER.read().send_eoi();
     *cx = unsafe { next.context().clone() };
+
+    InterruptHandlerRet::Handled
 }
 
 #[derive(Debug)]
 pub struct Scheduler {
     core: SpinLock<CoreScheduler<Thread, Timer>>,
-    timer: Timer,
 }
 
 impl Scheduler {
     pub const fn new() -> Self {
         Self {
             core: SpinLock::new(CoreScheduler::new(Timer)),
-            timer: Timer,
         }
     }
 
@@ -136,7 +129,12 @@ impl Scheduler {
     }
 
     fn program_first_timer(&self) {
-        self.timer.program_next(Duration::from_millis(5));
+        let cont = crate::irq::IRQ_CONTROLLER.read();
+        let (timer, mut guard) = cont.timer().expect("We don't have a fucking timer yet");
+
+        guard.set_handler_locked(timer_handler);
+
+        timer.next_tick(Duration::from_millis(5))
     }
 }
 

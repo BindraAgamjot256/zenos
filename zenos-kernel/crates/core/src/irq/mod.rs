@@ -1,24 +1,23 @@
 use crate::{
     arch::{
         CpuContext as InterruptContext, InterruptGuard,
-        interrupts::controller::{Clockevent, InterruptController},
-        register_interrupt_handler,
+        interrupts::{
+            InterruptHandlerRet,
+            controller::{Clockevent, InterruptController},
+        },
+        register_guardless, register_interrupt_handler,
     },
     mm::GlobalAllocator,
 };
-use alloc::collections::{BTreeMap, btree_map::Entry};
 use core::{
     mem,
     sync::atomic::{AtomicU8, Ordering},
 };
 use kprimitives::{alloc::boxed::KBox, bitmap_allocator::BitmapAllocator, rwlock::RwLock};
 
-type LockedIrqMap = RwLock<BTreeMap<u8, fn(&mut InterruptContext)>>;
-
 pub struct IrqController {
     bitmap: BitmapAllocator<256>,
     controller: Option<KBox<dyn InterruptController + Send + Sync, GlobalAllocator>>,
-    locked_irqs: LockedIrqMap,
 }
 
 impl IrqController {
@@ -26,7 +25,6 @@ impl IrqController {
         Self {
             bitmap: BitmapAllocator::new(),
             controller: None,
-            locked_irqs: RwLock::new(BTreeMap::new()),
         }
     }
 
@@ -102,11 +100,7 @@ impl IrqController {
             }
         }
 
-        let timer_irq = TimerIrq {
-            irq,
-            guard_inner: None,
-            alloc: self,
-        };
+        let timer_irq = TimerIrq { irq, _alloc: self };
 
         Some((timer, timer_irq))
     }
@@ -130,7 +124,7 @@ pub struct IrqGuard<'a> {
 }
 
 impl IrqGuard<'_> {
-    pub fn set_handler(&mut self, handler: fn(&mut InterruptContext)) {
+    pub fn set_handler(&mut self, handler: fn(&mut InterruptContext) -> InterruptHandlerRet) {
         let guard_inner = register_interrupt_handler(self.irq, handler);
         self.guard_inner = Some(guard_inner);
     }
@@ -176,34 +170,16 @@ impl<'a> Drop for IrqGuard<'a> {
 
 pub struct TimerIrq<'a> {
     irq: u8,
-    guard_inner: Option<InterruptGuard>,
-    alloc: &'a IrqController,
+    _alloc: &'a IrqController,
 }
 
 impl<'a> TimerIrq<'a> {
-    pub fn set_handler(&mut self, handler: fn(&mut InterruptContext)) {
-        let None = self.guard_inner else {
-            panic!("re-setting handler for timer irq")
-        };
-        let guard_inner = register_interrupt_handler(self.irq, handler);
-        self.guard_inner = Some(guard_inner);
-    }
-
-    /// Sets the handler for this IRQ permanently, returning Err(handler) if one already exists.
+    /// Sets the handler for this IRQ permanently, panicking if one already exists.
     pub fn set_handler_locked(
         &mut self,
-        handler: fn(&mut InterruptContext),
-    ) -> Result<(), fn(&mut InterruptContext)> {
-        let mut irq = self.alloc.locked_irqs.write();
-        match irq.entry(self.irq) {
-            Entry::Occupied(_) => Err(handler),
-            Entry::Vacant(e) => {
-                let guard = register_interrupt_handler(self.irq, handler);
-                e.insert_entry(handler);
-                mem::forget(guard);
-                Ok(())
-            }
-        }
+        handler: fn(&mut InterruptContext) -> InterruptHandlerRet,
+    ) {
+        register_guardless(self.irq, handler);
     }
 
     pub fn vector(&self) -> u8 {
