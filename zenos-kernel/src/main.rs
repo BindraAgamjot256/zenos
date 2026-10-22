@@ -109,5 +109,14 @@ fn kinit(boot_info: &'static mut BootInfo) {
         bus::DEVICE_MANAGER.lock().register_bus(acpi);
     }
 
+    #[cfg(feature = "ps2k")]
+    {
+        if let Ok(driver) = driver_ps2k::init() {
+            bus::DEVICE_MANAGER
+                .lock()
+                .register_driver(driver.into_arc());
+        }
+    }
+
     bus::init();
 }

@@ -3,12 +3,11 @@
 
 use core::hint::spin_loop;
 
-
 /* THIS function is a pain in ze ass */
 #[cfg_attr(not(test), panic_handler)]
 fn _panic(_info: &core::panic::PanicInfo) -> ! {
     loop {
-        spin_loop(); 
+        spin_loop();
     }
 }
 

@@ -4,15 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["acpi"]
+default = ["acpi", "ps2k"]
 acpi = ["dep:driver-acpi", "kcore/acpi"]
+ps2k = ["dep:driver-ps2k"]
 __test_timer = ["kcore/__test_timer"]
 __test_mutex = ["kcore/__test_mutex"]
 disable_int_on_lock = ["kcore/disable_int_on_lock"]
 
 [dependencies]
 kcore = { workspace = true }
+kprimitives = { workspace = true }
 driver-acpi = { path = "crates/buses/acpi", optional = true }
+driver-ps2k = { path = "crates/drivers/ps2k", optional = true }
 bootloader_api = { workspace = true }
 
 [[bin]]

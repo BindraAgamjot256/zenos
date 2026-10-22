@@ -14,6 +14,7 @@ members = [
     "zenos-kernel/crates/device-core",
     "zenos-kernel/crates/core",
     "zenos-kernel/crates/buses/*",
+    "zenos-kernel/crates/drivers/*",
     "zenos-bootloader",
     "zenos-bootloader/api",
     "zenos-bootloader/common",

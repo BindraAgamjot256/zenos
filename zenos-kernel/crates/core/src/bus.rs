@@ -10,5 +10,10 @@ pub fn init() {
     log::info!("lock: {:#?}", lock);
     lock.bind_drivers();
 
-    todo!();
+    loop {
+        crate::halt_and_catch_fire!()
+        //todo: don't do this. Stop it. Get some help.
+        // McDonald's wants you to give yourself a chance,
+        // a chance to find out the wonderful things you can really be
+    }
 }

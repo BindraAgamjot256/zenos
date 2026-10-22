@@ -428,6 +428,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "driver-ps2k"
+version = "0.1.0"
+dependencies = [
+ "kcore",
+ "kprimitives",
+]
+
+[[package]]
 name = "either"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1561,7 +1569,9 @@ version = "0.1.0"
 dependencies = [
  "bootloader_api",
  "driver-acpi",
+ "driver-ps2k",
  "kcore",
+ "kprimitives",
 ]
 
 [[package]]
