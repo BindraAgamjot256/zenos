@@ -5,18 +5,15 @@ extern crate alloc;
 
 use alloc::{string::String, vec::Vec};
 use core::{
+    cell::{OnceCell, RefCell},
     ffi::{CStr, c_void},
-    ptr,
+    ops::Deref,
+    ptr::{self, NonNull},
     sync::atomic::{AtomicUsize, Ordering},
 };
-
-use kcore::device_core::bus::{Bus, BusError, Device, DeviceId};
+use kcore::device_core::bus::{Bus, BusError, Device, DeviceId, DeviceResource};
 use kprimitives::alloc::{CreatableKernelObject, GlobalAllocator, KernelObject, boxed::KBox};
-
-use uacpi_sys::{
-    self, uacpi_id_string, uacpi_iteration_decision_UACPI_ITERATION_DECISION_CONTINUE,
-    uacpi_namespace_node, uacpi_namespace_node_info, uacpi_resource,
-};
+use uacpi_sys::*;
 
 // ============================================================
 // ACPI bus
@@ -26,7 +23,6 @@ use uacpi_sys::{
 pub struct AcpiBus;
 
 impl KernelObject for AcpiBus {}
-
 impl CreatableKernelObject for AcpiBus {
     type Allocator = GlobalAllocator;
 }
@@ -44,20 +40,25 @@ pub struct AcpiDevice {
 
     // Four-character ACPI namespace name.
     acpi_name: [u8; 4],
+
+    resources: OnceCell<Vec<DeviceResource>>,
+
+    node: RefCell<Option<NonNull<uacpi_namespace_node>>>,
 }
 
 impl AcpiDevice {
-    fn new(acpi_name: [u8; 4], ids: Vec<DeviceId>) -> Self {
+    fn new(acpi_name: [u8; 4], ids: Vec<DeviceId>, node: NonNull<uacpi_namespace_node>) -> Self {
         Self {
             refcount: AtomicUsize::new(1),
             ids,
             acpi_name,
+            resources: OnceCell::new(),
+            node: RefCell::new(Some(node)),
         }
     }
 }
 
 impl KernelObject for AcpiDevice {}
-
 impl CreatableKernelObject for AcpiDevice {
     type Allocator = GlobalAllocator;
 }
@@ -89,6 +90,239 @@ impl Device for AcpiDevice {
         // PCI bridge support belongs here eventually.
         None
     }
+
+    fn resources(&self) -> &[DeviceResource] {
+        self.resources
+            .get_or_init(|| {
+                let mut mref = self.node.borrow_mut();
+                let Some(node) = mref.take() else {
+                    panic!("OnceCell uninit, but node None");
+                };
+
+                let res = unsafe { create_resources(node.as_ptr()) };
+                if let Ok(vec) = res {
+                    vec
+                } else {
+                    let status = res.unwrap_err();
+                    if status != uacpi_sys::uacpi_status::UACPI_STATUS_OK {
+                        let status_s =
+                            unsafe { CStr::from_ptr(uacpi_sys::uacpi_status_to_string(status)) }
+                                .to_string_lossy();
+                        log::warn!("failed to parse _CRS: {}", status_s);
+                    };
+                    Vec::new()
+                }
+            })
+            .deref()
+    }
+}
+unsafe impl Send for AcpiDevice {}
+
+#[repr(C)]
+struct ResourceContext {
+    resources: Vec<DeviceResource>,
+}
+
+unsafe extern "C" fn collect_resource(
+    user: *mut c_void,
+    resource: *mut uacpi_resource,
+) -> uacpi_iteration_decision {
+    if user.is_null() || resource.is_null() {
+        return uacpi_iteration_decision_UACPI_ITERATION_DECISION_CONTINUE;
+    }
+
+    // SAFETY: `user` points to the live ResourceContext passed to
+    // uacpi_for_each_device_resource. `resource` is valid for this callback.
+    let context = unsafe { &mut *user.cast::<ResourceContext>() };
+    let resource = unsafe { &*resource };
+
+    let resource_type = uacpi_resource_type(resource.type_);
+
+    match resource_type {
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_IRQ => {
+            let irq = unsafe { resource.__bindgen_anon_1.irq.as_ref() };
+            let numbers = irq.irqs.as_ptr();
+
+            for i in 0..irq.num_irqs as usize {
+                let number = unsafe { ptr::read(numbers.add(i)) } as u32;
+
+                context.resources.push(DeviceResource::IRQ {
+                    number,
+                    triggering: irq.triggering,
+                    polarity: irq.polarity,
+                    sharing: irq.sharing,
+                    wake_capability: irq.wake_capability,
+                });
+            }
+        }
+
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_EXTENDED_IRQ => {
+            let irq = unsafe { resource.__bindgen_anon_1.extended_irq.as_ref() };
+            let numbers = irq.irqs.as_ptr();
+
+            for i in 0..irq.num_irqs as usize {
+                let number = unsafe { ptr::read(numbers.add(i)) };
+
+                context.resources.push(DeviceResource::ExtendedIRQ {
+                    number,
+                    triggering: irq.triggering,
+                    polarity: irq.polarity,
+                    sharing: irq.sharing,
+                    wake_capability: irq.wake_capability,
+                });
+            }
+        }
+
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_IO => {
+            let io = unsafe { resource.__bindgen_anon_1.io.as_ref() };
+
+            context.resources.push(DeviceResource::IoPort {
+                base: io.minimum as usize,
+                len: io.length as usize,
+            });
+        }
+
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_FIXED_IO => {
+            let io = unsafe { resource.__bindgen_anon_1.fixed_io.as_ref() };
+
+            context.resources.push(DeviceResource::IoPort {
+                base: io.address as usize,
+                len: io.length as usize,
+            });
+        }
+
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_MEMORY24 => {
+            let mem = unsafe { resource.__bindgen_anon_1.memory24.as_ref() };
+
+            context.resources.push(DeviceResource::MMIO {
+                base: mem.minimum as usize,
+                len: mem.length as usize,
+            });
+        }
+
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_MEMORY32 => {
+            let mem = unsafe { resource.__bindgen_anon_1.memory32.as_ref() };
+
+            context.resources.push(DeviceResource::MMIO {
+                base: mem.minimum as usize,
+                len: mem.length as usize,
+            });
+        }
+
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_FIXED_MEMORY32 => {
+            let mem = unsafe { resource.__bindgen_anon_1.fixed_memory32.as_ref() };
+
+            context.resources.push(DeviceResource::MMIO {
+                base: mem.address as usize,
+                len: mem.length as usize,
+            });
+        }
+
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_ADDRESS16 => {
+            let r = unsafe { resource.__bindgen_anon_1.address16.as_ref() };
+
+            push_address_resource(
+                &mut context.resources,
+                r.common.type_ as uacpi_address_space,
+                r.minimum as u64,
+                r.address_length as u64,
+            );
+        }
+
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_ADDRESS32 => {
+            let r = unsafe { resource.__bindgen_anon_1.address32.as_ref() };
+
+            push_address_resource(
+                &mut context.resources,
+                r.common.type_ as uacpi_address_space,
+                r.minimum as u64,
+                r.address_length as u64,
+            );
+        }
+
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_ADDRESS64 => {
+            let r = unsafe { resource.__bindgen_anon_1.address64.as_ref() };
+
+            push_address_resource(
+                &mut context.resources,
+                r.common.type_ as uacpi_address_space,
+                r.minimum,
+                r.address_length,
+            );
+        }
+
+        uacpi_resource_type::UACPI_RESOURCE_TYPE_ADDRESS64_EXTENDED => {
+            let r = unsafe { resource.__bindgen_anon_1.address64_extended.as_ref() };
+
+            push_address_resource(
+                &mut context.resources,
+                r.common.type_ as uacpi_address_space,
+                r.minimum,
+                r.address_length,
+            );
+        }
+
+        // Unsupported descriptors are intentionally ignored.
+        _ => {}
+    }
+
+    uacpi_iteration_decision_UACPI_ITERATION_DECISION_CONTINUE
+}
+
+fn push_address_resource(
+    resources: &mut Vec<DeviceResource>,
+    address_space: uacpi_address_space,
+    base: u64,
+    len: u64,
+) {
+    if len == 0 {
+        return;
+    }
+
+    match address_space {
+        uacpi_sys::uacpi_address_space_UACPI_ADDRESS_SPACE_SYSTEM_MEMORY => {
+            resources.push(DeviceResource::MMIO {
+                base: base as usize,
+                len: len as usize,
+            });
+        }
+
+        uacpi_sys::uacpi_address_space_UACPI_ADDRESS_SPACE_SYSTEM_IO => {
+            resources.push(DeviceResource::IoPort {
+                base: base as usize,
+                len: len as usize,
+            });
+        }
+
+        _ => {}
+    }
+}
+
+unsafe fn create_resources(
+    node: *mut uacpi_namespace_node,
+) -> Result<Vec<DeviceResource>, uacpi_status> {
+    if node.is_null() {
+        return Err(uacpi_status::UACPI_STATUS_INVALID_ARGUMENT);
+    }
+
+    let mut context = ResourceContext {
+        resources: Vec::new(),
+    };
+
+    let status = unsafe {
+        uacpi_for_each_device_resource(
+            node,
+            c"_CRS".as_ptr(),
+            Some(collect_resource),
+            ptr::addr_of_mut!(context).cast::<c_void>(),
+        )
+    };
+
+    if status != uacpi_status::UACPI_STATUS_OK {
+        return Err(status);
+    }
+
+    Ok(context.resources)
 }
 
 // ============================================================
@@ -156,24 +390,10 @@ unsafe fn collect_device_ids(info: &uacpi_namespace_node_info) -> Vec<DeviceId> 
     ids
 }
 
-struct ResourceContext<'a> {
-    vec: &'a mut Vec<*mut uacpi_resource>,
-}
-
 struct EnumerationContext<'a> {
     callback: &'a mut dyn FnMut(KBox<dyn Device, GlobalAllocator>),
     failed: bool,
 }
-
-unsafe extern "C" fn resource(opaque: *mut c_void, res: *mut uacpi_resource) -> u32 {
-    let ctx = unsafe { &mut ((*opaque.cast::<ResourceContext<'_>>()).vec) };
-    ctx.push(res);
-    uacpi_iteration_decision_UACPI_ITERATION_DECISION_CONTINUE
-}
-
-// ============================================================
-// uACPI namespace callback
-// ============================================================
 
 unsafe extern "C" fn descending_callback(
     opaque: *mut c_void,
@@ -226,20 +446,24 @@ unsafe extern "C" fn descending_callback(
         ]
     };
 
+    let mut status_flags: u32 = 0;
+    let status = unsafe { uacpi_sys::uacpi_eval_sta(node, &mut status_flags) };
+
+    if status == uacpi_sys::uacpi_status::UACPI_STATUS_OK {
+        // Bit 0 (0x01) means "Device is present"
+        // Bit 1 (0x02) means "Device is enabled and decoding its resources"
+        let present_and_enabled = 0x03;
+        if (status_flags & present_and_enabled) != present_and_enabled {
+            log::info!(
+                "Skipping inactive ACPI node {:?}",
+                core::str::from_utf8(&acpi_name)
+            );
+            return CONTINUE;
+        }
+    }
+
     // Copy IDs before releasing namespace info.
     let ids = unsafe { collect_device_ids(&*info) };
-
-    let mut vec = Vec::new();
-    let mut ctx = ResourceContext { vec: &mut vec };
-
-    unsafe {
-        uacpi_sys::uacpi_for_each_device_resource(
-            node,
-            "_CRS".as_ptr().cast(),
-            Some(resource),
-            (&raw mut ctx).cast(),
-        );
-    }
 
     // The information allocation is no longer needed.
     unsafe {
@@ -257,8 +481,8 @@ unsafe extern "C" fn descending_callback(
         return CONTINUE;
     }
 
-    let device = AcpiDevice::new(acpi_name, ids);
-    log::debug!("ACPI device: {}: {:?}", device.name(), device.ids());
+    let device = AcpiDevice::new(acpi_name, ids, unsafe { NonNull::new_unchecked(node) });
+    log::debug!("ACPI device: {}({:?})", device.name(), device.ids());
 
     let device: KBox<dyn Device, GlobalAllocator> = match KBox::new(device) {
         Ok(device) => device,

@@ -1,41 +1,27 @@
-use std::env;
 use std::path::PathBuf;
-use std::process::Command;
+use std::{env, fs};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
 
-    let mut git = Command::new("git");
-    git.arg("pull")
-        .arg("--rebase")
-        .current_dir(manifest_dir.join("uacpi"))
-        .status()
-        .unwrap();
-
     let uacpi = manifest_dir.join("uacpi");
     let include = uacpi.join("include");
 
-    let sources = [
-        "source/default_handlers.c",
-        "source/event.c",
-        "source/interpreter.c",
-        "source/io.c",
-        "source/mutex.c",
-        "source/namespace.c",
-        "source/notify.c",
-        "source/opcodes.c",
-        "source/opregion.c",
-        "source/osi.c",
-        "source/registers.c",
-        "source/resources.c",
-        "source/shareable.c",
-        "source/sleep.c",
-        "source/stdlib.c",
-        "source/tables.c",
-        "source/types.c",
-        "source/uacpi.c",
-        "source/utilities.c",
-    ];
+    let entries = fs::read_dir(uacpi.join("source")).unwrap();
+
+    let sources: Vec<String> = entries
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+
+            // Check if it's a file (skips folders)
+            if path.is_file() && path.extension() == Some(std::ffi::OsStr::new("c")) {
+                // Convert OsStr to String, ignoring non-UTF8 names
+                path.file_name()?.to_str().map(|s| s.to_owned())
+            } else {
+                None
+            }
+        })
+        .collect();
 
     let mut build = cc::Build::new();
 
@@ -52,7 +38,8 @@ fn main() {
         .include(&include);
 
     for source in sources {
-        build.file(uacpi.join(source));
+        println!("{}", uacpi.join("source").join(&source).display());
+        build.file(uacpi.join("source").join(source));
     }
 
     build.compile("uacpi");
@@ -74,6 +61,7 @@ fn main() {
         .newtype_enum("uacpi_status")
         .newtype_enum("acpi_madt_entry_type")
         .bitfield_enum("uacpi_object_type_bits")
+        .newtype_enum("uacpi_resource_type")
         .derive_default(true)
         .generate()
         .expect("failed to generate uACPI bindings");
@@ -86,4 +74,5 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", include.display());
     println!("cargo:rerun-if-changed={}", uacpi.join("source").display());
+    println!("cargo:rerun-if-changed=.");
 }

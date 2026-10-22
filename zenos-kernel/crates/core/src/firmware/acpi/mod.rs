@@ -521,7 +521,7 @@ fn add_isr_overrides(devices: &mut [Box<AcpiDevice>], isr_overrides: &[(u16, u32
     log::debug!("ACPI/IRQ: interrupt source override processing complete");
 }
 
-fn expand_bootinfo(pop: RuntimeBootInfo) -> RuntimeBootInfo {
+fn expand_bootinfo(_pop: RuntimeBootInfo) -> RuntimeBootInfo {
     let status = unsafe { uacpi_sys::uacpi_namespace_load() };
     if status != uacpi_sys::uacpi_status::UACPI_STATUS_OK {
         let status_s =
@@ -539,7 +539,21 @@ fn expand_bootinfo(pop: RuntimeBootInfo) -> RuntimeBootInfo {
         );
     }
 
-    pop
+    let status = unsafe {
+        uacpi_sys::uacpi_set_interrupt_model(
+            uacpi_sys::uacpi_interrupt_model_UACPI_INTERRUPT_MODEL_IOAPIC,
+        )
+    };
+    if status != uacpi_sys::uacpi_status::UACPI_STATUS_OK {
+        let status_s =
+            unsafe { CStr::from_ptr(uacpi_sys::uacpi_status_to_string(status)) }.to_string_lossy();
+        panic!(
+            "ACPI: set interrupt model failed: {:?}({})",
+            status, status_s
+        );
+    }
+
+    Default::default()
 }
 
 #[derive(Debug, Clone)]
