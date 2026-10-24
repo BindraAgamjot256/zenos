@@ -19,6 +19,7 @@ const READER_MASK: usize = !WRITE_BIT;
 ///
 /// This implementation is reader-preferred. A writer may starve if readers
 /// continuously acquire the lock.
+#[derive(Debug)]
 pub struct RwLock<T> {
     inner: UnsafeCell<T>,
     state: AtomicUsize,

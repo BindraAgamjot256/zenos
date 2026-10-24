@@ -2,6 +2,9 @@ use crate::bus::{Bus, Device, Driver};
 use alloc::vec::Vec;
 use kprimitives::alloc::{GlobalAllocator, boxed::KBox, sync::KArc};
 
+#[macro_use]
+pub mod macros;
+
 #[derive(Debug)]
 pub struct DeviceManager {
     buses: Vec<KBox<dyn Bus, GlobalAllocator>>,

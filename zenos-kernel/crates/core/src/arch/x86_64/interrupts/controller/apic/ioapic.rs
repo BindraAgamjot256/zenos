@@ -5,6 +5,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 
+#[derive(Debug)]
 pub struct IoApic {
     base_addr: usize,
     gsi_base: u32,
@@ -12,6 +13,7 @@ pub struct IoApic {
     overrides: Vec<IoApicOverride>,
 }
 
+#[derive(Debug)]
 pub struct IoApicOverride {
     pub gsi_source: u32,
     pub gsi_target: u32,

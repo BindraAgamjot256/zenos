@@ -2,7 +2,7 @@ use crate::{
     firmware::{Polarity, Trigger},
     mm::GlobalAllocator,
 };
-use core::time::Duration;
+use core::{fmt::Debug, time::Duration};
 use kprimitives::alloc::{KernelObject, boxed::KBox};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -10,7 +10,7 @@ pub enum IrqError {
     OutOfRange,
 }
 
-pub trait InterruptController: KernelObject {
+pub trait InterruptController: KernelObject + Debug {
     /// Maps a raw hardware line to an system vector and unmasks it.
     fn enable(
         &self,

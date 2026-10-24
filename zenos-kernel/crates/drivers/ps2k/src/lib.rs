@@ -4,31 +4,56 @@
 // TODO #2: use a centeralise port locking mechanism to reserve the ports.
 // TODO #3: add PS/2 mouse (MOU_) support also
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    mem,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 use kcore::{
     arch::{
         CpuContext,
         interrupts::InterruptHandlerRet,
         ports::{Port, ReadOnly, ReadWrite},
     },
-    device_core::bus::{Device, DeviceMatch, DeviceResource, Driver, DriverError},
+    device_core::{
+        self,
+        bus::{Device, DeviceMatch, DeviceResource, Driver, DriverError},
+    },
     irq::IRQ_CONTROLLER,
     log,
 };
-use kprimitives::alloc::{
-    CreatableKernelObject, GlobalAllocator, KernelObject, RefCounted, boxed::KBox,
+use kprimitives::{
+    alloc::{
+        CreatableKernelObject, GlobalAllocator, KernelObject, RefCounted, boxed::KBox, sync::KArc,
+    },
+    rwlock::RwLock,
 };
+
+#[derive(Debug)]
+struct InnerKbdDriver {
+    data_port: u16,
+    cmd_port: u16,
+}
 
 #[derive(Debug)]
 pub struct Ps2KeyboardDriver {
     refs: AtomicUsize,
+    inner: RwLock<Option<InnerKbdDriver>>,
 }
 
 impl Ps2KeyboardDriver {
     pub const fn new() -> Self {
         Self {
             refs: AtomicUsize::new(1),
+            inner: RwLock::new(None),
         }
+    }
+
+    pub fn get_ports(&self) -> (u16, u16) {
+        self.inner
+            .read()
+            .as_ref()
+            .map(|i| (i.cmd_port, i.data_port))
+            .unwrap_or_default()
     }
 }
 
@@ -78,11 +103,15 @@ impl Driver for Ps2KeyboardDriver {
 
         let mut io_base = None;
         let mut irq_number = None;
+        let mut cmd_base = None;
         for resource in resources {
             match resource {
                 DeviceResource::IoPort { base, len } if *len >= 1 && *base <= u16::MAX as usize => {
                     if io_base.is_none() || *base == 0x60 {
                         io_base = Some(*base as u16);
+                    }
+                    if cmd_base.is_none() || *base == 0x64 {
+                        cmd_base = Some(*base as u16)
                     }
                 }
                 DeviceResource::IRQ { number, .. } | DeviceResource::ExtendedIRQ { number, .. } => {
@@ -91,7 +120,8 @@ impl Driver for Ps2KeyboardDriver {
                 _ => {}
             }
         }
-        let (Some(data_port), Some(irq_number)) = (io_base, irq_number) else {
+        let (Some(data_port), Some(irq_number), Some(cmd_port)) = (io_base, irq_number, cmd_base)
+        else {
             log::warn!("PS/2 keyboard missing usable I/O port or IRQ resource");
             return Err(DriverError::ProbeFailed);
         };
@@ -101,19 +131,36 @@ impl Driver for Ps2KeyboardDriver {
             data_port,
             irq_number
         );
-        let controller = IRQ_CONTROLLER.write();
+        let controller = IRQ_CONTROLLER.read();
         let mut irq = controller
             .set_number(irq_number)
             .ok_or(DriverError::ProbeFailed)?;
         irq.set_handler(keyboard_irq);
-        core::mem::forget(irq);
+
+        let mut lock = self.inner.write();
+        lock.replace(InnerKbdDriver {
+            data_port,
+            cmd_port,
+        });
+
+        mem::forget(irq);
+
         Ok(())
     }
 }
 
 fn keyboard_irq(_: &mut CpuContext) -> InterruptHandlerRet {
-    let status: Port<u8, ReadOnly> = unsafe { Port::new(0x64) };
-    let data: Port<u8, ReadWrite> = unsafe { Port::new(0x60) };
+    let (status, data) = PS2KEYBOARDDRIVER_GLOBAL
+        .read()
+        .as_ref()
+        .expect("Init not called yet")
+        .get_ports();
+    let (status, data) = unsafe {
+        (
+            Port::<u8, ReadOnly>::new(status),
+            Port::<u8, ReadWrite>::new(data),
+        )
+    };
     if unsafe { status.read() } & 1 != 0 {
         let code = unsafe { data.read() };
         match code {
@@ -155,6 +202,4 @@ fn translate(code: u8, shift: bool) -> Option<char> {
     Some(if shift { shifted } else { plain } as char)
 }
 
-pub fn init() -> Result<KBox<Ps2KeyboardDriver, GlobalAllocator>, &'static str> {
-    KBox::new(Ps2KeyboardDriver::new()).map_err(|_| "Memory allocation failed")
-}
+device_core::driver_init!(pub init, Ps2KeyboardDriver, PS2KEYBOARDDRIVER_GLOBAL, ());

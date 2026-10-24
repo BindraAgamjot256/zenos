@@ -10,11 +10,13 @@ use crate::{
     mm::GlobalAllocator,
 };
 use core::{
+    fmt::Debug,
     mem,
     sync::atomic::{AtomicU8, Ordering},
 };
 use kprimitives::{alloc::boxed::KBox, bitmap_allocator::BitmapAllocator, rwlock::RwLock};
 
+#[derive(Debug)]
 pub struct IrqController {
     bitmap: BitmapAllocator<256>,
     controller: Option<KBox<dyn InterruptController + Send + Sync, GlobalAllocator>>,
@@ -116,6 +118,7 @@ impl Default for IrqController {
     }
 }
 
+#[derive(Debug)]
 pub struct IrqGuard<'a> {
     alloc: &'a IrqController,
     irq: u8,
@@ -128,6 +131,7 @@ impl IrqGuard<'_> {
         let guard_inner = register_interrupt_handler(self.irq, handler);
         self.guard_inner = Some(guard_inner);
     }
+
     pub fn vector(&self) -> u8 {
         self.irq
     }

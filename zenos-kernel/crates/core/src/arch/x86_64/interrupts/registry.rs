@@ -206,6 +206,7 @@ pub fn register_guardless(
 }
 
 /// A small RAII guard that restores the default handler when it goes out of scope.
+#[derive(Debug)]
 pub struct InterruptGuard(u8, u8);
 
 impl Drop for InterruptGuard {

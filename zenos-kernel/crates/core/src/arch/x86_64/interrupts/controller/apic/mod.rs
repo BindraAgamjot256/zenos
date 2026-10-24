@@ -18,6 +18,7 @@ mod ioapic;
 mod lapic;
 mod mmio;
 
+#[derive(Debug)]
 struct XapicController {
     ioapics: Vec<ioapic::IoApic>,
     lapic: KBox<LocalApic, mm::GlobalAllocator>,
