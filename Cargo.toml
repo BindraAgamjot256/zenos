@@ -5,16 +5,14 @@ edition = "2021"
 
 [workspace]
 members = [
-    "zenos-kernel",
-    "zenos-kernel/crates/mm",
-    "zenos-kernel/crates/primitives",
-    "zenos-kernel/crates/macros",
-    "zenos-kernel/crates/vendors/uacpi-sys",
-    "zenos-kernel/crates/scheduler",
-    "zenos-kernel/crates/device-core",
-    "zenos-kernel/crates/core",
-    "zenos-kernel/crates/buses/*",
-    "zenos-kernel/crates/drivers/*",
+    "kernel",
+    "kernel/crates/mm",
+    "kernel/kapi",
+    "kernel/crates/macros",
+    "kernel/crates/vendors/uacpi-sys",
+    "kernel/crates/scheduler",
+    "kernel/crates/buses/*",
+    "kernel/crates/drivers/*",
     "zenos-bootloader",
     "zenos-bootloader/api",
     "zenos-bootloader/common",
@@ -30,17 +28,19 @@ repository = "https://github.com/BindraAgamjot256/zenos"
 license = "MIT"
 
 [workspace.dependencies]
-kcore = { version = "0.1.0", path = "zenos-kernel/crates/core" }
-device-core = { version = "0.1.0", path = "zenos-kernel/crates/device-core" }
-scheduler = { version = "0.1.0", path = "zenos-kernel/crates/scheduler" }
+kernel = { version = "0.1.0", path = "kernel" }
+scheduler = { version = "0.1.0", path = "kernel/crates/scheduler" }
 bootloader_api = { version = "0.1.0", path = "zenos-bootloader/api" }
 bootloader-x86_64-common = { version = "0.1.0", path = "zenos-bootloader/common" }
 bootloader-boot-config = { version = "0.1.0", path = "zenos-bootloader/common/config" }
-kprimitives = { version = "0.1.0", path = "zenos-kernel/crates/primitives" }
-kmm = { version = "0.1.0", path = "zenos-kernel/crates/mm" }
-uacpi-sys = { version = "0.1.0", path = "zenos-kernel/crates/vendors/uacpi-sys" }
-kernel-macros = { version = "0.1.0", path = "zenos-kernel/crates/macros" }
+kapi = { version = "0.1.0", path = "kernel/kapi" }
+kmm = { version = "0.1.0", path = "kernel/crates/mm" }
+uacpi-sys = { version = "0.1.0", path = "kernel/crates/vendors/uacpi-sys" }
+kernel-macros = { version = "0.1.0", path = "kernel/crates/macros" }
 zenos-bootloader = { path = "zenos-bootloader" }
+stabby = { version = "72.1.16", default-features = false, features = [
+    "alloc-rs",
+] }
 
 
 [dependencies]

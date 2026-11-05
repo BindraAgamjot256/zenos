@@ -1,0 +1,15 @@
+[package]
+name = "kapi"
+version.workspace = true
+edition = "2024"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+bitflags = { version = "2.11.1", default-features = false }
+stabby = { workspace = true }
+
+
+[features]
+default = []
+disable_int_on_lock = []

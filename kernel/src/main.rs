@@ -1,0 +1,131 @@
+//! Main entry point for the zenos kernel.
+//!
+//! This file contains the entry point for the zenos kernel and basic error handling.
+
+#![no_std]
+#![no_main]
+#![deny(unsafe_op_in_unsafe_fn)]
+#![allow(macro_expanded_macro_exports_accessed_by_absolute_paths)]
+
+extern crate alloc;
+
+pub mod arch;
+pub mod bus;
+pub mod ffi;
+pub mod firmware;
+pub mod irq;
+pub mod log;
+pub mod mm;
+pub mod scheduler;
+pub mod vmm;
+
+use bootloader_api::{config::*, *};
+
+static CONFIG: BootloaderConfig = {
+    let mut config = BootloaderConfig::new_default();
+    config.mappings.physical_memory = Some(Mapping::Dynamic);
+    config.mappings.dynamic_range_start = Some(0xFFFF_8000_0000_0000);
+    config.kernel_stack_size = 8 * 1024; // 8 KiB stack
+    config
+};
+
+/// Panic handler for the kernel.
+///
+/// This function is called when a panic occurs in the kernel code.
+/// It outputs panic information to the serial port for debugging,
+/// then enters an infinite loop, halting the system.
+///
+/// # Parameters
+///
+/// * `info` - Information about the panic, including location and message
+///
+/// # Returns
+///
+/// This function never returns (marked by `!` return type)
+#[cfg_attr(target_os = "none", panic_handler)]
+fn _panic(info: &core::panic::PanicInfo) -> ! {
+    crate::arch::disable_interrupts_and_save();
+    log::error!("FUCK");
+    log::error!("PANIC");
+    log::error!("PANIC INFO: {}", info);
+    loop {
+        crate::halt_and_catch_fire!();
+    }
+}
+
+// Defines the kernel main function as the entry point and adds metadata for the bootloader.
+entry_point!(kmain, config = &CONFIG);
+
+/// Kernel main function - the entry point for the OS.
+///
+/// This function is called by the bootloader after basic hardware initialization.
+/// It initializes the kernel and then enters an idle loop.
+///
+/// # Parameters
+///
+/// * `boot_info` - Information provided by the bootloader about system configuration
+///
+/// # Returns
+///
+/// This function never returns (marked by `!` return type)
+fn kmain(boot_info: &'static mut BootInfo) -> ! {
+    kinit(boot_info);
+
+    #[cfg(feature = "__test_timer")]
+    test_timer();
+
+    let now = arch::CLOCKSOURCE.read().as_ref().unwrap().now();
+    log::info!(
+        "good day everyone, it is {:?} (according to the clock)",
+        now
+    );
+    scheduler::init_finished(scheduler::Tid::new(0));
+
+    loop {
+        crate::halt_and_catch_fire!();
+    }
+}
+
+#[cfg(feature = "__test_timer")]
+fn test_timer() {
+    log::info!("getting clock");
+    let clock = arch::CLOCKSOURCE.read();
+    let clock = clock.as_ref().unwrap();
+
+    for _ in 0..10 {
+        let then = clock.now();
+        log::qmp_pause_barrier();
+        let delta = clock.delta_now(then);
+        log::qmp_pause_complete();
+        log::info!("delta sleep: {:?}", delta);
+    }
+
+    let then = clock.now();
+    let delta = clock.delta_now(then);
+    log::info!("delta_instant: {:?}", delta);
+}
+
+fn kinit(boot_info: &'static mut BootInfo) {
+    log::init();
+    log::info!("Hello, zenos!");
+
+    let bootdata = arch::init(boot_info);
+    scheduler::init();
+
+    let expanded = bootdata.expand();
+    log::info!("{:#?}", expanded);
+
+    #[cfg(feature = "acpi")]
+    if let Ok(acpi) = driver_acpi::init() {
+        bus::DEVICE_MANAGER.lock().register_bus(acpi);
+    }
+
+    /*#[cfg(feature = "ps2k")]
+    {
+        if let Ok(driver) = driver_ps2k::init() {
+            bus::DEVICE_MANAGER.lock().register_driver(driver);
+        }
+    }*/
+
+    bus::init();
+}

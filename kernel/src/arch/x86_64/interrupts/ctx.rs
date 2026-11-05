@@ -1,0 +1,155 @@
+//! CPU interrupt context and interrupt stub assembly.
+//!
+//! The interrupt entry stubs push the register state onto the stack so Rust
+//! handlers can inspect the faulting vector and instruction pointer.
+
+use core::arch::global_asm;
+
+use crate::arch::{self, interrupts::InterruptHandlerRet};
+pub use kapi::arch::CpuContext;
+
+global_asm!(
+    r#"
+.section .text
+.altmacro
+
+# Each interrupt stub begins by pushing a synthetic error code for vectors that
+# do not deliver one automatically, then pushes the vector number so the common
+# entry can reconstruct the full interrupt context.
+.macro ISR_VAL vector, has_error
+    .global isr_\vector
+    .type isr_\vector, @function
+    isr_\vector:
+        .if \has_error == 0
+            push 0
+        .else
+            nop
+            nop
+        .endif
+        push \vector
+        jmp common_interrupt_entry
+.endm
+
+# Exceptions that already push an error code on the stack are handled by the
+# list below; all other vectors get the placeholder zero inserted above.
+.macro EVAL_ISR current
+    .if \current == 8 || \current == 10 || \current == 11 || \current == 12 || \current == 13 || \current == 14 || \current == 17 || \current == 21 || \current == 29 || \current == 30
+        ISR_VAL %\current, 1
+    .else
+        ISR_VAL %\current, 0
+    .endif
+.endm
+
+# The assembly generator expands the stubs in blocks of 16 so the table can be
+# built for the full 0-255 interrupt space without handwritten repetition.
+.macro generate_16_isrs start
+    EVAL_ISR %(\start + 0)
+    EVAL_ISR %(\start + 1)
+    EVAL_ISR %(\start + 2)
+    EVAL_ISR %(\start + 3)
+    EVAL_ISR %(\start + 4)
+    EVAL_ISR %(\start + 5)
+    EVAL_ISR %(\start + 6)
+    EVAL_ISR %(\start + 7)
+    EVAL_ISR %(\start + 8)
+    EVAL_ISR %(\start + 9)
+    EVAL_ISR %(\start + 10)
+    EVAL_ISR %(\start + 11)
+    EVAL_ISR %(\start + 12)
+    EVAL_ISR %(\start + 13)
+    EVAL_ISR %(\start + 14)
+    EVAL_ISR %(\start + 15)
+.endm
+
+# The common entry point preserves the interrupted register state and passes a
+# pointer to the layout expected by the Rust dispatcher.
+common_interrupt_entry:
+    # Save all general-purpose registers.
+    push rax
+    push rbx
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push rbp
+    push r8
+    push r9
+    push r10
+    push r11
+    push r12
+    push r13
+    push r14
+    push r15
+
+    # Save the CpuContext pointer in r12.
+    # r12 is already saved above, so its interrupted value is safe.
+    mov r12, rsp
+
+    # Save the context pointer on the stack.
+    push r12
+
+    # Align the call stack.
+    and rsp, -16
+
+    # First argument to rust_dispatch.
+    mov rdi, r12
+
+    cld
+    call rust_dispatch
+
+    # Recover the exact CpuContext address.
+    mov rsp, r12
+
+    # Restore the saved registers.
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rbp
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    pop rax
+
+    # Remove vector number and error code.
+    add rsp, 16
+
+    iretq
+
+# Expand the macro into the full 256-entry ISR set.
+generate_16_isrs 0
+generate_16_isrs 16
+generate_16_isrs 32
+generate_16_isrs 48
+generate_16_isrs 64
+generate_16_isrs 80
+generate_16_isrs 96
+generate_16_isrs 112
+generate_16_isrs 128
+generate_16_isrs 144
+generate_16_isrs 160
+generate_16_isrs 176
+generate_16_isrs 192
+generate_16_isrs 208
+generate_16_isrs 224
+generate_16_isrs 240
+"#
+);
+
+/// Dispatches a captured interrupt context to the currently registered Rust handler.
+#[unsafe(no_mangle)]
+unsafe extern "C" fn rust_dispatch(context: *mut CpuContext) {
+    let ctx = unsafe { &mut *context };
+    let ret = super::registry::INTERRUPT_REGISTRY
+        .with_handler(ctx.vector() as u8, |handler| handler.handle(ctx));
+
+    let Some(InterruptHandlerRet::Handled) = ret else {
+        panic!("Interrupt failed");
+    };
+}

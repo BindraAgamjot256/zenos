@@ -12,10 +12,10 @@ const USER_TARGET: &str = "x86_64-unknown-zenos-user.json";
 const KERNEL_TRIPLE: &str = "x86_64-unknown-zenos";
 const USER_TRIPLE: &str = "x86_64-unknown-zenos-user";
 
-const KERNEL_PACKAGE: &str = "zenos-kernel";
+const KERNEL_PACKAGE: &str = "kernel";
 const INIT_PACKAGE: &str = "zenos-init";
 
-const KERNEL_BINARY: &str = "zenos-kernel";
+const KERNEL_BINARY: &str = "kernel";
 const INIT_BINARY: &str = "zenos-init";
 
 const COREUTILS: &[&str] = &[
