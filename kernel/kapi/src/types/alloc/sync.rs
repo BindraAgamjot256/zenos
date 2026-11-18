@@ -8,7 +8,7 @@ use core::{
     sync::atomic::{Ordering, fence},
 };
 
-#[stabby::stabby]
+// #[stabby::stabby]
 pub struct KArc<T: RefCounted + ?Sized, A: Allocator> {
     pub(super) data: NonNull<T>,
     pub(super) allocator: PhantomData<A>,

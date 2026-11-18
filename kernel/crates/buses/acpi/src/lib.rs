@@ -14,6 +14,7 @@ use core::{
 use kapi::{
     alloc::{CreatableKernelObject, GlobalAllocator, KernelObject, boxed::KBox},
     bus::{Bus, BusError, Device, DeviceId, DeviceResource},
+    log,
 };
 use uacpi_sys::*;
 
@@ -110,7 +111,7 @@ impl Device for AcpiDevice {
                         let status_s =
                             unsafe { CStr::from_ptr(uacpi_sys::uacpi_status_to_string(status)) }
                                 .to_string_lossy();
-                        log::warn!("failed to parse _CRS: {}", status_s);
+                        log::warning!("failed to parse _CRS: {}", status_s);
                     };
                     Vec::new()
                 }

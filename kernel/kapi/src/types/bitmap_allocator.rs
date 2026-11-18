@@ -4,22 +4,20 @@ use core::{
 };
 
 #[derive(Debug)]
-pub struct BitmapAllocator<const N: usize>
-where
-    [(); N.div_ceil(64)]: Sized,
-{
-    bitmap: [AtomicU64; N.div_ceil(64)],
+pub struct BitmapAllocator<const N: usize> {
+    // The array is deliberately sized to N rather than N.div_ceil(64).
+    // This avoids generic const expressions, which are not supported by
+    // Rust's next-generation trait solver. Only the first N.div_ceil(64)
+    // entries are used, so this trades memory for solver compatibility.
+    bitmap: [AtomicU64; N],
 }
 
-impl<const N: usize> BitmapAllocator<N>
-where
-    [(); N.div_ceil(64)]: Sized,
-{
+impl<const N: usize> BitmapAllocator<N> {
     pub const fn new() -> Self {
         #[allow(clippy::declare_interior_mutable_const)]
         const ZEROED: AtomicU64 = AtomicU64::new(0);
         Self {
-            bitmap: [ZEROED; N.div_ceil(64)],
+            bitmap: [ZEROED; N],
         }
     }
 
@@ -36,13 +34,10 @@ where
     }
 
     pub fn alloc(&self) -> Option<usize> {
-        for (word_index, word) in self.bitmap.iter().enumerate() {
-            let valid_bits = if word_index == self.bitmap.len() - 1 {
-                let rem = N % 64;
-                if rem == 0 { 64 } else { rem }
-            } else {
-                64
-            };
+        let word_count = N.div_ceil(64);
+
+        for (word_index, word) in self.bitmap.iter().take(word_count).enumerate() {
+            let valid_bits = 64;
 
             let valid_mask = if valid_bits == 64 {
                 u64::MAX
@@ -125,10 +120,7 @@ where
     }
 }
 
-impl<const N: usize> Default for BitmapAllocator<N>
-where
-    [(); N.div_ceil(64)]: Sized,
-{
+impl<const N: usize> Default for BitmapAllocator<N> {
     fn default() -> Self {
         Self::new()
     }

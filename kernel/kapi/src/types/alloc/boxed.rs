@@ -9,7 +9,7 @@ use core::{
 use crate::alloc::{AllocationError, KernelObject};
 
 #[must_use = "KBox Allocates heap memory. DO NOT WASTE THE FUCKING MEMORY."]
-#[stabby::stabby]
+// #[stabby::stabby]
 pub struct KBox<T: KernelObject + ?Sized, A: Allocator> {
     data: NonNull<T>,
     allocator: PhantomData<A>,

@@ -413,7 +413,6 @@ name = "driver-acpi"
 version = "0.1.0"
 dependencies = [
  "kapi",
- "log",
  "uacpi-sys",
 ]
 

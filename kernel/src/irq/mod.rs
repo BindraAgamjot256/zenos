@@ -18,7 +18,7 @@ use kapi::{alloc::boxed::KBox, bitmap_allocator::BitmapAllocator, sync::RwLock};
 
 #[derive(Debug)]
 pub struct IrqController {
-    bitmap: BitmapAllocator<256>,
+    bitmap: BitmapAllocator<4>, // temp. workaround until i can do div_ceil in const generics.
     controller: Option<KBox<dyn InterruptController + Send + Sync, GlobalAllocator>>,
 }
 
