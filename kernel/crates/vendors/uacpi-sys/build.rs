@@ -44,7 +44,7 @@ fn main() {
 
     build.compile("uacpi");
 
-    let include_str = include.to_string_lossy();
+    let include_str: std::borrow::Cow<'_, str> = include.to_string_lossy();
     let bindings = bindgen::Builder::default()
         .header(include.join("uacpi/uacpi.h").to_string_lossy())
         .header(include.join("uacpi/tables.h").to_string_lossy())

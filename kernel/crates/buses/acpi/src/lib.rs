@@ -16,7 +16,7 @@ use kapi::{
     bus::{Bus, BusError, Device, DeviceId, DeviceResource},
     log,
 };
-use uacpi_sys::*;
+use uacpi_headers::*;
 
 // ============================================================
 // ACPI bus
@@ -107,11 +107,12 @@ impl Device for AcpiDevice {
                     vec
                 } else {
                     let status = res.unwrap_err();
-                    if status != uacpi_sys::uacpi_status::UACPI_STATUS_OK {
-                        let status_s =
-                            unsafe { CStr::from_ptr(uacpi_sys::uacpi_status_to_string(status)) }
-                                .to_string_lossy();
-                        log::warning!("failed to parse _CRS: {}", status_s);
+                    if status != uacpi_headers::uacpi_status::UACPI_STATUS_OK {
+                        let status_s = unsafe {
+                            CStr::from_ptr(uacpi_headers::uacpi_status_to_string(status))
+                        }
+                        .to_string_lossy();
+                        log::warn!("failed to parse _CRS: {}", status_s);
                     };
                     Vec::new()
                 }
@@ -283,14 +284,14 @@ fn push_address_resource(
     }
 
     match address_space {
-        uacpi_sys::uacpi_address_space_UACPI_ADDRESS_SPACE_SYSTEM_MEMORY => {
+        uacpi_headers::uacpi_address_space_UACPI_ADDRESS_SPACE_SYSTEM_MEMORY => {
             resources.push(DeviceResource::MMIO {
                 base: base as usize,
                 len: len as usize,
             });
         }
 
-        uacpi_sys::uacpi_address_space_UACPI_ADDRESS_SPACE_SYSTEM_IO => {
+        uacpi_headers::uacpi_address_space_UACPI_ADDRESS_SPACE_SYSTEM_IO => {
             resources.push(DeviceResource::IoPort {
                 base: base as usize,
                 len: len as usize,
@@ -403,9 +404,9 @@ unsafe extern "C" fn descending_callback(
     node: *mut uacpi_namespace_node,
     _depth: u32,
 ) -> u32 {
-    const CONTINUE: u32 = uacpi_sys::uacpi_iteration_decision_UACPI_ITERATION_DECISION_CONTINUE;
+    const CONTINUE: u32 = uacpi_headers::uacpi_iteration_decision_UACPI_ITERATION_DECISION_CONTINUE;
 
-    const BREAK: u32 = uacpi_sys::uacpi_iteration_decision_UACPI_ITERATION_DECISION_BREAK;
+    const BREAK: u32 = uacpi_headers::uacpi_iteration_decision_UACPI_ITERATION_DECISION_BREAK;
 
     if opaque.is_null() {
         return BREAK;
@@ -420,11 +421,11 @@ unsafe extern "C" fn descending_callback(
 
     let mut info: *mut uacpi_namespace_node_info = ptr::null_mut();
 
-    let status = unsafe { uacpi_sys::uacpi_get_namespace_node_info(node, &mut info) };
+    let status = unsafe { uacpi_headers::uacpi_get_namespace_node_info(node, &mut info) };
 
-    if status != uacpi_sys::uacpi_status::UACPI_STATUS_OK {
+    if status != uacpi_headers::uacpi_status::UACPI_STATUS_OK {
         let status_str =
-            unsafe { CStr::from_ptr(uacpi_sys::uacpi_status_to_string(status).cast()) };
+            unsafe { CStr::from_ptr(uacpi_headers::uacpi_status_to_string(status).cast()) };
 
         log::error!("ACPI enumeration: {}", status_str.to_string_lossy());
 
@@ -450,9 +451,9 @@ unsafe extern "C" fn descending_callback(
     };
 
     let mut status_flags: u32 = 0;
-    let status = unsafe { uacpi_sys::uacpi_eval_sta(node, &mut status_flags) };
+    let status = unsafe { uacpi_headers::uacpi_eval_sta(node, &mut status_flags) };
 
-    if status == uacpi_sys::uacpi_status::UACPI_STATUS_OK {
+    if status == uacpi_headers::uacpi_status::UACPI_STATUS_OK {
         // Bit 0 (0x01) means "Device is present"
         // Bit 1 (0x02) means "Device is enabled and decoding its resources"
         let present_and_enabled = 0x03;
@@ -470,7 +471,7 @@ unsafe extern "C" fn descending_callback(
 
     // The information allocation is no longer needed.
     unsafe {
-        uacpi_sys::uacpi_free_namespace_node_info(info);
+        uacpi_headers::uacpi_free_namespace_node_info(info);
     }
 
     // Nodes without IDs often belong to another bus
@@ -520,17 +521,17 @@ impl Bus for AcpiBus {
         };
 
         let status = unsafe {
-            uacpi_sys::uacpi_namespace_for_each_child(
-                uacpi_sys::uacpi_namespace_root(),
+            uacpi_headers::uacpi_namespace_for_each_child(
+                uacpi_headers::uacpi_namespace_root(),
                 Some(descending_callback),
                 None,
-                uacpi_sys::uacpi_object_type_bits(1 << 6),
+                uacpi_headers::uacpi_object_type_bits(1 << 6),
                 u32::MAX,
                 (&raw mut context).cast::<c_void>(),
             )
         };
 
-        if status != uacpi_sys::uacpi_status::UACPI_STATUS_OK || context.failed {
+        if status != uacpi_headers::uacpi_status::UACPI_STATUS_OK || context.failed {
             return Err(BusError::EnumerationFailed);
         }
 
@@ -541,7 +542,11 @@ impl Bus for AcpiBus {
 // ============================================================
 // Initialization
 // ============================================================
-
-pub fn init() -> Result<KBox<AcpiBus, GlobalAllocator>, &'static str> {
-    KBox::new(AcpiBus).map_err(|_| "Failed to allocate ACPI bus")
+#[cfg_attr(feature = "module", unsafe(no_mangle))]
+#[allow(improper_ctypes_definitions)]
+pub extern "C" fn init() -> Result<KBox<dyn Bus, GlobalAllocator>, kapi::stabby::str::Str<'static>>
+{
+    let bus = KBox::new(AcpiBus)
+        .map_err(|_| kapi::stabby::str::Str::new("Failed to allocate ACPI bus"))?;
+    Ok(bus) // Unsize coercion AcpiBus -> dyn Bus forces rustc to emit the vtable!
 }

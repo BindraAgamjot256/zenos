@@ -17,4 +17,14 @@ unsafe extern "C" {
         }
         _ => {}
     }
+
+    #[allow(improper_ctypes)]
+    pub safe fn kernel_log(
+        level: u8,
+        args: core::fmt::Arguments,
+        file: stabby::str::Str,
+        line: u32,
+        target: stabby::str::Str,
+    );
+
 }

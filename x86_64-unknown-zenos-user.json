@@ -2,8 +2,11 @@
     "arch": "x86_64",
     "cpu": "x86-64",
     "llvm-target": "x86_64-unknown-none-elf",
-    "linker": "rust-lld",
-    "linker-flavor": "gnu-lld",
+    "linker": "mold",
+    "linker-flavor": "gnu",
+    "pre-link-args": {
+        "gnu": ["-z", "nostart-stop-gc"]
+    },
     "panic-strategy": "abort",
     "position-independent-executables": false,
     "static-position-independent-executables": false,

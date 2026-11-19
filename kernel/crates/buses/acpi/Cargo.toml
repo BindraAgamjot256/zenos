@@ -3,6 +3,16 @@ name = "driver-acpi"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["lib",] # todo: staticlib mode also...
+
 [dependencies]
-kapi = { workspace = true }
-uacpi-sys = { workspace = true }
+kapi = { workspace = true, default-features = false, features = [
+    "disable_int_on_lock",
+] }
+uacpi-headers = { workspace = true }
+
+[features]
+default = ["static"]
+module = ["kapi/driver"]
+static = []

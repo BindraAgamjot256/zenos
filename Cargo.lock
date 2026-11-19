@@ -413,7 +413,7 @@ name = "driver-acpi"
 version = "0.1.0"
 dependencies = [
  "kapi",
- "uacpi-sys",
+ "uacpi-headers",
 ]
 
 [[package]]
@@ -1236,6 +1236,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow",
+]
+
+[[package]]
+name = "uacpi-headers"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
 ]
 
 [[package]]

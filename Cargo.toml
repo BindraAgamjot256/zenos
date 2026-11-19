@@ -10,6 +10,7 @@ members = [
     "kernel/kapi",
     "kernel/crates/macros",
     "kernel/crates/vendors/uacpi-sys",
+    "kernel/crates/vendors/uacpi-headers",
     "kernel/crates/scheduler",
     "kernel/crates/buses/*",
     "kernel/crates/drivers/*",
@@ -28,7 +29,6 @@ repository = "https://github.com/BindraAgamjot256/zenos"
 license = "MIT"
 
 [workspace.dependencies]
-kernel = { version = "0.1.0", path = "kernel" }
 scheduler = { version = "0.1.0", path = "kernel/crates/scheduler" }
 bootloader_api = { version = "0.1.0", path = "zenos-bootloader/api" }
 bootloader-x86_64-common = { version = "0.1.0", path = "zenos-bootloader/common" }
@@ -36,6 +36,8 @@ bootloader-boot-config = { version = "0.1.0", path = "zenos-bootloader/common/co
 kapi = { version = "0.1.0", path = "kernel/kapi" }
 kmm = { version = "0.1.0", path = "kernel/crates/mm" }
 uacpi-sys = { version = "0.1.0", path = "kernel/crates/vendors/uacpi-sys" }
+uacpi-headers = { version = "0.1.0", path = "kernel/crates/vendors/uacpi-headers" }
+
 kernel-macros = { version = "0.1.0", path = "kernel/crates/macros" }
 zenos-bootloader = { path = "zenos-bootloader" }
 stabby = { version = "72.1.16", default-features = false, features = [

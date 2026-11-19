@@ -11,5 +11,7 @@ stabby = { workspace = true }
 
 
 [features]
-default = []
+default = ["kernel"]
+kernel = []
+driver = []
 disable_int_on_lock = []

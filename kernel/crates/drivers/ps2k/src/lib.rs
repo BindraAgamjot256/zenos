@@ -119,7 +119,7 @@ impl Driver for Ps2KeyboardDriver {
         }
         let (Some(data_port), Some(irq_number), Some(cmd_port)) = (io_base, irq_number, cmd_base)
         else {
-            log::warning!("PS/2 keyboard missing usable I/O port or IRQ resource");
+            log::warn!("PS/2 keyboard missing usable I/O port or IRQ resource");
             return Err(DriverError::ProbeFailed);
         };
 
